@@ -13,6 +13,18 @@ const RE_ORDER = /^ACRPO-I?[0-9]{1,4}(-(SP|P)[0-9]{1,2})?$/;
 const RE_OPP = /^PROS-[0-9]{2}(-[0-9]{1,3}){1,2}$/;
 const MIN_DATE = '2020-01-01', MAX_DATE = '2035-12-31';
 
+// ---------------------------------------------------------------- tema
+const THEMES = { system:'Sistem', light:'Açık', dark:'Koyu' };
+function getTheme(){ try { return localStorage.getItem('theme') || 'system'; } catch { return 'system'; } }
+function setTheme(t){
+  if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('theme', t); } catch {}
+  qa('.theme button').forEach(b => b.setAttribute('aria-pressed', b.dataset.th === t));
+}
+const themeSwitch = () => `<div class="theme" role="group" aria-label="Görünüm">${Object.entries(THEMES).map(([k,v]) => `<button type="button" data-th="${k}" aria-pressed="${getTheme()===k}">${v}</button>`).join('')}</div>`;
+document.addEventListener('click', e => { const b = e.target.closest('.theme button'); if (b) setTheme(b.dataset.th); });
+setTheme(getTheme());
+
 // ---------------------------------------------------------------- durum
 const S = { session:null, profile:null, deals:[], customers:[], products:[], countries:[], issues:[], loaded:false };
 const sb = window.MOCK_DB || window.supabase.createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseKey);
@@ -94,6 +106,7 @@ function renderAuth(mode='in'){
       <div class="err-box" id="aerr"></div>
       <button class="btn primary" type="submit">${reset?'Bağlantı gönder':up?'Hesap oluştur':'Giriş yap'}</button>
     </form>
+    ${themeSwitch()}
     <p class="note" style="margin-top:16px">${up||reset?`<button class="linkbtn" data-m="in">Girişe dön</button>`:`<button class="linkbtn" data-m="up">Hesap oluştur</button> · <button class="linkbtn" data-m="reset">Şifremi unuttum</button>`}</p>
   </div></div>`;
   qa('[data-m]').forEach(b => b.onclick = () => renderAuth(b.dataset.m));
@@ -144,7 +157,7 @@ function shell(active, html){
   <div class="shell"><aside class="side" id="side">
     <div class="brand">${logo()}<div>Acrome<small>Üretim planlama</small></div></div>
     <nav class="nav">${nav.map(n => n[0]==='hr' ? '<hr>' : `<a href="#/${n[0]}" class="${active===n[0]?'on':''}">${n[1]}<span class="count">${n[2]??''}</span></a>`).join('')}</nav>
-    <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${ROLES[S.profile.role]} · <button class="linkbtn" id="lo">Çıkış</button></div>
+    <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${ROLES[S.profile.role]} · <button class="linkbtn" id="lo">Çıkış</button><br>${themeSwitch()}</div>
   </aside><main class="main" id="main">${html}</main></div>`;
   q('#lo').onclick = () => sb.auth.signOut();
   q('#menu').onclick = e => { const s = q('#side'); s.classList.toggle('open'); e.target.setAttribute('aria-expanded', s.classList.contains('open')); };
@@ -220,7 +233,7 @@ function viewReport(){
 
   <div class="grid g2">
     <section class="panel"><h2>Aylık sipariş cirosu</h2>
-      <div class="legend"><span><i style="background:var(--brand)"></i>${Y}</span><span><i style="background:var(--line)"></i>${Y-1}</span></div>
+      <div class="legend"><span><i style="background:var(--data)"></i>${Y}</span><span><i style="background:var(--line)"></i>${Y-1}</span></div>
       <div class="bars" role="img" aria-label="${Y} ve ${Y-1} aylık sipariş cirosu">${mY.map((v,i)=>`<div class="m" title="${MONTHS[i]}: ${Y} ${fmtUSD(v)} · ${Y-1} ${fmtUSD(mP[i])}"><div class="pair"><div class="b prev" style="height:${mP[i]/mMax*100}%"></div><div class="b" style="height:${v/mMax*100}%"></div></div><div class="lbl">${MONTHS[i]}</div></div>`).join('')}</div>
     </section>
     <section class="panel"><h2>Açık fırsatlar (aşamaya göre)</h2>
@@ -245,7 +258,7 @@ function board(prod){
   const rows = [...prod].sort((a,b) => (a.requested_ship_date||'9999') < (b.requested_ship_date||'9999') ? -1 : 1);
   const ticks = []; { const d = new Date(from+'T00:00:00'); d.setDate(1); d.setMonth(d.getMonth()+1); while (d.toISOString().slice(0,10) < to) { const s = d.toISOString().slice(0,10); ticks.push(`<span style="left:${pos(s)}%">${MONTHS[d.getMonth()]}${d.getMonth()===0?' '+d.getFullYear():''}</span>`); d.setMonth(d.getMonth()+1);} }
   return `<section class="board"><div class="board-head"><h2>Sevkiyat takvimi — üretimdeki siparişler</h2>
-    <div class="legend"><span><i style="background:var(--brand-soft);border:1px solid var(--brand)"></i>Sipariş → istenen sevk</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>14 gün içinde</span><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>Gecikmiş</span><span><i style="background:var(--violet);transform:rotate(45deg)"></i>Planlanan sevk</span></div></div>
+    <div class="legend"><span><i style="background:var(--data-soft);border:1px solid var(--data)"></i>Sipariş → istenen sevk</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>14 gün içinde</span><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>Gecikmiş</span><span><i style="background:var(--violet);transform:rotate(45deg)"></i>Planlanan sevk</span></div></div>
     ${rows.length ? `<div class="tl" style="--lab:260px">
       <div class="tl-scale"><div></div><div class="ticks">${ticks.join('')}</div></div>
       ${rows.map(d => {
