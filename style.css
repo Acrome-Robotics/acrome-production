@@ -230,3 +230,30 @@ dl.kv dd{margin:0;white-space:pre-wrap}
 .theme button+button{border-left:1px solid var(--line)}
 .theme button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
 .topbar .right{display:flex;gap:8px;align-items:center}
+
+/* ---------- support ---------- */
+.sp-new{background:var(--violet-soft);color:var(--violet)}
+.sp-ours{background:var(--red-soft);color:var(--red)}
+.sp-customer{background:var(--amber-soft);color:var(--amber)}
+.sp-closed{background:var(--green-soft);color:var(--green)}
+.sp-high{background:var(--brand);color:var(--brand-ink)}
+.amber-txt{color:var(--amber)}
+td .clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:560px}
+td .hit{font-style:italic;max-width:560px}
+mark{background:var(--amber-soft);color:inherit;padding:0 2px;border-radius:2px}
+.sup-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+.sup-grid aside{position:sticky;top:16px}
+.sup-grid aside .fs label.f{margin-bottom:8px}
+.timeline{display:flex;flex-direction:column;gap:10px}
+.msg{border:1px solid var(--line);border-left-width:4px;border-radius:var(--radius);padding:10px 14px;background:var(--surface)}
+.msg-in{border-left-color:var(--data)}
+.msg-out{border-left-color:var(--brand)}
+.msg-internal{border-left-color:var(--amber);background:var(--amber-soft)}
+.msg header{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:14px}
+.msg header .who{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.msg header .when{margin-left:auto;font-size:12px;color:var(--muted)}
+.msg .body{white-space:pre-wrap;word-break:break-word;font-size:14px;margin-top:6px}
+.msg .body.clip{max-height:220px;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent)}
+.ev{font-size:12.5px;color:var(--muted);padding:2px 6px}
+@media (max-width:1000px){.sup-grid{grid-template-columns:1fr}.sup-grid aside{position:static}}
+.panel .fs{border:0;padding:0;background:none;box-shadow:none;margin:0}

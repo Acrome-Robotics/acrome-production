@@ -75,6 +75,7 @@ async function loadAll(){
   ]);
   for (const r of [d,c,p,k,i]) if (r.error) throw r.error;
   S.deals = d.data; S.customers = c.data; S.products = p.data; S.countries = k.data; S.issues = i.data; S.loaded = true;
+  await loadSupport();
 }
 
 // ---------------------------------------------------------------- oturum
@@ -101,7 +102,7 @@ async function start(){
 function renderAuth(mode='in'){
   const up = mode === 'up', reset = mode === 'reset';
   $app.innerHTML = `<div class="auth"><div class="box">
-    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Üretim planlama</small></div></div>
+    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Üretim planlama · Support</small></div></div>
     <h1 style="margin-top:18px">${reset?'Şifre sıfırla':up?'Hesap oluştur':'Giriş yap'}</h1>
     <p class="note">${up?'@acrome.net adresinle hesap açınca raporları ve kayıtları hemen görebilirsin. Veri girişi için yöneticiden Satış veya Üretim rolü iste.':reset?'E-posta adresine sıfırlama bağlantısı gönderilir.':'Acrome ekip hesabınla giriş yap.'}</p>
     <form id="af" novalidate>
@@ -152,6 +153,8 @@ function shell(active, html){
     ['kayitlar/all','Tüm kayıtlar', S.deals.length],
     ...(can('sales','admin') ? [['yeni','Yeni kayıt']] : []),
     ['hr'],
+    ['support','Support', supOpenCount() || ''],
+    ['hr'],
     ['kaynaklar','Kaynak tablolar'],
     ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || ''],
     ['gecmis','Değişiklik geçmişi'],
@@ -161,7 +164,7 @@ function shell(active, html){
   ];
   $app.innerHTML = `<div class="topbar"><div class="brand" style="padding:0">${logo()} Acrome</div><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side">
-    <div class="brand">${logo()}<div>Acrome<small>Üretim planlama</small></div></div>
+    <div class="brand">${logo()}<div>Acrome<small>Üretim planlama · Support</small></div></div>
     <nav class="nav">${nav.map(n => n[0]==='hr' ? '<hr>' : `<a href="#/${n[0]}" class="${active===n[0]?'on':''}">${n[1]}<span class="count">${n[2]??''}</span></a>`).join('')}</nav>
     <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${ROLES[S.profile.role]} · <button class="linkbtn" id="lo">Çıkış</button><br>${themeSwitch()}</div>
   </aside><main class="main" id="main">${html}</main></div>`;
@@ -186,6 +189,8 @@ function route(){
     case 'sifre': return viewNewPassword();
     case 'ice-aktar': return can('admin') ? viewImport() : viewReport();
     case 'excel': return can('admin') ? viewSync() : viewReport();
+    case 'support': return a ? viewTicket(+a) : viewSupport();
+    case 'support-yeni': return viewTicketNew();
     default: return viewReport();
   }
 }
@@ -1023,6 +1028,288 @@ function renderSync(recs, m, sheet){
     const { data, error } = await sb.rpc('admin_sync', { p: { inserts, updates } });
     if (error) { b.disabled = false; b.textContent = 'Seçilenleri uygula'; return toast(dbErr(error), true); }
     await loadAll(); toast(`${data.inserted} yeni kayıt eklendi, ${data.updated} kayıt güncellendi`); viewSync();
+  };
+}
+
+// ================================================================ SUPPORT
+const SUP_STATUS = { new:'Yeni', ours:'Bizde', customer:'Müşteride', closed:'Kapandı' };
+const SUP_STATUS_HINT = { new:'Henüz kimse cevap vermedi', ours:'Cevap / iş Acrome\'da', customer:'Müşteriden cevap bekleniyor', closed:'Çözüldü' };
+const SUP_CAT = { support:'Teknik destek', sales:'Satış', admin:'İdari / ödeme', other:'Diğer' };
+const SUP_PRIO = { low:'Düşük', normal:'Normal', high:'Yüksek' };
+const SUP_SRC = { gmail:'E-posta', basecamp:'Basecamp', note:'Not', call:'Telefon', meet:'Meet' };
+const supPill = st => `<span class="pill sp-${st}" title="${SUP_STATUS_HINT[st]||''}">${SUP_STATUS[st]||st}</span>`;
+const supState = { tab:'open', cat:'support', product:'', who:'', q:'', hits:null, sort:'act' };
+let supPeople = null;
+
+async function loadSupport(){
+  const { data, error } = await sb.from('support_tickets')
+    .select('id,subject,category,status,priority,product,customer_name,organization,country,contact_email,assignee,summary,resolution,tags,gmail_thread_ids,basecamp_urls,opened_at,last_activity_at,last_inbound_at,last_outbound_at,closed_at,created_at,updated_at')
+    .order('last_activity_at', { ascending:false }).range(0, 4999);
+  if (error) { S.tickets = S.tickets || []; S.supErr = error.message; return; }
+  S.tickets = data; S.supErr = null;
+}
+async function people(){
+  if (supPeople) return supPeople;
+  const { data } = await sb.rpc('support_people');
+  supPeople = data || []; return supPeople;
+}
+const personName = id => (supPeople||[]).find(p => p.id === id)?.name || '';
+const ago = ts => {
+  if (!ts) return '—';
+  const d = Math.floor((Date.now() - new Date(ts)) / 864e5);
+  return d <= 0 ? 'bugün' : d === 1 ? 'dün' : d < 30 ? d + ' gün önce' : d < 365 ? Math.floor(d/30) + ' ay önce' : Math.floor(d/365) + ' yıl önce';
+};
+const fmtDT = ts => ts ? new Date(ts).toLocaleString('tr-TR', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+const daysSince = ts => ts ? Math.floor((Date.now() - new Date(ts)) / 864e5) : null;
+// bekleme uyarısı: bizde ise müşteri mesajından beri, müşterideyse bizim cevaptan beri
+function supWait(t){
+  if (t.status === 'new' || t.status === 'ours') {
+    const d = daysSince(t.last_inbound_at || t.opened_at);
+    return d >= 2 ? { cls:'late-txt', txt:`${d} gündür cevap bekliyor` } : null;
+  }
+  if (t.status === 'customer') {
+    const d = daysSince(t.last_outbound_at || t.last_activity_at);
+    return d >= 7 ? { cls:'amber-txt', txt:`${d} gündür müşteride · takip et` } : null;
+  }
+  return null;
+}
+const supOpenCount = () => (S.tickets||[]).filter(t => t.category === 'support' && (t.status === 'new' || t.status === 'ours')).length;
+
+async function viewSupport(){
+  if (!S.tickets) await loadSupport();
+  await people();
+  const s = supState;
+  const tabs = { open:'Açık', ours:'Bizde', customer:'Müşteride', closed:'Kapanan', all:'Tümü' };
+  const T = S.tickets || [];
+  const sup = T.filter(t => t.category === 'support');
+  const mon = new Date().toISOString().slice(0,7);
+  const kOurs = sup.filter(t => t.status === 'new' || t.status === 'ours');
+  const kLate = kOurs.filter(t => supWait(t));
+  const kCust = sup.filter(t => t.status === 'customer');
+  const kNewM = sup.filter(t => (t.opened_at||'').slice(0,7) === mon);
+  const kClosedM = sup.filter(t => (t.closed_at||'').slice(0,7) === mon);
+  const prods = [...new Set(T.map(t => t.product).filter(Boolean))];
+
+  const draw = () => {
+    const ql = s.q.trim().toLocaleLowerCase('tr');
+    const hitMap = new Map((s.hits||[]).map(h => [h.ticket_id, h]));
+    let rows = T.filter(t =>
+      (s.cat === 'all' || t.category === s.cat) &&
+      (s.tab === 'all' || (s.tab === 'open' ? t.status !== 'closed' : s.tab === 'ours' ? (t.status === 'ours' || t.status === 'new') : t.status === s.tab)) &&
+      (!s.product || t.product === s.product) &&
+      (!s.who || (s.who === 'me' ? t.assignee === S.profile.id : s.who === 'none' ? !t.assignee : t.assignee === s.who)) &&
+      (!ql || hitMap.has(t.id) || ('#' + t.id + ' ' + [t.subject,t.customer_name,t.organization,t.country,t.contact_email,t.summary,t.resolution,(t.tags||[]).join(' '),prodName(t.product)].join(' ')).toLocaleLowerCase('tr').includes(ql)));
+    if (ql && s.hits) rows.sort((a,b) => ((hitMap.get(b.id)?.rank)||0) - ((hitMap.get(a.id)?.rank)||0));
+    else rows.sort((a,b) => s.sort === 'open' ? (b.opened_at||'').localeCompare(a.opened_at||'') : (b.last_activity_at||'').localeCompare(a.last_activity_at||''));
+    q('#stbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">#</th><th class="nosort">Konu</th><th class="nosort">Müşteri</th><th class="nosort">Ürün</th><th class="nosort">Durum</th><th class="nosort">Sorumlu</th><th class="nosort">Son hareket</th></tr></thead><tbody>
+      ${rows.map(t => { const w = supWait(t), h = hitMap.get(t.id);
+        return `<tr data-tid="${t.id}"><td class="mono">#${t.id}</td>
+        <td><b style="font-weight:600">${esc(t.subject)}</b>${t.priority==='high'?' <span class="pill sp-high">Acil</span>':''}
+          ${t.summary?`<div class="sub clamp">${esc(t.summary)}</div>`:''}
+          ${h && h.snippet ? `<div class="sub hit">… ${esc(h.snippet).replace(/&lt;&lt;/g,'<mark>').replace(/&gt;&gt;/g,'</mark>')} …</div>`:''}
+          ${(t.tags||[]).length?`<div class="items">${t.tags.map(x=>`<span>${esc(x)}</span>`).join('')}</div>`:''}</td>
+        <td>${esc(t.organization || t.customer_name || '—')}<div class="sub">${esc([t.organization?t.customer_name:'', t.country].filter(Boolean).join(' · '))}</div></td>
+        <td>${t.product?esc(prodName(t.product)):'<span class="sub">—</span>'}</td>
+        <td>${supPill(t.status)}${s.cat==='all'&&t.category!=='support'?`<div class="sub">${SUP_CAT[t.category]}</div>`:''}</td>
+        <td>${esc(personName(t.assignee)) || '<span class="sub">—</span>'}</td>
+        <td style="white-space:nowrap">${ago(t.last_activity_at)}${w?`<div class="sub ${w.cls}">${w.txt}</div>`:''}</td></tr>`; }).join('')}
+      <tr class="tfoot"><td colspan="7">${rows.length} konu${ql?` · "${esc(s.q)}" araması${s.hits?' (mesaj içerikleri dahil)':''}`:''}</td></tr></tbody></table>`
+      : `<div class="empty">${ql ? 'Aramayla eşleşen konu yok.' : 'Bu filtrelerle konu yok.'}</div>`;
+    qa('#stbl tr[data-tid]').forEach(tr => tr.onclick = () => location.hash = '#/support/' + tr.dataset.tid);
+  };
+
+  shell('support', `<div class="pagehead"><div><h1>Support</h1><p class="lede">support@acrome.net konuları, cevaplar ve notlar tek yerde. Yeni mailler otomatik eklenir; arama mail içeriklerinde de yapılır.</p></div>
+    <div style="display:flex;gap:8px"><button class="btn" id="scsv">CSV indir</button><a class="btn primary" href="#/support-yeni">Yeni konu</a></div></div>
+    ${S.supErr ? `<div class="banner">Support verisi okunamadı: ${esc(S.supErr)}</div>` : ''}
+    <div class="kpis">
+      <div class="kpi ${kOurs.length?'alert':''}"><div class="v">${kOurs.length}</div><div class="l">Bizde bekleyen</div><div class="d">${kLate.length?kLate.length+' konu 2+ gündür bekliyor':'Geciken yok'}</div></div>
+      <div class="kpi"><div class="v">${kCust.length}</div><div class="l">Müşteride</div><div class="d">${kCust.filter(t=>supWait(t)).length} konu takip bekliyor</div></div>
+      <div class="kpi"><div class="v">${kNewM.length}</div><div class="l">Bu ay açılan</div><div class="d">Teknik destek</div></div>
+      <div class="kpi"><div class="v">${kClosedM.length}</div><div class="l">Bu ay kapanan</div><div class="d">Toplam ${sup.length} destek konusu</div></div>
+      <div class="kpi"><div class="v">${sup.filter(t=>t.status==='closed').length}</div><div class="l">Çözülen (tümü)</div><div class="d">${T.length} kayıt (tüm kategoriler)</div></div>
+    </div>
+    <div class="toolbar"><div class="seg">${Object.entries(tabs).map(([k,v])=>`<button data-st="${k}" class="${k===s.tab?'on':''}">${v}</button>`).join('')}</div></div>
+    <div class="toolbar">
+      <input type="search" id="sq" placeholder="Ara: müşteri, ürün, arıza, mail içeriği…" value="${esc(s.q)}" aria-label="Support ara" style="max-width:360px">
+      <select id="sc" aria-label="Kategori"><option value="all">Tüm kategoriler</option>${Object.entries(SUP_CAT).map(([k,v])=>`<option value="${k}" ${s.cat===k?'selected':''}>${v}</option>`).join('')}</select>
+      <select id="sp" aria-label="Ürün"><option value="">Tüm ürünler</option>${S.products.filter(p=>prods.includes(p.code)).map(p=>`<option value="${p.code}" ${s.product===p.code?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+      <select id="sw" aria-label="Sorumlu"><option value="">Tüm sorumlular</option><option value="me" ${s.who==='me'?'selected':''}>Bana atananlar</option><option value="none" ${s.who==='none'?'selected':''}>Atanmamış</option>${supPeople.map(p=>`<option value="${p.id}" ${s.who===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+      <select id="so" aria-label="Sıralama"><option value="act" ${s.sort==='act'?'selected':''}>Son harekete göre</option><option value="open" ${s.sort==='open'?'selected':''}>Açılış tarihine göre</option></select>
+    </div><div class="tablewrap" id="stbl"></div>`);
+  qa('[data-st]').forEach(b => b.onclick = () => { s.tab = b.dataset.st; viewSupport(); });
+  let h;
+  q('#sq').oninput = e => {
+    s.q = e.target.value; s.hits = null; draw(); clearTimeout(h);
+    if (s.q.trim().length >= 2) h = setTimeout(async () => {
+      const qq = s.q; const { data, error } = await sb.rpc('support_search', { q: qq });
+      if (!error && qq === s.q) { s.hits = data; draw(); }
+    }, 350);
+  };
+  q('#sc').onchange = e => { s.cat = e.target.value; draw(); };
+  q('#sp').onchange = e => { s.product = e.target.value; draw(); };
+  q('#sw').onchange = e => { s.who = e.target.value; draw(); };
+  q('#so').onchange = e => { s.sort = e.target.value; draw(); };
+  q('#scsv').onclick = () => {
+    const cols = ['id','subject','category','status','product','customer_name','organization','country','contact_email','assignee','opened_at','last_activity_at','closed_at','summary','resolution','tags'];
+    const val = (t,c) => c === 'assignee' ? personName(t.assignee) : c === 'tags' ? (t.tags||[]).join('; ') : t[c] ?? '';
+    const body = [cols.join(','), ...T.map(t => cols.map(c => `"${String(val(t,c)).replace(/"/g,'""')}"`).join(','))].join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + body], { type:'text/csv' })); a.download = `acrome-support-${today()}.csv`; a.click();
+  };
+  draw();
+  if (s.q.trim().length >= 2 && !s.hits) q('#sq').dispatchEvent(new Event('input'));
+}
+
+async function viewTicket(id){
+  if (!S.tickets) await loadSupport();
+  await people();
+  shell('support', `<div class="empty">Yükleniyor…</div>`);
+  const [tr, mr, er] = await Promise.all([
+    sb.from('support_tickets').select('*').eq('id', id).maybeSingle(),
+    sb.from('support_messages').select('id,source,direction,from_name,from_email,to_emails,sent_at,subject,body,url,attachments,created_by').eq('ticket_id', id).order('sent_at'),
+    sb.from('support_events').select('*').eq('ticket_id', id).order('at'),
+  ]);
+  const t = tr.data;
+  if (tr.error || !t) return shell('support', `<h1>Konu bulunamadı</h1><p><a href="#/support">Support listesine dön</a></p>`);
+  const msgs = mr.data || [], evs = (er.data || []).filter(e => e.kind !== 'created');
+  const idx = S.tickets.findIndex(x => x.id === id); if (idx >= 0) S.tickets[idx] = { ...S.tickets[idx], ...t };
+
+  const evText = e => e.kind === 'status' ? `Durum: ${SUP_STATUS[e.old_value]||e.old_value||'—'} → <b>${SUP_STATUS[e.new_value]||e.new_value}</b>`
+    : e.kind === 'assignee' ? `Sorumlu: ${esc(e.old_value||'—')} → <b>${esc(e.new_value||'—')}</b>`
+    : e.kind === 'category' ? `Kategori: ${SUP_CAT[e.old_value]||e.old_value} → <b>${SUP_CAT[e.new_value]||e.new_value}</b>` : esc(e.kind);
+  const items = [...msgs.map(m => ({ at:m.sent_at, m })), ...evs.map(e => ({ at:e.at, e }))].sort((a,b) => a.at.localeCompare(b.at));
+  const who = m => m.direction === 'in' ? 'Müşteri' : m.direction === 'out' ? 'Acrome' : SUP_SRC[m.source] || 'Dahili';
+  const mine = m => ['note','call','meet'].includes(m.source) && (m.created_by === S.profile.id || can('admin'));
+  const msgHtml = m => {
+    const long = (m.body||'').length > 900;
+    return `<article class="msg msg-${m.direction} src-${m.source}">
+      <header><span class="who">${who(m)}</span> <b>${esc(m.from_name || m.from_email || personName(m.created_by) || '')}</b>
+        ${m.from_email && m.from_name ? `<span class="sub">&lt;${esc(m.from_email)}&gt;</span>` : ''}
+        <span class="when">${fmtDT(m.sent_at)} · ${SUP_SRC[m.source]||m.source}${m.url?` · <a href="${esc(m.url)}" target="_blank" rel="noopener">aç ↗</a>`:''}
+        ${mine(m)?` · <button class="linkbtn" data-delm="${m.id}">sil</button>`:''}</span></header>
+      ${m.to_emails ? `<div class="sub">Kime: ${esc(m.to_emails)}</div>` : ''}
+      <div class="body ${long?'clip':''}">${esc(m.body || '(boş)')}</div>
+      ${long ? '<button class="linkbtn more">Tamamını göster</button>' : ''}
+      ${(m.attachments||[]).length ? `<div class="items" style="margin-top:6px">${m.attachments.map(a => `<span>📎 ${esc(a.name||a)}</span>`).join('')}</div>` : ''}
+    </article>`;
+  };
+  const opt = (o, v, blank) => (blank?`<option value="">${blank}</option>`:'') + Object.entries(o).map(([k,l]) => `<option value="${k}" ${v===k?'selected':''}>${l}</option>`).join('');
+  const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
+
+  shell('support', `
+  <p><a href="#/support">← Support listesi</a></p>
+  <div class="pagehead"><div><h1>${esc(t.subject)}</h1>
+    <p class="lede"><span class="mono">#${t.id}</span> · ${esc([t.organization, t.customer_name, t.country].filter(Boolean).join(' · ') || 'Müşteri belirtilmemiş')} · açıldı ${fmtD(t.opened_at.slice(0,10))}</p></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${supPill(t.status)}
+      ${t.status!=='closed'?`<button class="btn primary" id="tclose">Kapat</button>`:`<button class="btn" id="treopen">Yeniden aç</button>`}
+      ${can('admin')?`<button class="btn danger" id="tdel">Sil</button>`:''}</div></div>
+  <div class="grid sup-grid">
+    <div>
+      ${t.summary ? `<section class="panel"><h2>Özet</h2><p style="margin:0;white-space:pre-wrap">${esc(t.summary)}</p>${t.resolution?`<h2 class="mt">Çözüm</h2><p style="margin:0;white-space:pre-wrap">${esc(t.resolution)}</p>`:''}</section>` : ''}
+      <section class="panel mt"><h2>Zaman çizelgesi <span class="sub">(${msgs.length} mesaj)</span></h2>
+        <div class="timeline">${items.length ? items.map(x => x.m ? msgHtml(x.m) : `<div class="ev"><span>${fmtDT(x.e.at)}</span> · ${esc(x.e.actor_name||'')} · ${evText(x.e)}</div>`).join('') : '<p class="note">Henüz mesaj yok.</p>'}</div>
+      </section>
+      <section class="panel mt"><h2>Not ekle</h2>
+        <form id="nf" class="fs" novalidate>
+          <div class="row r2"><label class="f">Tür<select name="src"><option value="note">Not</option><option value="call">Telefon görüşmesi</option><option value="meet">Meet / toplantı</option></select></label>
+          <label class="f">Zaman<input type="datetime-local" name="at" value="${nowLocal()}"></label></div>
+          <label class="f">Not <span class="hint">mail dışında konuşulanlar, yapılan iş, karar</span><textarea name="body" rows="4" required></textarea></label>
+          <div class="row r2"><label class="f">Durumu da değiştir<select name="st"><option value="">Değiştirme</option>${opt(SUP_STATUS, '')}</select></label><div></div></div>
+          <p><button class="btn primary">Notu kaydet</button></p>
+        </form></section>
+    </div>
+    <aside>
+      <section class="panel"><h2>Takip</h2>
+        <form id="tf" class="fs" novalidate>
+          <label class="f">Durum<select name="status">${opt(SUP_STATUS, t.status)}</select></label>
+          <label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${t.assignee===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+          <label class="f">Öncelik<select name="priority">${opt(SUP_PRIO, t.priority)}</select></label>
+          <label class="f">Kategori<select name="category">${opt(SUP_CAT, t.category)}</select></label>
+          <label class="f">Ürün<select name="product"><option value="">—</option>${S.products.map(p=>`<option value="${p.code}" ${t.product===p.code?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+          <label class="f">Müşteri (kişi)<input type="text" name="customer_name" value="${esc(t.customer_name||'')}"></label>
+          <label class="f">Kurum / bayi<input type="text" name="organization" value="${esc(t.organization||'')}"></label>
+          <label class="f">Ülke<input type="text" name="country" value="${esc(t.country||'')}"></label>
+          <label class="f">E-posta<input type="email" name="contact_email" value="${esc(t.contact_email||'')}"></label>
+          <label class="f">Etiketler <span class="hint">virgülle ayır</span><input type="text" name="tags" value="${esc((t.tags||[]).join(', '))}"></label>
+          <label class="f">Özet<textarea name="summary" rows="4">${esc(t.summary||'')}</textarea></label>
+          <label class="f">Çözüm <span class="hint">kapanınca ne yapıldı</span><textarea name="resolution" rows="3">${esc(t.resolution||'')}</textarea></label>
+          <p><button class="btn primary">Kaydet</button></p>
+        </form>
+        <dl class="kv mt">
+          <dt>Son müşteri</dt><dd>${fmtDT(t.last_inbound_at)}</dd>
+          <dt>Son Acrome</dt><dd>${fmtDT(t.last_outbound_at)}</dd>
+          ${t.closed_at?`<dt>Kapandı</dt><dd>${fmtDT(t.closed_at)}</dd>`:''}
+          ${(t.gmail_thread_ids||[]).length?`<dt>Gmail</dt><dd>${t.gmail_thread_ids.map(g=>`<a href="https://mail.google.com/mail/u/0/#all/${esc(g)}" target="_blank" rel="noopener">${esc(g)}</a>`).join('<br>')}</dd>`:''}
+          ${(t.basecamp_urls||[]).length?`<dt>Basecamp</dt><dd>${t.basecamp_urls.map(u=>`<a href="${esc(u)}" target="_blank" rel="noopener">bağlantı ↗</a>`).join('<br>')}</dd>`:''}
+        </dl>
+      </section>
+    </aside>
+  </div>`);
+
+  qa('.msg .more').forEach(b => b.onclick = () => { b.previousElementSibling.classList.remove('clip'); b.remove(); });
+  const upd = async (fields, msg) => {
+    const { error } = await sb.from('support_tickets').update(fields).eq('id', id);
+    if (error) return toast(dbErr(error), true);
+    toast(msg || 'Kaydedildi'); await loadSupport(); viewTicket(id);
+  };
+  const cl = q('#tclose'); if (cl) cl.onclick = () => {
+    if (!q('#tf').resolution.value.trim()) { q('#tf').resolution.focus(); return toast('Kapatmadan önce "Çözüm" alanına ne yapıldığını yaz, sonra Kapat\'a tekrar bas.', true); }
+    upd({ status:'closed', resolution: q('#tf').resolution.value.trim() }, 'Konu kapatıldı');
+  };
+  const ro = q('#treopen'); if (ro) ro.onclick = () => upd({ status:'ours' }, 'Konu yeniden açıldı');
+  const dl = q('#tdel'); if (dl) dl.onclick = async () => {
+    if (!confirmInline(dl, 'Silmek için tekrar bas')) return;
+    const { error } = await sb.from('support_tickets').delete().eq('id', id);
+    if (error) return toast(dbErr(error), true);
+    S.tickets = S.tickets.filter(x => x.id !== id); toast('Konu silindi'); location.hash = '#/support';
+  };
+  q('#tf').onsubmit = e => {
+    e.preventDefault(); const f = e.target;
+    const v = n => f[n].value.trim() || null;
+    upd({ status:f.status.value, assignee:v('assignee'), priority:f.priority.value, category:f.category.value, product:v('product'),
+      customer_name:v('customer_name'), organization:v('organization'), country:v('country'), contact_email:v('contact_email'),
+      tags: f.tags.value.split(',').map(x => x.trim()).filter(Boolean), summary:v('summary'), resolution:v('resolution') });
+  };
+  q('#nf').onsubmit = async e => {
+    e.preventDefault(); const f = e.target; const body = f.body.value.trim();
+    if (!body) return toast('Not boş olamaz', true);
+    const at = f.at.value ? new Date(f.at.value).toISOString() : new Date().toISOString();
+    const { error } = await sb.from('support_messages').insert({ ticket_id:id, source:f.src.value, direction:'internal', sent_at:at, body,
+      from_name: S.profile.full_name || S.profile.email, from_email: S.profile.email });
+    if (error) return toast(dbErr(error), true);
+    if (f.st.value && f.st.value !== t.status) return upd({ status:f.st.value }, 'Not eklendi');
+    toast('Not eklendi'); await loadSupport(); viewTicket(id);
+  };
+  qa('[data-delm]').forEach(b => b.onclick = async () => {
+    if (!confirmInline(b, 'Silmek için tekrar bas')) return;
+    const { error } = await sb.from('support_messages').delete().eq('id', +b.dataset.delm);
+    if (error) return toast(dbErr(error), true);
+    toast('Not silindi'); viewTicket(id);
+  });
+}
+
+async function viewTicketNew(){
+  await people();
+  shell('support', `<p><a href="#/support">← Support listesi</a></p><h1>Yeni support konusu</h1>
+  <p class="lede">Mail dışında gelen (telefon, Meet, Basecamp, yüz yüze) bir konuyu kaydetmek için. Mailden gelenler otomatik eklenir.</p>
+  <form id="tn" class="fs" style="max-width:760px" novalidate>
+    <label class="f">Konu<input type="text" name="subject" required></label>
+    <div class="row r2"><label class="f">Kategori<select name="category">${Object.entries(SUP_CAT).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
+    <label class="f">Ürün<select name="product"><option value="">—</option>${S.products.map(p=>`<option value="${p.code}">${esc(p.name)}</option>`).join('')}</select></label></div>
+    <div class="row r2"><label class="f">Müşteri (kişi)<input type="text" name="customer_name"></label><label class="f">Kurum / bayi<input type="text" name="organization"></label></div>
+    <div class="row r2"><label class="f">Ülke<input type="text" name="country"></label><label class="f">E-posta<input type="email" name="contact_email"></label></div>
+    <div class="row r2"><label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${p.id===S.profile.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+    <label class="f">Kaynak<select name="src"><option value="note">Not</option><option value="call">Telefon</option><option value="meet">Meet</option></select></label></div>
+    <label class="f">Talep / ilk not<textarea name="body" rows="5"></textarea></label>
+    <p><button class="btn primary">Konuyu aç</button></p>
+  </form>`);
+  q('#tn').onsubmit = async e => {
+    e.preventDefault(); const f = e.target; const v = n => f[n].value.trim() || null;
+    if (!v('subject')) return toast('Konu boş olamaz', true);
+    const { data, error } = await sb.from('support_tickets').insert({ subject:v('subject'), category:f.category.value, product:v('product'), customer_name:v('customer_name'),
+      organization:v('organization'), country:v('country'), contact_email:v('contact_email'), assignee:v('assignee'), status:'ours' }).select('id').single();
+    if (error) return toast(dbErr(error), true);
+    if (v('body')) await sb.from('support_messages').insert({ ticket_id:data.id, source:f.src.value, direction:'internal', body:v('body'), from_name:S.profile.full_name || S.profile.email, from_email:S.profile.email });
+    await loadSupport(); toast('Konu açıldı'); location.hash = '#/support/' + data.id;
   };
 }
 
