@@ -22,8 +22,8 @@ Excel'deki "Production Planning" dosyasının yerini alan web uygulaması.
 
 | Rol | Yetki |
 |---|---|
-| Onay bekliyor | Hiçbir veriyi göremez (yalnızca @acrome.net adresleri hesap açabilir) |
-| İzleyici | Rapor ve kayıtları görür |
+| Erişim kapalı | Giriş yapar ama veri göremez (yönetici kapatırsa) |
+| İzleyici | Rapor ve kayıtları görür (her yeni @acrome.net hesabının varsayılanı) |
 | Satış | Fırsat/sipariş ekler ve düzenler, müşteri ekler |
 | Üretim | Planlanan sevk, sevk tarihi, durum ve gecikme açıklamasını günceller |
 | Yönetici | Her şey + silme, ürün yönetimi, rol verme |

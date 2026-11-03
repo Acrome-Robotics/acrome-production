@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------- sabitler
 const STAGES = { qualify:'1 · Nitelendirme', advance:'2 · İlerliyor', closing:'3 · Kapanış', won:'Kazanıldı', lost:'Kaybedildi' };
 const STATUSES = { pipeline:'Fırsat', production:'Üretimde', shipped:'Gönderildi', lost:'Kaybedildi', archived:'Arşiv' };
-const ROLES = { pending:'Onay bekliyor', viewer:'İzleyici', sales:'Satış', production:'Üretim', admin:'Yönetici' };
+const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', admin:'Yönetici' };
 const CATS = { sistem:'Deney setleri', kontrolcu:'Kontrolcüler', smd:'SMD' };
 const CURRENCIES = ['USD','EUR','GBP','TRY'];
 const MONTHS = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
@@ -86,7 +86,7 @@ function renderAuth(mode='in'){
   $app.innerHTML = `<div class="auth"><div class="box">
     <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Üretim planlama</small></div></div>
     <h1 style="margin-top:18px">${reset?'Şifre sıfırla':up?'Hesap oluştur':'Giriş yap'}</h1>
-    <p class="note">${up?'Hesabın oluşturulduktan sonra bir yönetici yetki verene kadar verileri göremezsin.':reset?'E-posta adresine sıfırlama bağlantısı gönderilir.':'Acrome ekip hesabınla giriş yap.'}</p>
+    <p class="note">${up?'@acrome.net adresinle hesap açınca raporları ve kayıtları hemen görebilirsin. Veri girişi için yöneticiden Satış veya Üretim rolü iste.':reset?'E-posta adresine sıfırlama bağlantısı gönderilir.':'Acrome ekip hesabınla giriş yap.'}</p>
     <form id="af" novalidate>
       ${up?`<label class="f">Ad soyad<input name="name" type="text" required autocomplete="name"></label>`:''}
       <label class="f">E-posta${up?' <span class="hint">@acrome.net adresin</span>':''}<input name="email" type="email" required autocomplete="email" ${up?'placeholder="ad.soyad@acrome.net"':''}></label>
@@ -113,8 +113,8 @@ function renderAuth(mode='in'){
   };
 }
 function renderPending(){
-  $app.innerHTML = `<div class="auth"><div class="box"><h1>Onay bekleniyor</h1>
-    <p>Hesabın (<b>${esc(S.profile.email)}</b>) oluşturuldu. Bir yönetici sana rol verdiğinde verileri görebileceksin.</p>
+  $app.innerHTML = `<div class="auth"><div class="box"><h1>Erişimin kapalı</h1>
+    <p>Hesabın (<b>${esc(S.profile.email)}</b>) şu an verilere erişemiyor. Yöneticiyle iletişime geç.</p>
     <p class="note">Rol verildikten sonra sayfayı yenile.</p>
     <p><button class="btn" id="rl">Yenile</button> <button class="btn" id="lo">Çıkış yap</button></p></div></div>`;
   q('#rl').onclick = start; q('#lo').onclick = () => sb.auth.signOut();
@@ -607,8 +607,8 @@ async function viewAudit(){
 
 // ---------------------------------------------------------------- KULLANICILAR
 async function viewUsers(){
-  shell('kullanicilar', `<div class="pagehead"><div><h1>Kullanıcılar</h1><p class="lede">Yeni hesaplar "Onay bekliyor" olarak gelir. Rol verene kadar hiçbir veriyi göremezler.</p></div></div>
-  <div class="panel" style="margin-bottom:16px"><dl class="kv"><dt>İzleyici</dt><dd>Rapor ve kayıtları görür, değiştiremez.</dd><dt>Satış</dt><dd>Fırsat ve sipariş girer, düzenler; müşteri ekler.</dd><dt>Üretim</dt><dd>Yalnızca planlanan sevk, sevk tarihi, durum (Üretimde ↔ Gönderildi) ve gecikme açıklamasını değiştirir.</dd><dt>Yönetici</dt><dd>Her şey + silme, ürün yönetimi, rol verme.</dd></dl></div>
+  shell('kullanicilar', `<div class="pagehead"><div><h1>Kullanıcılar</h1><p class="lede">@acrome.net adresiyle açılan her hesap İzleyici olarak başlar: rapor ve kayıtları görür, değiştiremez. Veri girecek kişilere buradan Satış veya Üretim rolü ver. Birinin erişimini kapatmak için rolünü "Erişim kapalı" yap.</p></div></div>
+  <div class="panel" style="margin-bottom:16px"><dl class="kv"><dt>Erişim kapalı</dt><dd>Giriş yapabilir ama hiçbir veriyi göremez.</dd><dt>İzleyici</dt><dd>Rapor ve kayıtları görür, değiştiremez.</dd><dt>Satış</dt><dd>Fırsat ve sipariş girer, düzenler; müşteri ekler.</dd><dt>Üretim</dt><dd>Yalnızca planlanan sevk, sevk tarihi, durum (Üretimde ↔ Gönderildi) ve gecikme açıklamasını değiştirir.</dd><dt>Yönetici</dt><dd>Her şey + silme, ürün yönetimi, rol verme.</dd></dl></div>
   <div class="tablewrap" id="us"><div class="empty">Yükleniyor…</div></div>`);
   const { data, error } = await sb.from('profiles').select('*').order('created_at');
   if (error) { q('#us').innerHTML = `<div class="empty">${esc(dbErr(error))}</div>`; return; }
