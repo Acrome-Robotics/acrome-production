@@ -136,6 +136,7 @@ function shell(active, html){
     ['uyarilar','Veri uyarıları', openIssues || ''],
     ['gecmis','Değişiklik geçmişi'],
     ...(can('admin') ? [['kullanicilar','Kullanıcılar']] : []),
+    ...(can('admin') && !S.deals.length ? [['ice-aktar','Excel verisini içe aktar']] : []),
   ];
   $app.innerHTML = `<div class="topbar"><div class="brand" style="padding:0">${logo()} Acrome</div><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side">
@@ -161,6 +162,7 @@ function route(){
     case 'gecmis': return viewAudit();
     case 'kullanicilar': return can('admin') ? viewUsers() : viewReport();
     case 'sifre': return viewNewPassword();
+    case 'ice-aktar': return can('admin') ? viewImport() : viewReport();
     default: return viewReport();
   }
 }
@@ -168,6 +170,7 @@ function route(){
 // ---------------------------------------------------------------- RAPOR
 let repYear = new Date().getFullYear();
 function viewReport(){
+  if (!S.deals.length) return shell('rapor', `<h1>Henüz kayıt yok</h1><p class="lede">${can('admin') ? 'Excel\'den hazırlanan veri dosyasını yükleyerek başla.' : 'Yönetici Excel verisini yükleyince rapor burada görünecek.'}</p>${can('admin') ? '<a class="btn primary" href="#/ice-aktar">Excel verisini içe aktar</a>' : ''}`);
   const Y = repYear, T = today();
   const live = S.deals.filter(d => !d.is_internal);
   const booked = y => live.filter(d => ['production','shipped'].includes(d.status) && yearOf(d.order_date) === y);
@@ -615,6 +618,28 @@ async function viewUsers(){
 function viewNewPassword(){
   shell('', `<h1>Yeni şifre belirle</h1><form id="np" class="fs" style="max-width:420px" novalidate><label class="f">Yeni şifre <span class="hint">en az 8 karakter</span><input type="password" name="pw" minlength="8" autocomplete="new-password"></label><p><button class="btn primary">Şifreyi kaydet</button></p></form>`);
   q('#np').onsubmit = async e => { e.preventDefault(); const pw = e.target.pw.value; if (pw.length < 8) return toast('Şifre en az 8 karakter olmalı', true); const { error } = await sb.auth.updateUser({ password: pw }); if (error) return toast(error.message, true); toast('Şifre güncellendi'); location.hash = '#/rapor'; };
+}
+
+// ---------------------------------------------------------------- İÇE AKTARMA (tek seferlik)
+function viewImport(){
+  shell('ice-aktar', `<h1>Excel verisini içe aktar</h1>
+  <p class="lede">Claude'un Excel'den hazırladığı <b>acrome-import.json</b> dosyasını seç. Dosya yalnızca tarayıcından veritabanına gönderilir. İçe aktarma boş veritabanında bir kez çalışır.</p>
+  <div class="fs" style="max-width:560px"><label class="f">Veri dosyası<input type="file" id="imf" accept=".json,application/json"></label>
+  <p id="imi" class="note"></p><button class="btn primary" id="imb" disabled>İçe aktar</button></div>`);
+  let data = null;
+  q('#imf').onchange = async e => {
+    const f = e.target.files[0]; data = null; q('#imb').disabled = true;
+    try { data = JSON.parse(await f.text()); } catch { q('#imi').textContent = 'Dosya okunamadı: geçerli bir JSON değil.'; return; }
+    if (!Array.isArray(data.deals)) { q('#imi').textContent = 'Bu dosya beklenen biçimde değil.'; data = null; return; }
+    q('#imi').textContent = `${data.deals.length} kayıt, ${data.items.length} ürün kalemi, ${data.customers.length} müşteri, ${data.issues.length} uyarı bulundu.`;
+    q('#imb').disabled = false;
+  };
+  q('#imb').onclick = async () => {
+    const b = q('#imb'); b.disabled = true; b.textContent = 'Aktarılıyor…';
+    const { data: res, error } = await sb.rpc('admin_import', { j: data });
+    if (error) { b.disabled = false; b.textContent = 'İçe aktar'; return toast(dbErr(error), true); }
+    await loadAll(); toast(`${res.deals} kayıt aktarıldı`); location.hash = '#/rapor';
+  };
 }
 
 boot();
