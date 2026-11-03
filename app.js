@@ -12,6 +12,11 @@ const MONTHS = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','K
 const RE_ORDER = /^ACRPO-I?[0-9]{1,4}(-(SP|P)[0-9]{1,2})?$/;
 const RE_OPP = /^PROS-[0-9]{2}(-[0-9]{1,3}){1,2}$/;
 const MIN_DATE = '2020-01-01', MAX_DATE = '2035-12-31';
+// Sevk tarihi bilinmiyorsa: sevk ayı (ayın 15'i) → istenen sevk → sipariş tarihi
+const shipDate = d => d.ship_date || (d.ship_month ? d.ship_month + '-15' : null) || d.requested_ship_date || d.order_date || null;
+const shipBasis = d => d.ship_date ? 'day' : d.ship_month ? 'month' : 'est';
+const fmtM = m => m ? ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'][+m.slice(5,7)-1] + ' ' + m.slice(0,4) : '—';
+const fmtShip = d => d.ship_date ? fmtD(d.ship_date) : d.ship_month ? fmtM(d.ship_month) + ' <span class="sub">(ay)</span>' : '—';
 
 // ---------------------------------------------------------------- tema
 const THEMES = { system:'Sistem', light:'Açık', dark:'Koyu' };
@@ -148,10 +153,11 @@ function shell(active, html){
     ...(can('sales','admin') ? [['yeni','Yeni kayıt']] : []),
     ['hr'],
     ['kaynaklar','Kaynak tablolar'],
-    ['uyarilar','Veri uyarıları', openIssues || ''],
+    ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || ''],
     ['gecmis','Değişiklik geçmişi'],
     ...(can('admin') ? [['kullanicilar','Kullanıcılar']] : []),
     ...(can('admin') && !S.deals.length ? [['ice-aktar','Excel verisini içe aktar']] : []),
+    ...(can('admin') && S.deals.length ? [['excel','Excel\'den güncelle']] : []),
   ];
   $app.innerHTML = `<div class="topbar"><div class="brand" style="padding:0">${logo()} Acrome</div><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side">
@@ -179,6 +185,7 @@ function route(){
     case 'kullanicilar': return can('admin') ? viewUsers() : viewReport();
     case 'sifre': return viewNewPassword();
     case 'ice-aktar': return can('admin') ? viewImport() : viewReport();
+    case 'excel': return can('admin') ? viewSync() : viewReport();
     default: return viewReport();
   }
 }
@@ -195,7 +202,7 @@ function viewReport(){
   const prod = S.deals.filter(d => d.status === 'production');
   const late = prod.filter(d => d.requested_ship_date && d.requested_ship_date < T);
   const pipe = S.deals.filter(d => d.status === 'pipeline');
-  const shippedY = S.deals.filter(d => d.status === 'shipped' && yearOf(d.ship_date || d.requested_ship_date || d.order_date) === Y);
+  const shippedY = S.deals.filter(d => d.status === 'shipped' && yearOf(shipDate(d)) === Y);
   const years = [...new Set(S.deals.map(d => yearOf(d.order_date)).filter(Boolean))].sort();
   const delta = sum(bookedP) ? Math.round((sum(bookedY)/sum(bookedP) - 1)*100) : null;
 
@@ -281,7 +288,7 @@ function board(prod){
 // ---------------------------------------------------------------- LİSTE
 const listState = { q:'', year:'', month:'', basis:'', country:'', product:'', sort:'date', dir:-1 };
 const MONTHS_LONG = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
-const BASES = { order:['Sipariş tarihi', d => d.order_date || d.lead_date], ship:['Sevk tarihi', d => d.ship_date || d.requested_ship_date || d.order_date], due:['İstenen sevk', d => d.requested_ship_date], lead:['Fırsat girişi', d => d.lead_date || d.order_date] };
+const BASES = { order:['Sipariş tarihi', d => d.order_date || d.lead_date], ship:['Sevk tarihi', d => shipDate(d)], due:['İstenen sevk', d => d.requested_ship_date], lead:['Fırsat girişi', d => d.lead_date || d.order_date] };
 const defBasis = tab => tab === 'shipped' ? 'ship' : tab === 'pipeline' || tab === 'lost' || tab === 'archived' ? 'lead' : 'order';
 function viewList(tab){
   const T = today();
@@ -315,7 +322,7 @@ function viewList(tab){
         <td>${esc(d.description)}<div class="items">${Object.entries(d.items||{}).map(([c,q])=>`<span>${fmtN(q)}× ${esc(prodName(c))}</span>`).join('')}</div></td>
         ${tab==='all'?`<td>${pill(d.status)}</td>`:''}
         <td>${fmtD(d.order_date || d.lead_date)}</td><td class="${lt?'late-txt':''}">${fmtD(d.requested_ship_date)}${lt?`<div class="sub late-txt">${days(d.requested_ship_date,T)} gün gecikti</div>`:''}</td>
-        ${tab==='shipped'?`<td>${fmtD(d.ship_date)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}
+        ${tab==='shipped'?`<td>${fmtShip(d)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}
         <td class="num">${fmtUSD(d.amount_usd)}${d.currency!=='USD'&&d.amount_orig?`<div class="sub">${fmtN(d.amount_orig)} ${d.currency}</div>`:''}</td></tr>`; }).join('')}
       <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
       </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${can('sales','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
@@ -347,7 +354,7 @@ function viewList(tab){
 }
 function csv(rows, name){
   const cols = [['No',refNo],['PROS',d=>d.opp_no],['Müşteri',custName],['Ülke',d=>ctryName(d.country)],['Açıklama',d=>d.description],['Aşama',d=>STAGES[d.stage]],['Durum',d=>STATUSES[d.status]],
-    ['Fırsat girişi',d=>d.lead_date],['Sipariş tarihi',d=>d.order_date],['İstenen sevk',d=>d.requested_ship_date],['Planlanan sevk',d=>d.planned_ship_date],['Sevk tarihi',d=>d.ship_date],
+    ['Fırsat girişi',d=>d.lead_date],['Sipariş tarihi',d=>d.order_date],['İstenen sevk',d=>d.requested_ship_date],['Planlanan sevk',d=>d.planned_ship_date],['Sevk tarihi',d=>d.ship_date],['Sevk ayı',d=>d.ship_month],
     ['Tutar USD',d=>d.amount_usd],['Para birimi',d=>d.currency],['Orijinal tutar',d=>d.amount_orig],...S.products.map(p=>[p.name,d=>(d.items||{})[p.code]||'']),['Detay',d=>d.details],['Ödeme',d=>d.payment_terms],['Not',d=>d.notes]];
   const cell = v => { v = v==null?'':String(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
   const txt = '﻿' + [cols.map(c=>c[0]).join(';'), ...rows.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
@@ -356,18 +363,17 @@ function csv(rows, name){
 
 // ---------------------------------------------------------------- AYLIK GÖNDERİM RAPORU
 const shipState = { year: null, month: '', exactOnly: false, cat: 'all' };
-const shipDate = d => d.ship_date || d.requested_ship_date || d.order_date || null;
 function viewShipments(){
   const all = S.deals.filter(d => d.status === 'shipped' && shipDate(d));
   const years = [...new Set(all.map(d => yearOf(shipDate(d))))].sort();
   if (!shipState.year || !years.includes(shipState.year)) shipState.year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years[years.length-1];
   const st = shipState, Y = st.year;
-  const pool = all.filter(d => yearOf(shipDate(d)) === Y && (!st.exactOnly || d.ship_date));
+  const pool = all.filter(d => yearOf(shipDate(d)) === Y && (!st.exactOnly || shipBasis(d) !== 'est'));
   const inMonth = d => !st.month || +shipDate(d).slice(5,7) === +st.month;
   const rows = pool.filter(inMonth).sort((a,b) => shipDate(a) < shipDate(b) ? -1 : 1);
   const live = rows.filter(d => !d.is_internal);
   const sum = a => a.reduce((t,d) => t + (+d.amount_usd||0), 0);
-  const est = rows.filter(d => !d.ship_date).length;
+  const est = rows.filter(d => shipBasis(d) === 'est').length, monthOnly = rows.filter(d => shipBasis(d) === 'month').length;
   const prods = S.products.filter(p => st.cat === 'all' || p.category === st.cat);
   const unitsOf = arr => { const u = {}; arr.forEach(d => Object.entries(d.items||{}).forEach(([c,q]) => u[c] = (u[c]||0) + +q)); return u; };
   const sysUnits = Object.entries(unitsOf(rows)).filter(([c]) => (S.products.find(p=>p.code===c)||{}).category === 'sistem').reduce((t,[,q]) => t+q, 0);
@@ -381,15 +387,15 @@ function viewShipments(){
 
   shell('gonderim', `
   <div class="pagehead"><div><h1>Aylık gönderim raporu</h1>
-    <p class="lede">Gönderilmiş siparişler sevk ayına göre. Sevk tarihi girilmemiş siparişlerde istenen sevk tarihi kullanılır ve listede ≈ ile gösterilir.</p></div>
+    <p class="lede">Gönderilmiş siparişler sevk ayına göre. Gün bilinmiyorsa sevk ayı (Excel'in aylık toplamlarından) kullanılır; o da yoksa istenen sevk tarihi kullanılır ve ≈ ile gösterilir.</p></div>
     <div style="display:flex;gap:8px"><button class="btn" id="scsv">CSV indir</button></div></div>
   <div class="toolbar">
     <label class="f" style="width:120px">Yıl<select id="sy">${years.map(y=>`<option ${y===Y?'selected':''}>${y}</option>`).join('')}</select></label>
     <label class="f" style="width:150px">Ay<select id="sm"><option value="">Tüm yıl</option>${MONTHS.map((m,i)=>`<option value="${i+1}" ${+st.month===i+1?'selected':''}>${['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'][i]}</option>`).join('')}</select></label>
     <label class="f" style="width:170px">Ürün grubu<select id="sc"><option value="all">Tümü</option>${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${st.cat===k?'selected':''}>${v}</option>`).join('')}</select></label>
-    <label style="display:flex;gap:6px;align-items:center;margin-top:20px;font-size:13px"><input type="checkbox" id="sx" ${st.exactOnly?'checked':''}> Sadece sevk tarihi girilmiş olanlar</label>
+    <label style="display:flex;gap:6px;align-items:center;margin-top:20px;font-size:13px"><input type="checkbox" id="sx" ${st.exactOnly?'checked':''}> Tahmini olanları hariç tut</label>
   </div>
-  ${est ? `<div class="banner">${rows.length} gönderimin <b>${est}</b> tanesinde sevk tarihi girilmemiş; bu kayıtlar istenen sevk tarihine göre sayıldı.${canShip?' Listeden gerçek sevk tarihini girebilirsin.':''}</div>` : ''}
+  ${est || monthOnly ? `<div class="banner">${rows.length} gönderimin ${rows.length-est-monthOnly} tanesinde sevk günü, <b>${monthOnly}</b> tanesinde yalnızca sevk ayı biliniyor${est?`; <b>${est}</b> tanesi istenen sevk tarihine göre tahmini sayıldı (≈)`:''}.${canShip?' Listeden gerçek sevk gününü girebilirsin.':''}</div>` : ''}
 
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
     <div class="kpi"><div class="v">${rows.length}</div><div class="l">Gönderilen sipariş</div><div class="d">${st.month?MONTHS[st.month-1]+' '+Y:Y}</div></div>
@@ -410,7 +416,7 @@ function viewShipments(){
 
   <section class="mt"><h2>Gönderilen siparişler${st.month?' — '+MONTHS[st.month-1]+' '+Y:' — '+Y}</h2>
     <div class="tablewrap">${rows.length ? `<table><thead><tr><th class="nosort">Sevk</th><th class="nosort">No</th><th class="nosort">Müşteri</th><th class="nosort">Açıklama / ürünler</th><th class="nosort num">Tutar</th></tr></thead><tbody>
-    ${rows.map(d => `<tr data-id="${d.id}"><td style="white-space:nowrap">${d.ship_date ? fmtD(d.ship_date) : `<span title="Sevk tarihi girilmemiş; istenen sevk tarihi">≈ ${fmtD(shipDate(d))}</span>${canShip?`<div><input type="date" class="shipin" data-sid="${d.id}" max="${today()}" min="${d.order_date||MIN_DATE}" aria-label="Gerçek sevk tarihi" style="min-height:28px;padding:2px 6px;font-size:12px;margin-top:4px;width:140px"></div>`:''}`}</td>
+    ${rows.map(d => `<tr data-id="${d.id}"><td style="white-space:nowrap">${d.ship_date ? fmtD(d.ship_date) : `${d.ship_month ? fmtShip(d) : `<span title="Sevk tarihi girilmemiş; istenen sevk tarihi">≈ ${fmtD(shipDate(d))}</span>`}${canShip?`<div><input type="date" class="shipin" data-sid="${d.id}" max="${today()}" min="${d.order_date||MIN_DATE}" aria-label="Gerçek sevk tarihi" style="min-height:28px;padding:2px 6px;font-size:12px;margin-top:4px;width:140px"></div>`:''}`}</td>
       <td class="mono">${esc(refNo(d))}</td><td>${esc(custName(d))}<div class="sub">${esc(ctryName(d.country))}</div></td>
       <td>${esc(d.description)}<div class="items">${Object.entries(d.items||{}).map(([c,q])=>`<span>${fmtN(q)}× ${esc(prodName(c))}</span>`).join('')}</div></td>
       <td class="num">${fmtUSD(d.amount_usd)}${d.is_internal?'<div class="sub">dahili</div>':''}</td></tr>`).join('')}
@@ -432,7 +438,7 @@ function viewShipments(){
     d.ship_date = v; toast(`${refNo(d)} sevk tarihi kaydedildi`); viewShipments();
   });
   q('#scsv').onclick = () => {
-    const cols = [['Sevk tarihi',d=>d.ship_date||''],['Tarih esası',d=>d.ship_date?'Sevk tarihi':'İstenen sevk (tahmini)'],['Rapor tarihi',shipDate],['No',refNo],['Müşteri',custName],['Ülke',d=>ctryName(d.country)],['Açıklama',d=>d.description],['Tutar USD',d=>d.amount_usd],['Dahili',d=>d.is_internal?'Evet':''],...S.products.map(p=>[p.name,d=>(d.items||{})[p.code]||''])];
+    const cols = [['Sevk tarihi',d=>d.ship_date||''],['Sevk ayı',d=>d.ship_month||''],['Tarih esası',d=>({day:'Sevk tarihi',month:'Sevk ayı',est:'İstenen sevk (tahmini)'})[shipBasis(d)]],['Rapor tarihi',shipDate],['No',refNo],['Müşteri',custName],['Ülke',d=>ctryName(d.country)],['Açıklama',d=>d.description],['Tutar USD',d=>d.amount_usd],['Dahili',d=>d.is_internal?'Evet':''],...S.products.map(p=>[p.name,d=>(d.items||{})[p.code]||''])];
     const cell = v => { v = v==null?'':String(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
     const txt = '﻿' + [cols.map(c=>c[0]).join(';'), ...rows.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'})); a.download = `acrome-gonderim-${Y}${st.month?'-'+String(st.month).padStart(2,'0'):''}.csv`; a.click();
@@ -458,7 +464,7 @@ function viewDetail(id){
     <section class="panel"><h2>Bilgiler</h2><dl class="kv">
       ${kv('Ülke', esc(ctryName(d.country)))}${kv('Aşama', STAGES[d.stage])}${kv('Teklif no', esc(d.quote_no))}${kv('Bayi / aracı', esc(d.reseller))}
       ${kv('Fırsat girişi', d.lead_date && fmtD(d.lead_date))}${kv('Beklenen PO', d.expected_po_date && fmtD(d.expected_po_date))}${kv('Sipariş tarihi', d.order_date && fmtD(d.order_date))}
-      ${kv('İstenen sevk', d.requested_ship_date && fmtD(d.requested_ship_date))}${kv('Planlanan sevk', d.planned_ship_date && fmtD(d.planned_ship_date))}${kv('Sevk tarihi', d.ship_date && fmtD(d.ship_date))}
+      ${kv('İstenen sevk', d.requested_ship_date && fmtD(d.requested_ship_date))}${kv('Planlanan sevk', d.planned_ship_date && fmtD(d.planned_ship_date))}${kv('Sevk tarihi', d.ship_date && fmtD(d.ship_date))}${kv('Sevk ayı', !d.ship_date && d.ship_month && fmtM(d.ship_month))}
       ${kv('Gecikme açıklaması', esc(d.delay_reason))}
     </dl></section>
     <section class="panel"><h2>Tutar ve ürünler</h2><dl class="kv">
@@ -491,7 +497,7 @@ function viewForm(id){
 
   const stageOpts = () => kind==='order' ? ['won'] : ['qualify','advance','closing','lost'];
   const statusOpts = () => kind==='order' ? ['production','shipped'] : ['pipeline','lost','archived'];
-  const dis = f => prodOnly && !['planned_ship_date','ship_date','status','delay_reason'].includes(f) ? 'disabled' : '';
+  const dis = f => prodOnly && !['planned_ship_date','ship_date','ship_month','status','delay_reason'].includes(f) ? 'disabled' : '';
   const v = k => esc(d[k] ?? '');
   const dt = (k, label, hint) => `<label class="f">${label}${hint?` <span class="hint">${hint}</span>`:''}<input type="date" name="${k}" value="${v(k)}" min="${MIN_DATE}" max="${MAX_DATE}" ${dis(k)}><span class="err" data-e="${k}"></span></label>`;
 
@@ -500,6 +506,9 @@ function viewForm(id){
   <h1>${convert?'Fırsatı siparişe çevir':ex?'Kaydı düzenle':'Yeni kayıt'}</h1>
   <p class="lede">${prodOnly?'Üretim rolüyle yalnızca planlanan sevk, sevk tarihi, durum ve gecikme açıklamasını değiştirebilirsin.':'Kırmızı işaretli alanlar düzeltilmeden kayıt yapılamaz. Aynı kurallar veritabanında da uygulanır.'}</p>
   ${!ex ? `<div class="typepick"><button type="button" data-k="opp" class="${kind==='opp'?'on':''}"><b>Fırsat</b><span>Teklif aşamasındaki iş, PROS numarasıyla</span></button><button type="button" data-k="order" class="${kind==='order'?'on':''}"><b>Sipariş</b><span>Kazanılmış iş, ACRPO numarasıyla üretime girer</span></button></div>`:''}
+  ${ex && S.issues.some(i => i.deal_id === ex.id && !i.resolved) ? `<div class="banner"><b>Bu kayıtla ilgili açık uyarılar</b><ul style="margin:6px 0 8px;padding-left:18px">${S.issues.filter(i => i.deal_id === ex.id && !i.resolved).map(i=>`<li>${esc(i.message)}</li>`).join('')}</ul>
+    <label style="display:flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="resolveIss" checked> Kaydedince bu uyarıları düzeltildi say</label></div>` : ''}
+  ${ex ? liveIssuesFor(ex).map(c => `<div class="banner info">Otomatik kontrol: <b>${esc(c.title)}</b> — ${esc(c.fix)}</div>`).join('') : ''}
   <form id="df" class="form" novalidate><div>
     <section class="fs"><h2>Müşteri ve numaralar</h2>
       <div class="row r2">
@@ -526,7 +535,7 @@ function viewForm(id){
         <span></span>
       </div>
       <div class="row">${kind==='opp' ? dt('lead_date','Fırsat girişi') + dt('expected_po_date','Beklenen PO tarihi') : dt('order_date','Sipariş tarihi')}${dt('requested_ship_date','İstenen sevk')}</div>
-      ${kind==='order' ? `<div class="row">${dt('planned_ship_date','Planlanan sevk','üretim doldurur')}${dt('ship_date','Sevk tarihi','gönderildiğinde')}<span></span></div>
+      ${kind==='order' ? `<div class="row">${dt('planned_ship_date','Planlanan sevk','üretim doldurur')}${dt('ship_date','Sevk tarihi','gönderildiğinde')}<label class="f">Sevk ayı <span class="hint">gün bilinmiyorsa</span><input type="month" name="ship_month" value="${v('ship_month')}" min="2020-01" max="2035-12" ${dis('ship_month')}><span class="err" data-e="ship_month"></span></label></div>
       <div class="row r1"><label class="f">Gecikme açıklaması<input type="text" name="delay_reason" value="${v('delay_reason')}" ${dis('delay_reason')}></label></div>` : ''}
     </section>
 
@@ -612,7 +621,9 @@ function viewForm(id){
     if (d.requested_ship_date && d.order_date && d.requested_ship_date < d.order_date) errs.requested_ship_date = 'Sipariş tarihinden önce olamaz.';
     if (d.ship_date && d.order_date && d.ship_date < d.order_date) errs.ship_date = 'Sipariş tarihinden önce olamaz.';
     if (d.ship_date && d.ship_date > addDays(T,1)) errs.ship_date = 'Gelecek tarih olamaz; planlanan sevk alanını kullan.';
-    if (d.status === 'shipped' && !d.ship_date) errs.ship_date = 'Gönderildi durumu için sevk tarihi zorunlu.';
+    if (d.status === 'shipped' && !d.ship_date && !d.ship_month) errs.ship_date = 'Gönderildi için sevk tarihi (ya da en azından sevk ayı) zorunlu.';
+    if (d.ship_month && !/^20[2-3][0-9]-(0[1-9]|1[0-2])$/.test(d.ship_month)) errs.ship_month = 'Ay seç.';
+    if (d.ship_date && d.ship_month && d.ship_date.slice(0,7) !== d.ship_month) errs.ship_month = 'Sevk tarihiyle aynı ay olmalı (ya da boş bırak).';
     if (d.amount_usd !== '' && d.amount_usd != null && (isNaN(+d.amount_usd) || Math.abs(+d.amount_usd) >= 1e7)) errs.amount_usd = '10 milyondan küçük olmalı (iade için eksi girilebilir).';
     if (d.currency !== 'USD' && !d.amount_orig) errs.amount_orig = `${d.currency} tutarını gir.`;
     const badQty = Object.entries(d.items||{}).find(([,q]) => isNaN(+q) || +q < 0 || +q > 1000 || Math.round(+q*100) !== +q*100);
@@ -639,13 +650,15 @@ function viewForm(id){
     const btn = q('#save'); btn.disabled = true; btn.textContent = 'Kaydediliyor…';
     const existingCust = S.customers.find(c => c.name.toLocaleLowerCase('tr') === d.customer.toLocaleLowerCase('tr'));
     const payload = {};
-    for (const k of ['id','order_no','opp_no','country','description','stage','status','quote_no','lead_date','order_date','expected_po_date','requested_ship_date','planned_ship_date','ship_date','details','delay_reason','payment_terms','notes','reseller','amount_usd','currency','amount_orig','smd_sales_usd','is_internal'])
+    for (const k of ['id','order_no','opp_no','country','description','stage','status','quote_no','lead_date','order_date','expected_po_date','requested_ship_date','planned_ship_date','ship_date','ship_month','details','delay_reason','payment_terms','notes','reseller','amount_usd','currency','amount_orig','smd_sales_usd','is_internal'])
       payload[k] = d[k] === '' ? null : d[k] ?? null;
     if (kind==='opp') { payload.order_date = d.order_date || null; }
     if (payload.currency === 'USD') payload.amount_orig = null;
     payload.customer_id = existingCust ? existingCust.id : null;
     const { data, error } = await sb.rpc('save_deal', { p_deal: payload, p_items: prodOnly ? null : (d.items||{}), p_customer_name: existingCust ? null : d.customer, p_customer_country: d.country || null });
     if (error) { btn.disabled = false; btn.textContent = ex ? 'Değişiklikleri kaydet' : 'Kaydı oluştur'; return toast(dbErr(error), true); }
+    const ri = q('#resolveIss');
+    if (ex && ri && ri.checked) { const ids = S.issues.filter(i => i.deal_id === ex.id && !i.resolved).map(i => i.id); if (ids.length) await sb.from('import_issues').update({ resolved:true }).in('id', ids); }
     await loadAll();
     toast(ex ? 'Değişiklikler kaydedildi' : 'Kayıt oluşturuldu');
     location.hash = '#/kayit/' + data;
@@ -686,22 +699,62 @@ function viewSources(tab){
     if (!/^[A-Z0-9_]{2,20}$/.test(code)) return toast('Kod 2–20 karakter, büyük harf/rakam/alt çizgi olmalı', true); if (name.length < 2) return toast('Ürün adı gir', true);
     const { error } = await sb.from('products').insert({ code, name, category: f.get('category'), sort: +f.get('sort')||50 }); if (error) return toast(dbErr(error), true); await loadAll(); toast('Ürün eklendi'); viewSources('urunler'); };
 }
+function confirmInline(btn, label){ if (btn.dataset.c === '1') return true; btn.dataset.c = '1'; btn.textContent = 'Onayla'; toast(label); return false; }
 function editCustomer(id, tr){
   const c = S.customers.find(x => x.id === id);
-  tr.innerHTML = `<td><input type="text" value="${esc(c.name)}" id="cn"></td><td><select id="cc">${S.countries.map(k=>`<option value="${k.code}" ${c.country===k.code?'selected':''}>${esc(k.name)}</option>`).join('')}</select></td><td colspan="4"></td><td style="white-space:nowrap"><button class="btn sm primary" id="cs">Kaydet</button> <button class="btn sm" id="cx">Vazgeç</button></td>`;
+  tr.innerHTML = `<td><input type="text" value="${esc(c.name)}" id="cn"></td><td><select id="cc">${S.countries.map(k=>`<option value="${k.code}" ${c.country===k.code?'selected':''}>${esc(k.name)}</option>`).join('')}</select></td><td colspan="4">${can('admin')?`<label class="f" style="font-weight:500">Bu müşteriyi şununla birleştir<select id="cm"><option value="">—</option>${S.customers.filter(x=>x.id!==id).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label>`:''}</td><td style="white-space:nowrap"><button class="btn sm primary" id="cs">Kaydet</button> <button class="btn sm" id="cx">Vazgeç</button></td>`;
   q('#cx').onclick = () => viewSources('musteriler');
   q('#cs').onclick = async () => { const name = q('#cn').value.trim(); if (name.length < 2) return toast('Müşteri adı gir', true);
+    const cm = q('#cm'); if (cm && cm.value) { const target = S.customers.find(x => x.id === +cm.value); if (!confirmInline(q('#cs'), `"${c.name}" kayıtları "${target.name}" altına taşınsın mı? Tekrar bas`)) return; return mergeCustomers(+cm.value, id, () => viewSources('musteriler')); }
     const { error } = await sb.from('customers').update({ name, country: q('#cc').value }).eq('id', id); if (error) return toast(dbErr(error), true); await loadAll(); toast('Müşteri güncellendi'); viewSources('musteriler'); };
 }
 
-// ---------------------------------------------------------------- UYARILAR
+// ---------------------------------------------------------------- VERİ KONTROLÜ
+const fold = x => String(x||'').toLocaleLowerCase('tr').replace(/ı/g,'i').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+const CHECKS = [
+  { id:'noship', title:'Gönderilmiş ama sevk tarihi de sevk ayı da yok', fix:'Sevk tarihini ya da en azından sevk ayını gir.', test: d => d.status==='shipped' && !d.ship_date && !d.ship_month, show: d => `İstenen sevk: ${fmtD(d.requested_ship_date)}` },
+  { id:'noorderno', title:'Kazanılmış ama sipariş numarası yok', fix:'ACRPO numarasını gir.', test: d => d.stage==='won' && !d.order_no && !d.is_internal, show: d => d.notes ? esc(d.notes.split('\n').find(l=>/Excel sipariş no/.test(l))||'') : '' },
+  { id:'noorderdate', title:'Siparişte sipariş tarihi yok', fix:'Sipariş tarihini gir.', test: d => ['production','shipped'].includes(d.status) && !d.order_date, show: () => '' },
+  { id:'nocountry', title:'Ülke boş', fix:'Ülkeyi seç.', test: d => !d.country, show: () => '' },
+  { id:'lostzero', title:'Kaybedilen fırsatta teklif tutarı yok', fix:'Teklif tutarını gir; kayıp tutarı ve kazanma oranı buna göre hesaplanır.', test: d => d.status==='lost' && !(+d.amount_usd), show: () => '' },
+  { id:'reqbefore', title:'İstenen sevk, sipariş tarihinden önce', fix:'Tarihlerden birini düzelt.', test: d => d.requested_ship_date && d.order_date && d.requested_ship_date < d.order_date, show: d => `Sipariş ${fmtD(d.order_date)} · İstenen ${fmtD(d.requested_ship_date)}` },
+  { id:'longlate', title:'Üretimde, istenen tarihten 60 günden fazla geçmiş', fix:'Gönderildiyse durumu güncelle; değilse yeni istenen tarihi gir.', test: d => d.status==='production' && d.requested_ship_date && days(d.requested_ship_date, today()) > 60, show: d => `${days(d.requested_ship_date, today())} gün gecikti` },
+  { id:'stale', title:'12 aydan eski açık fırsat', fix:'Hâlâ açık mı? Değilse Kaybedildi ya da Arşiv yap.', test: d => d.status==='pipeline' && (d.lead_date||d.order_date) && days(d.lead_date||d.order_date, today()) > 365, show: d => `Giriş: ${fmtD(d.lead_date||d.order_date)}` },
+  { id:'nodesc', title:'Açıklama yok', fix:'Kısa bir açıklama yaz.', test: d => !d.description || d.description==='(açıklama yok)', show: () => '' },
+];
+function liveIssuesFor(d){ return CHECKS.filter(c => c.test(d)); }
+function dupCustomers(){
+  const g = {}; S.customers.forEach(c => { const k = fold(c.name); if (k.length >= 2) (g[k] = g[k] || []).push(c); });
+  return Object.values(g).filter(a => a.length > 1);
+}
+function liveProblemCount(){ return S.deals.reduce((n,d) => n + (liveIssuesFor(d).length ? 1 : 0), 0) + dupCustomers().length; }
+
 function viewIssues(){
   const open = S.issues.filter(i => !i.resolved);
-  shell('uyarilar', `<div class="pagehead"><div><h1>Veri uyarıları</h1><p class="lede">Excel'den aktarırken otomatik düzeltilen ya da boş bırakılan alanlar. Kaydı kontrol edip doğruysa "Kontrol edildi" de.</p></div></div>
-  ${open.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Kayıt</th><th class="nosort">Uyarı</th><th class="nosort"></th></tr></thead><tbody>
-  ${open.map(i => { const d = S.deals.find(x => x.id === i.deal_id); return `<tr data-id="${i.deal_id}"><td class="mono">${esc(d?refNo(d):i.record_key)}<div class="sub">${esc(d?custName(d):'')}</div></td><td>${esc(i.message)}</td><td>${can('sales','admin','production')?`<button class="btn sm" data-ok="${i.id}">Kontrol edildi</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="panel empty">Açık uyarı yok.</div>'}`);
-  qa('tr[data-id]').forEach(tr => tr.onclick = e => { if (!e.target.dataset.ok) location.hash = '#/kayit/' + tr.dataset.id; });
+  const groups = CHECKS.map(c => [c, S.deals.filter(c.test)]).filter(([,a]) => a.length);
+  const dups = dupCustomers();
+  const dealCount = cid => S.deals.filter(d => d.customer_id === cid).length;
+  const editable = can('sales','admin','production');
+  shell('uyarilar', `<div class="pagehead"><div><h1>Veri kontrolü</h1><p class="lede">Otomatik kontroller her açılışta yeniden hesaplanır: kaydı düzelttiğinde o satır listeden kendiliğinden düşer. Excel aktarım notları ise kayıt düzenlenip "düzeltildi" işaretlenince kapanır.</p></div></div>
+  ${!groups.length && !dups.length && !open.length ? '<div class="panel empty">Açık sorun yok.</div>' : ''}
+  ${groups.map(([c, arr]) => `<details class="panel" style="margin-bottom:12px" ${arr.length<=15?'open':''}><summary style="cursor:pointer;font-weight:650">${esc(c.title)} <span class="pill st-lost" style="margin-left:6px">${arr.length}</span><div class="note" style="font-weight:400">${esc(c.fix)}</div></summary>
+    <div class="tablewrap mt"><table><tbody>${arr.map(d => `<tr data-id="${d.id}"><td class="mono" style="width:150px">${esc(refNo(d))}</td><td>${esc(custName(d))}<div class="sub">${esc(d.description)}</div></td><td class="sub">${c.show(d)}</td><td style="width:90px">${editable?`<a class="btn sm" href="#/duzenle/${d.id}">Düzelt</a>`:''}</td></tr>`).join('')}</tbody></table></div></details>`).join('')}
+  ${dups.length ? `<details class="panel" style="margin-bottom:12px" open><summary style="cursor:pointer;font-weight:650">Aynı müşteri farklı yazılmış olabilir <span class="pill st-lost" style="margin-left:6px">${dups.length}</span><div class="note" style="font-weight:400">Birleştirince tüm siparişler seçilen kayda taşınır, diğer kayıt silinir.${can('admin')?'':' Birleştirmeyi yönetici yapabilir.'}</div></summary>
+    <div class="tablewrap mt"><table><tbody>${dups.map(a => { const sorted = [...a].sort((x,y) => dealCount(y.id) - dealCount(x.id)); const keep = sorted[0];
+      return `<tr style="cursor:default"><td>${sorted.map(c => `${esc(c.name)} <span class="sub">(${dealCount(c.id)} kayıt, ${esc(ctryName(c.country))})</span>`).join('<br>')}</td>
+      <td style="width:260px">${can('admin') ? sorted.slice(1).map(c => `<button class="btn sm" data-merge="${keep.id}:${c.id}">"${esc(c.name)}" → "${esc(keep.name)}"</button>`).join(' ') : ''}</td></tr>`; }).join('')}</tbody></table></div></details>` : ''}
+  ${open.length ? `<details class="panel" open><summary style="cursor:pointer;font-weight:650">Excel aktarım notları <span class="pill st-archived" style="margin-left:6px">${open.length}</span><div class="note" style="font-weight:400">Aktarırken otomatik düzeltilen ya da boş bırakılan alanlar. Kayıt doğruysa "Doğru" de.</div></summary>
+  <div class="tablewrap mt"><table><tbody>
+  ${open.map(i => { const d = S.deals.find(x => x.id === i.deal_id); return `<tr data-id="${i.deal_id}"><td class="mono" style="width:150px">${esc(d?refNo(d):i.record_key)}<div class="sub">${esc(d?custName(d):'')}</div></td><td>${esc(i.message)}</td><td style="width:170px;white-space:nowrap">${editable?`<a class="btn sm" href="#/duzenle/${i.deal_id}">Düzelt</a> <button class="btn sm" data-ok="${i.id}">Doğru</button>`:''}</td></tr>`; }).join('')}</tbody></table></div></details>` : ''}`);
+  qa('tr[data-id]').forEach(tr => tr.onclick = e => { if (!e.target.closest('button,a')) location.hash = '#/kayit/' + tr.dataset.id; });
   qa('[data-ok]').forEach(b => b.onclick = async () => { const { error } = await sb.from('import_issues').update({ resolved:true }).eq('id', +b.dataset.ok); if (error) return toast(dbErr(error), true); S.issues.find(i=>i.id===+b.dataset.ok).resolved = true; viewIssues(); });
+  qa('[data-merge]').forEach(b => b.onclick = () => mergeCustomers(...b.dataset.merge.split(':').map(Number), viewIssues, b));
+}
+async function mergeCustomers(keep, drop, after, btn){
+  if (btn && btn.dataset.c !== '1') { btn.dataset.c = '1'; btn.textContent = 'Birleştirmeyi onayla'; return; }
+  const { data, error } = await sb.rpc('merge_customers', { p_keep: keep, p_drop: drop });
+  if (error) return toast(dbErr(error), true);
+  await loadAll(); toast(`${data} kayıt birleştirildi`); after();
 }
 
 // ---------------------------------------------------------------- GEÇMİŞ
@@ -750,6 +803,226 @@ function viewImport(){
     const { data: res, error } = await sb.rpc('admin_import', { j: data });
     if (error) { b.disabled = false; b.textContent = 'İçe aktar'; return toast(dbErr(error), true); }
     await loadAll(); toast(`${res.deals} kayıt aktarıldı`); location.hash = '#/rapor';
+  };
+}
+
+// ---------------------------------------------------------------- EXCEL'DEN GÜNCELLEME (yeni satırlar)
+const XL_PROD = {'BB':'BB','BBT':'BBT','1D Copter':'COPTER1D','2D-3D Copter':'COPTER3D','{2D}-3D Copter':'COPTER3D','2D Copter':'COPTER3D','Delta':'DELTA','STW':'STEWART','Pend':'PEND','MRK':'MRK',
+  '4-DoF Acrobot':'ACROBOT','ACROBOT':'ACROBOT','4-Axis':'ARM4','Ard':'ARD','rPi':'RPI','myRIO':'MYRIO','LV':'MYRIO','Mat':'MATLAB','+':'CTRL_PLUS',
+  'SMD-RED EDU Kit':'SMD_EDU','EDU Kit':'SMD_EDU','SMD-RED StarterKit':'SMD_STARTER','Starter Kit':'SMD_STARTER','SMD-Other':'SMD_OTHER','SMD-RED Other':'SMD_OTHER','SMD-RED base kit':'SMD_BASE'};
+const XL_CTRY = {USA:'US',US:'US','US-NC':'US',TUR:'TR',TR:'TR','İZMİR':'TR',GER:'DE',Germany:'DE',GR:'DE',FRA:'FR',France:'FR',FR:'FR',Fransa:'FR',IND:'IN',India:'IN',CA:'CA',Canada:'CA',UK:'GB',
+  Switzerland:'CH',SWI:'CH',CH:'CH',SWZ:'CH',MAL:'MY',Malaysia:'MY',BRA:'BR',BRE:'BR',ITA:'IT',Italy:'IT',TW:'TW',HOL:'NL',NL:'NL',KOR:'KR','S.Korea':'KR',Korea:'KR',KOREA:'KR',BEL:'BE',BE:'BE',
+  KSA:'SA',UAE:'AE',VN:'VN',VIET:'VN',Sweden:'SE',SWE:'SE',Ireland:'IE',Avustralya:'AU',POL:'PL',CHN:'CN',POR:'PT',MO:'MA',SG:'SG',MX:'MX',Mexico:'MX',SA:'ZA',EG:'EG',BAH:'BH',SLO:'SI',NZ:'NZ',
+  FIN:'FI',SPA:'ES',RO:'RO',ROM:'RO',ROMANIA:'RO',NO:'NO',KOSOVA:'XK',ERM:'AM',ARM:'AM',JAPAN:'JP',Ecuador:'EC',EC:'EC',Pakistan:'PK',Palestine:'PS',CHL:'CL',Oman:'OM',AZE:'AZ',Qatar:'QA'};
+const XL_SKIP = ['Current Total','Expected Total','Kaç üretelim','Birim maliyeti','Toplam Maliyeti','GRAND TOTAL','TOPLAM','Kesinleşen','Faturalandırılan','Ayı Ciro','-Shipped'];
+const XL_MONTHS = ['ocak','şubat','mart','nisan','mayıs','haziran','temmuz','ağustos','eylül','ekim','kasım','aralık'];
+
+async function loadXLSX(){
+  if (window.XLSX) return;
+  await new Promise((res, rej) => { const el = document.createElement('script'); el.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; el.onload = res; el.onerror = () => rej(new Error('Excel okuyucu yüklenemedi')); document.head.appendChild(el); });
+}
+function xlNum(v){
+  if (typeof v === 'number') return v;
+  if (v == null || v === '') return null;
+  let t = String(v).replace(/[$€£₺\s]/g,'').replace(/USD|TL|EUR|GBP/gi,'');
+  if (!t) return null;
+  if (t.includes(',') && t.includes('.')) t = t.lastIndexOf(',') > t.lastIndexOf('.') ? t.replace(/\./g,'').replace(',','.') : t.replace(/,/g,'');
+  else if (t.includes(',')) t = /,\d{3}$/.test(t) ? t.replace(/,/g,'') : t.replace(',','.');
+  const n = Number(t); return isFinite(n) ? n : null;
+}
+function xlDate(v, notes, label){
+  if (v == null || v === '' || v === '-') return null;
+  if (typeof v === 'number') { if (v > 20000 && v < 80000) { const p = XLSX.SSF.parse_date_code(v); return `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`; } notes.push(`${label}: okunamayan değer "${v}"`); return null; }
+  let t = String(v).trim().replace('//','/');
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  let y, mo, d;
+  if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+  else if ((m = t.match(/^(\d{1,2})([./])(\d{1,2})\2(\d{4})$/))) {
+    const a = +m[1], b = +m[3]; y = +m[4];
+    if (m[2] === '.' || a > 12) { d = a; mo = b; } else { mo = a; d = b; }
+  } else { notes.push(`${label} (Excel): ${t}`); return null; }
+  if (y > 2030) { notes.push(`${label}: yıl ${y} → ${2000 + y % 100} düzeltildi`); y = 2000 + y % 100; }
+  const dt = new Date(Date.UTC(y, mo-1, d));
+  if (dt.getUTCMonth() !== mo-1) { notes.push(`${label} (Excel): ${t}`); return null; }
+  return dt.toISOString().slice(0,10);
+}
+function xlIds(a){
+  a = String(a || '');
+  const acr = a.match(/ACRPO[\s-]*(I?\d+)(?:[\s-]*(SP\d+|P\d+)\b)?/i);
+  const pr = a.match(/PROS[\s-]*(\d{2})[\s-]*(\d+)(?:[\s-]+(\d+))?/i);
+  return [acr ? 'ACRPO-' + acr[1].toUpperCase() + (acr[2] ? '-' + acr[2].toUpperCase() : '') : null,
+          pr ? 'PROS-' + [pr[1],pr[2],pr[3]].filter(Boolean).map(x => x.padStart(2,'0')).join('-') : null];
+}
+function xlStage(t){
+  t = String(t || '').trim().toLowerCase();
+  if (['won','recieved','received','sp','problem'].includes(t)) return 'won';
+  if (t.includes('lost')) return 'lost'; if (t.includes('advance')) return 'advance';
+  if (t.includes('closing') || t === 'boiling') return 'closing'; if (t.includes('qualify')) return 'qualify';
+  return null;
+}
+function xlCustomer(eu){
+  const parts = eu.split('/').map(x => x.trim());
+  let country = null, name = eu;
+  if (parts.length > 1) { const last = parts[parts.length-1].split(/\s+/)[0]; if (XL_CTRY[parts[parts.length-1]] || XL_CTRY[last]) { country = XL_CTRY[parts[parts.length-1]] || XL_CTRY[last]; name = parts.slice(0,-1).join(' / '); } }
+  name = name.replace(/^[\s-]+|[\s-]+$/g,'') || eu;
+  const known = S.customers.find(c => fold(c.name) === fold(name));
+  if (known) { name = known.name; country = country || known.country; }
+  if (!country) { const low = eu.toLocaleLowerCase('tr'); for (const [kw,cc] of [['malaysia','MY'],['oman','OM'],['usa','US'],['acrome','TR'],['üniversitesi','TR'],['ankara','TR']]) if (low.includes(kw)) { country = cc; break; } }
+  return { name, country };
+}
+// Excel sayfasını satır listesine çevir (Python aktarımıyla aynı kurallar)
+function xlParse(rows, sheetName, formulas){
+  const out = []; let hdr = null, section = null;
+  const norm = v => v == null ? null : String(v).replace(/\s+/g,' ').trim();
+  // aylık toplam formüllerinden satır → ay (yalnızca .xlsx)
+  const rowMonth = {}; const yr = /^\d{4}$/.test(sheetName) ? +sheetName : null;
+  const hdrRow = rows.find(r => r.some(v => norm(v) === 'End User')) || [];
+  const amtCol = hdrRow.findIndex(v => norm(v) === 'Order Amount');
+  if (formulas && yr && amtCol >= 0) for (const [r, cells] of Object.entries(formulas)) {
+    const label = cells.label; if (!label) continue;
+    const mi = XL_MONTHS.findIndex(m => label.toLocaleLowerCase('tr').replace('mayısayı','mayıs ayı').startsWith(m)); if (mi < 0) continue;
+    for (const { col, f } of cells.fs) { if (col !== amtCol) continue; const set = new Set();
+      f.replace(/[A-Z]+(\d+)\s*:\s*[A-Z]+(\d+)/g, (_, a, b) => { for (let i = +a; i <= +b; i++) set.add(i); return ''; }).replace(/[A-Z]+(\d+)/g, (_, a) => { set.add(+a); return ''; });
+      set.forEach(i => rowMonth[i] = `${yr}-${String(mi+1).padStart(2,'0')}`); }
+  }
+  rows.forEach((row, ri) => {
+    const texts = row.map(norm);
+    if (texts.includes('End User')) {
+      hdr = {}; texts.forEach((t,i) => { if (t) hdr[i] = t; }); hdr[0] = 'OrderNo';
+      const a = texts[0] || '';
+      section = /Gönderilmiş/.test(a) ? 'shipped' : /Gelecek|Opp/.test(a) ? 'pipeline' : /Gönderilecek|\^a\^/.test(a) ? 'active' : (section || 'active');
+      return;
+    }
+    if (!hdr) return;
+    if (texts[0] === 'Shipped' && !texts.slice(1,5).some(Boolean)) { section = 'shipped'; return; }
+    const joined = texts.filter(Boolean).join(' ');
+    if (!joined || XL_SKIP.some(k => joined.includes(k)) || ['Total','Expected'].includes(texts[0])) return;
+    if (texts.filter(Boolean).every(t => /^Column \d+$/.test(t))) return;
+    const r = {}; for (const [i,h] of Object.entries(hdr)) if (row[i] != null && row[i] !== '') r[h] = row[i];
+    const eu = norm(r['End User']) || ''; const desc = norm(r['Order Description'] || r['Lead Description']) || '';
+    if (!eu || eu === 'Ün' || eu === 'BB' || /^[\d.,]+$/.test(eu)) return;
+    const notes = [];
+    const [o, p] = xlIds(r.OrderNo);
+    const rawStage = norm(r['Stage'] || r['1-Qualify']) || '';
+    let stage = xlStage(rawStage);
+    let status = stage === 'lost' ? 'lost' : section === 'shipped' ? 'shipped' : section === 'active' ? 'production' : stage === 'won' ? 'production' : 'pipeline';
+    if (!stage) stage = ['production','shipped'].includes(status) ? 'won' : 'qualify';
+    const cust = xlCustomer(eu);
+    let cur = 'USD', orig = null; const n1 = r['NOT1'], n2 = norm(r['NOT2']);
+    if (['GBP','TL','EUR','TRY'].includes(n2)) { cur = n2 === 'TL' ? 'TRY' : n2; orig = xlNum(n1); } else [n1, r['NOT2']].forEach(x => { if (x != null && x !== '') notes.push(String(x)); });
+    const items = {}; for (const [h,c] of Object.entries(XL_PROD)) { const q = xlNum(r[h]); if (q) items[c] = q; }
+    const issues = [];
+    const dt = (k, l) => { const before = notes.length; const v = xlDate(r[k], notes, l); if (notes.length > before) issues.push(notes[notes.length-1]); return v; };
+    const rec = { _row: ri + 1, _section: section, order_no: o, opp_no: p, customer: cust.name, country: cust.country, end_user: eu, description: desc || '(açıklama yok)', stage, status,
+      quote_no: norm(r['Quote No']), order_date: dt('Order Date [mm/dd/yyyy]','Sipariş tarihi'), lead_date: dt('Lead Entry [mm/dd/yyyy]','Fırsat girişi'),
+      expected_po_date: dt('PO Date (Expectation)','Beklenen PO'), requested_ship_date: dt('Requested Shipment Date','İstenen sevk') || dt('Requested Shipment Date (if any)','İstenen sevk'),
+      planned_ship_date: dt('Planned Shipment Date (to be filled by manufacturing)','Planlanan sevk'), ship_date: dt('Shipment Date','Sevk tarihi'),
+      ship_month: rowMonth[ri + 1] || null,
+      details: norm(r['Additional Description']), delay_reason: norm(r['Explanation If Delay']), payment_terms: norm(r['Ödeme Bilgisi']),
+      amount_usd: xlNum(r['Order Amount']), currency: cur, amount_orig: orig, smd_sales_usd: xlNum(r['SMD Sales Total']),
+      is_internal: /-I\d/.test(o || '') || /Acrome/i.test(eu), items, issues, notes: notes.join('\n') || null,
+      source: `Excel güncelleme ${today()} ${sheetName}!${ri + 1}` };
+    const rm = (rec.details || '').match(/(?:Reseller|Distribütör|Distributör|Satıcı)\s*:?\s*([^\n.]+)/i); rec.reseller = rm ? rm[1].trim() : null;
+    if (rawStage === 'Problem') rec.notes = [rec.notes, 'Excel aşaması: Problem'].filter(Boolean).join('\n');
+    if (!rec.country) issues.push(`Ülke belirlenemedi: "${eu}"`);
+    if (rec.status === 'shipped' && !rec.ship_date && !rec.ship_month) issues.push('Gönderilmiş ama Excel\'de sevk tarihi yok');
+    if (rec.status === 'pipeline' && !rec.opp_no) issues.push('Fırsatın PROS numarası yok');
+    out.push(rec);
+  });
+  return out;
+}
+function xlMatch(recs){
+  const byOrder = {}, byOpp = {}, byCD = {};
+  S.deals.forEach(d => { if (d.order_no) byOrder[d.order_no] = d; if (d.opp_no) (byOpp[d.opp_no] = byOpp[d.opp_no] || []).push(d); byCD[fold(custName(d)) + '|' + fold(d.description)] = d; });
+  const res = { add: [], convert: [], diff: [], same: [], clash: [], dupInFile: 0 };
+  const seen = new Set();
+  const F = [['status','Durum',v=>STATUSES[v]],['stage','Aşama',v=>STAGES[v]],['order_date','Sipariş tarihi',fmtD],['requested_ship_date','İstenen sevk',fmtD],['planned_ship_date','Planlanan sevk',fmtD],['ship_date','Sevk tarihi',fmtD],['ship_month','Sevk ayı',fmtM],['amount_usd','Tutar',fmtUSD]];
+  for (const r of recs) {
+    const k = r.order_no || r.opp_no || fold(r.customer) + '|' + fold(r.description);
+    if (seen.has(k)) { res.dupInFile++; continue; } seen.add(k);
+    let d = r.order_no ? byOrder[r.order_no] : null, conv = null;
+    if (!d && r.order_no && r.opp_no) conv = (byOpp[r.opp_no] || []).find(x => !x.order_no);
+    if (!d && !conv && !r.order_no && r.opp_no) d = (byOpp[r.opp_no] || [])[0];
+    if (!d && !conv) d = byCD[fold(r.customer) + '|' + fold(r.description)];
+    if (conv) { res.convert.push({ r, d: conv }); continue; }
+    if (!d) { res.add.push({ r }); continue; }
+    if (r.order_no && d.order_no === r.order_no && fold(custName(d)).slice(0,4) !== fold(r.customer).slice(0,4) && fold(d.description).slice(0,8) !== fold(r.description).slice(0,8)) { res.clash.push({ r, d }); continue; }
+    const changes = F.filter(([f]) => r[f] != null && r[f] !== '' && String(r[f]) !== String(d[f] ?? '') && !(f === 'amount_usd' && Math.abs(+r[f] - +d[f]) < 0.5)
+      && !(f === 'ship_month' && d.ship_date) && !(f === 'status' && d.status === 'archived'));
+    if (changes.length) res.diff.push({ r, d, changes: changes.map(([f,l,fmt]) => ({ f, l, from: fmt(d[f]), to: fmt(r[f]) })) });
+    else res.same.push({ r, d });
+  }
+  return res;
+}
+function viewSync(){
+  shell('excel', `<h1>Excel'den güncelle</h1>
+  <p class="lede">Excel'e girişe devam ederken sitedeki veriyi güncel tutmak için: Google Sheets'te ilgili sayfayı <b>Dosya → İndir → .xlsx</b> (önerilen) ya da <b>.csv</b> olarak indir ve buraya yükle. Sistem kayıtları ACRPO / PROS numarasına göre karşılaştırır; <b>yalnızca yeni satırları ekler</b>, mevcut kayıtlara dokunmaz.</p>
+  <div class="fs" style="max-width:720px">
+    <div class="row r2"><label class="f">Dosya (.xlsx veya .csv)<input type="file" id="xf" accept=".xlsx,.xls,.csv,text/csv"></label>
+    <label class="f">Sayfa<select id="xs" disabled><option>Önce dosya seç</option></select></label></div>
+    <p class="note" id="xi">.xlsx dosyasında tarihler ve Excel'in aylık toplam formülleri de okunur (sevk ayı buradan çıkar). .csv'de tarihler ay/gün/yıl kabul edilir.</p>
+  </div><div id="xr"></div>`);
+  let wb = null, isCsv = false;
+  const run = () => {
+    const name = q('#xs').value; const ws = wb.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:null, blankrows:true });
+    let formulas = null;
+    if (!isCsv) { formulas = {}; for (const addr of Object.keys(ws)) { if (addr[0] === '!') continue; const c = ws[addr], rr = XLSX.utils.decode_cell(addr).r + 1;
+      if (c.t === 's' && /Ay[ıi]\s*:?\s*$|Ayı\s*:/.test(String(c.v)) ) (formulas[rr] = formulas[rr] || { fs: [] }).label = String(c.v).trim();
+      if (c.f) (formulas[rr] = formulas[rr] || { fs: [] }).fs.push({ col: XLSX.utils.decode_cell(addr).c, f: c.f }); } }
+    const recs = xlParse(rows, isCsv ? (q('#xs').dataset.year || '') : name, formulas);
+    renderSync(recs, xlMatch(recs), name);
+  };
+  q('#xf').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    q('#xi').textContent = 'Okunuyor…';
+    try { await loadXLSX(); } catch (err) { q('#xi').textContent = err.message; return; }
+    isCsv = /\.csv$/i.test(f.name);
+    try { wb = isCsv ? XLSX.read(await f.text(), { type:'string', raw:true }) : XLSX.read(await f.arrayBuffer(), { type:'array', cellFormula:true, cellDates:false }); }
+    catch (err) { q('#xi').textContent = 'Dosya okunamadı: ' + err.message; return; }
+    const names = wb.SheetNames.filter(n => !/^W\d/.test(n));
+    const sel = q('#xs'); sel.disabled = false;
+    sel.innerHTML = names.map(n => `<option ${n === '2026' || (isCsv) ? 'selected' : ''}>${esc(n)}</option>`).join('');
+    if (isCsv) { const m = f.name.match(/(20\d\d)/); sel.dataset.year = m ? m[1] : ''; }
+    q('#xi').textContent = `${f.name}: ${names.length} sayfa.`;
+    sel.onchange = run; run();
+  };
+}
+function renderSync(recs, m, sheet){
+  const T = (arr, cols, key, checked) => arr.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort" style="width:34px"><input type="checkbox" data-all="${key}" ${checked?'checked':''} aria-label="Hepsini seç"></th>${cols.map(c=>`<th class="nosort">${c}</th>`).join('')}</tr></thead><tbody>${arr.map((x,i) => `<tr style="cursor:default"><td><input type="checkbox" data-k="${key}" data-i="${i}" ${checked?'checked':''} aria-label="Seç"></td>${x.cells}</tr>`).join('')}</tbody></table></div>` : '<p class="note">Yok.</p>';
+  const addRows = m.add.map(({r}) => ({ cells: `<td class="mono">${esc(r.order_no || r.opp_no || '—')}</td><td>${esc(r.customer)}<div class="sub">${esc(ctryName(r.country))}</div></td><td>${esc(r.description)}<div class="items">${Object.entries(r.items).map(([c,q])=>`<span>${fmtN(q)}× ${esc(prodName(c))}</span>`).join('')}</div></td><td>${pill(r.status)}</td><td>${fmtD(r.order_date || r.lead_date)}</td><td class="num">${fmtUSD(r.amount_usd)}</td><td class="sub">${r.issues.map(esc).join('<br>')}</td>` }));
+  const convRows = m.convert.map(({r,d}) => ({ cells: `<td class="mono">${esc(d.opp_no)} → ${esc(r.order_no)}</td><td>${esc(custName(d))}</td><td>${esc(r.description)}</td><td>${pill(d.status)} → ${pill(r.status)}</td><td class="num">${fmtUSD(r.amount_usd)}</td>` }));
+  const diffRows = m.diff.map(({r,d,changes}) => ({ cells: `<td class="mono"><a href="#/kayit/${d.id}">${esc(refNo(d))}</a>${d.updated_by?'<div class="sub" style="color:var(--amber)">sitede düzenlenmiş</div>':''}</td><td>${esc(custName(d))}</td><td>${changes.map(c=>`<div><b>${c.l}:</b> ${esc(c.from)} → ${esc(c.to)}</div>`).join('')}</td>` }));
+  q('#xr').innerHTML = `
+    <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      <div class="kpi"><div class="v">${m.add.length}</div><div class="l">Yeni kayıt</div><div class="d">eklenecek</div></div>
+      <div class="kpi"><div class="v">${m.convert.length}</div><div class="l">Fırsattan siparişe dönen</div><div class="d">mevcut fırsat güncellenecek</div></div>
+      <div class="kpi"><div class="v">${m.diff.length}</div><div class="l">Excel'de farklı görünen</div><div class="d">varsayılan: dokunulmaz</div></div>
+      <div class="kpi"><div class="v">${m.same.length}</div><div class="l">Aynı</div><div class="d">${recs.length} satır okundu · ${sheet}</div></div>
+    </div>
+    ${m.clash.length ? `<div class="banner mt"><b>Numara çakışması (${m.clash.length}):</b> Excel'deki satır, sitede başka müşteriye ait bir sipariş numarasını kullanıyor. Bunlar uygulanmaz; Excel'de numarayı düzelt.<br>${m.clash.map(({r,d}) => `${esc(r.order_no)}: Excel "${esc(r.customer)} – ${esc(r.description)}" · Site "${esc(custName(d))} – ${esc(d.description)}"`).join('<br>')}</div>` : ''}
+    <section class="mt"><h2>Yeni kayıtlar</h2>${T(addRows, ['No','Müşteri','Açıklama','Durum','Tarih','Tutar','Not'], 'add', true)}</section>
+    <section class="mt"><h2>Fırsattan siparişe dönenler</h2><p class="note">Excel'de ACRPO numarası almış, sitede hâlâ fırsat olan kayıtlar. Yeni kayıt açılmaz; mevcut fırsat siparişe çevrilir.</p>${T(convRows, ['Numara','Müşteri','Açıklama','Durum','Tutar'], 'conv', true)}</section>
+    <section class="mt"><h2>Excel'de farklı görünenler</h2><p class="note">Sitede düzeltilmiş veriyi bozmamak için bunlar varsayılan olarak <b>uygulanmaz</b>. Excel'deki değer doğruysa işaretle.</p>${T(diffRows, ['Kayıt','Müşteri','Fark (site → Excel)'], 'diff', false)}</section>
+    <div class="mt" style="display:flex;gap:10px;align-items:center"><button class="btn primary" id="xa">Seçilenleri uygula</button><span class="note" id="xn"></span></div>`;
+  const count = () => { const n = k => qa(`[data-k="${k}"]:checked`).length; q('#xn').textContent = `${n('add')} yeni, ${n('conv')} dönüşüm, ${n('diff')} güncelleme uygulanacak.`; };
+  qa('[data-all]').forEach(a => a.onchange = () => { qa(`[data-k="${a.dataset.all}"]`).forEach(c => c.checked = a.checked); count(); });
+  qa('[data-k]').forEach(c => c.onchange = count); count();
+  q('#xa').onclick = async () => {
+    const pick = k => qa(`[data-k="${k}"]:checked`).map(c => +c.dataset.i);
+    const strip = r => { const { _row, _section, end_user, ...x } = r; return x; };
+    const inserts = pick('add').map(i => strip(m.add[i].r));
+    const updates = [
+      ...pick('conv').map(i => { const { r, d } = m.convert[i]; const fields = { order_no: r.order_no, stage: 'won', status: r.status };
+        for (const f of ['order_date','requested_ship_date','planned_ship_date','ship_date','amount_usd','payment_terms']) if (r[f] != null) fields[f] = r[f];
+        return { id: d.id, fields, items: Object.keys(d.items||{}).length ? undefined : r.items }; }),
+      ...pick('diff').map(i => { const { r, d, changes } = m.diff[i]; const fields = {}; changes.forEach(c => fields[c.f] = r[c.f]); if (fields.status && ['production','shipped'].includes(fields.status)) fields.stage = 'won'; if (fields.status === 'lost') fields.stage = 'lost'; return { id: d.id, fields }; }),
+    ];
+    if (!inserts.length && !updates.length) return toast('Seçili satır yok', true);
+    const b = q('#xa'); b.disabled = true; b.textContent = 'Uygulanıyor…';
+    const { data, error } = await sb.rpc('admin_sync', { p: { inserts, updates } });
+    if (error) { b.disabled = false; b.textContent = 'Seçilenleri uygula'; return toast(dbErr(error), true); }
+    await loadAll(); toast(`${data.inserted} yeni kayıt eklendi, ${data.updated} kayıt güncellendi`); viewSync();
   };
 }
 
