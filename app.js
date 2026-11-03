@@ -266,18 +266,24 @@ function board(prod){
 }
 
 // ---------------------------------------------------------------- LİSTE
-const listState = { q:'', year:'', country:'', product:'', sort:'date', dir:-1 };
+const listState = { q:'', year:'', month:'', basis:'', country:'', product:'', sort:'date', dir:-1 };
+const MONTHS_LONG = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+const BASES = { order:['Sipariş tarihi', d => d.order_date || d.lead_date], ship:['Sevk tarihi', d => d.ship_date || d.requested_ship_date || d.order_date], due:['İstenen sevk', d => d.requested_ship_date], lead:['Fırsat girişi', d => d.lead_date || d.order_date] };
+const defBasis = tab => tab === 'shipped' ? 'ship' : tab === 'pipeline' || tab === 'lost' || tab === 'archived' ? 'lead' : 'order';
 function viewList(tab){
   const T = today();
   const tabs = { production:'Üretimde', pipeline:'Fırsatlar', shipped:'Gönderilenler', lost:'Kaybedilenler', archived:'Arşiv', all:'Tümü' };
   const base = tab === 'all' ? S.deals : S.deals.filter(d => d.status === tab);
-  const years = [...new Set(base.map(d => yearOf(d.order_date || d.lead_date)).filter(Boolean))].sort().reverse();
+  if (listState._tab !== tab) { listState._tab = tab; listState.basis = defBasis(tab); listState.year = ''; listState.month = ''; }
+  const bdate = BASES[listState.basis][1];
+  const years = [...new Set(base.map(d => yearOf(bdate(d))).filter(Boolean))].sort().reverse();
   const ctrs = [...new Set(base.map(d => d.country).filter(Boolean))].sort((a,b)=>ctryName(a).localeCompare(ctryName(b),'tr'));
   const draw = () => {
     const s = listState, ql = s.q.toLocaleLowerCase('tr');
     let rows = base.filter(d =>
       (!ql || [d.order_no,d.opp_no,custName(d),d.description,d.details,d.reseller,d.notes].join(' ').toLocaleLowerCase('tr').includes(ql)) &&
-      (!s.year || yearOf(d.order_date || d.lead_date) === +s.year) &&
+      (!s.year || yearOf(bdate(d)) === +s.year) &&
+      (!s.month || (bdate(d) && +bdate(d).slice(5,7) === +s.month)) &&
       (!s.country || d.country === s.country) &&
       (!s.product || (d.items||{})[s.product]));
     const key = { date: d => d.order_date || d.lead_date || '', due: d => d.requested_ship_date || '9999', cust: d => custName(d).toLocaleLowerCase('tr'), amt: d => +d.amount_usd||0, ref: d => refNo(d) }[s.sort];
@@ -298,7 +304,7 @@ function viewList(tab){
         <td>${fmtD(d.order_date || d.lead_date)}</td><td class="${lt?'late-txt':''}">${fmtD(d.requested_ship_date)}${lt?`<div class="sub late-txt">${days(d.requested_ship_date,T)} gün gecikti</div>`:''}</td>
         ${tab==='shipped'?`<td>${fmtD(d.ship_date)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}
         <td class="num">${fmtUSD(d.amount_usd)}${d.currency!=='USD'&&d.amount_orig?`<div class="sub">${fmtN(d.amount_orig)} ${d.currency}</div>`:''}</td></tr>`; }).join('')}
-      <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'?6:5}">${rows.length} kayıt</td><td class="num">${fmtUSD(total)}</td></tr>
+      <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
       </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${can('sales','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
     qa('#tbl th[data-s]').forEach(th => th.onclick = () => { const k = th.dataset.s; if (s.sort===k) s.dir*=-1; else { s.sort=k; s.dir = k==='cust'||k==='ref'||k==='due' ? 1 : -1; } draw(); });
     qa('#tbl tr[data-id]').forEach(tr => tr.onclick = () => location.hash = '#/kayit/' + tr.dataset.id);
@@ -311,13 +317,17 @@ function viewList(tab){
     <div class="toolbar"><div class="seg">${Object.entries(tabs).map(([k,v])=>`<button data-t="${k}" class="${k===tab?'on':''}">${v}</button>`).join('')}</div></div>
     <div class="toolbar">
       <input type="search" id="fq" placeholder="Ara: no, müşteri, açıklama…" value="${esc(listState.q)}" aria-label="Ara">
+      <select id="fb" aria-label="Tarih esası" title="Yıl ve ay filtresi bu tarihe göre uygulanır">${Object.entries(BASES).map(([k,[l]])=>`<option value="${k}" ${listState.basis===k?'selected':''}>Tarih: ${l}</option>`).join('')}</select>
       <select id="fy" aria-label="Yıl"><option value="">Tüm yıllar</option>${years.map(y=>`<option ${+listState.year===y?'selected':''}>${y}</option>`).join('')}</select>
+      <select id="fm" aria-label="Ay"><option value="">Tüm aylar</option>${MONTHS_LONG.map((m,i)=>`<option value="${i+1}" ${+listState.month===i+1?'selected':''}>${m}</option>`).join('')}</select>
       <select id="fc" aria-label="Ülke"><option value="">Tüm ülkeler</option>${ctrs.map(c=>`<option value="${c}" ${listState.country===c?'selected':''}>${esc(ctryName(c))}</option>`).join('')}</select>
       <select id="fp" aria-label="Ürün"><option value="">Tüm ürünler</option>${S.products.map(p=>`<option value="${p.code}" ${listState.product===p.code?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
     </div><div class="tablewrap" id="tbl"></div>`);
   qa('[data-t]').forEach(b => b.onclick = () => location.hash = '#/kayitlar/' + b.dataset.t);
   q('#fq').oninput = e => { listState.q = e.target.value; draw(); };
   q('#fy').onchange = e => { listState.year = e.target.value; draw(); };
+  q('#fm').onchange = e => { listState.month = e.target.value; draw(); };
+  q('#fb').onchange = e => { listState.basis = e.target.value; viewList(tab); };
   q('#fc').onchange = e => { listState.country = e.target.value; draw(); };
   q('#fp').onchange = e => { listState.product = e.target.value; draw(); };
   draw();
