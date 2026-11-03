@@ -48,6 +48,7 @@ h3{font-weight:650;font-size:15px;margin:0 0 8px}
 .lede{color:var(--muted);margin:0 0 24px;max-width:70ch}
 .pagehead{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px}
 .pagehead .lede{margin:0}
+.pagehead .pill{align-self:center}
 
 /* ---------- controls ---------- */
 .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);padding:8px 14px;border-radius:var(--radius);cursor:pointer;font-weight:550;text-decoration:none;color:var(--ink);white-space:nowrap}
