@@ -89,7 +89,7 @@ function renderAuth(mode='in'){
     <p class="note">${up?'Hesabın oluşturulduktan sonra bir yönetici yetki verene kadar verileri göremezsin.':reset?'E-posta adresine sıfırlama bağlantısı gönderilir.':'Acrome ekip hesabınla giriş yap.'}</p>
     <form id="af" novalidate>
       ${up?`<label class="f">Ad soyad<input name="name" type="text" required autocomplete="name"></label>`:''}
-      <label class="f">E-posta<input name="email" type="email" required autocomplete="email"></label>
+      <label class="f">E-posta${up?' <span class="hint">@acrome.net adresin</span>':''}<input name="email" type="email" required autocomplete="email" ${up?'placeholder="ad.soyad@acrome.net"':''}></label>
       ${reset?'':`<label class="f">Şifre${up?' <span class="hint">en az 8 karakter</span>':''}<input name="pw" type="password" required minlength="${up?8:1}" autocomplete="${up?'new-password':'current-password'}"></label>`}
       <div class="err-box" id="aerr"></div>
       <button class="btn primary" type="submit">${reset?'Bağlantı gönder':up?'Hesap oluştur':'Giriş yap'}</button>
@@ -101,6 +101,7 @@ function renderAuth(mode='in'){
     e.preventDefault(); const f = new FormData(e.target); const err = q('#aerr'); err.textContent = '';
     const email = String(f.get('email')||'').trim(), pw = String(f.get('pw')||'');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { err.textContent = 'Geçerli bir e-posta gir.'; return; }
+    if (up && !/@acrome\.net$/i.test(email)) { err.textContent = 'Yalnızca @acrome.net adresiyle hesap açılabilir.'; return; }
     let r;
     if (reset) { r = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (!r.error) { err.style.color='var(--green)'; err.textContent='Bağlantı gönderildi, e-postanı kontrol et.'; return; } }
     else if (up) {
@@ -108,7 +109,7 @@ function renderAuth(mode='in'){
       r = await sb.auth.signUp({ email, password: pw, options:{ data:{ full_name:String(f.get('name')||'').trim() }, emailRedirectTo: location.origin + location.pathname } });
       if (!r.error && !r.data.session) { err.style.color='var(--green)'; err.textContent='Hesap oluşturuldu. E-postana gelen bağlantıyla doğrula, sonra giriş yap.'; return; }
     } else r = await sb.auth.signInWithPassword({ email, password: pw });
-    if (r.error) err.textContent = /Invalid login/.test(r.error.message) ? 'E-posta veya şifre hatalı.' : /not confirmed/.test(r.error.message) ? 'E-posta adresini henüz doğrulamadın.' : r.error.message;
+    if (r.error) err.textContent = /Database error saving new user|acrome\.net/.test(r.error.message) ? 'Yalnızca @acrome.net adresiyle hesap açılabilir.' : /Invalid login/.test(r.error.message) ? 'E-posta veya şifre hatalı.' : /not confirmed/.test(r.error.message) ? 'E-posta adresini henüz doğrulamadın.' : r.error.message;
   };
 }
 function renderPending(){
