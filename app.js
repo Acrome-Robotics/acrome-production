@@ -127,6 +127,7 @@ function shell(active, html){
   const openIssues = S.issues.filter(i => !i.resolved).length;
   const nav = [
     ['rapor','Rapor'],
+    ['gonderim','Aylık gönderim raporu'],
     ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
     ['kayitlar/pipeline','Açık fırsatlar', cnt('pipeline')],
     ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
@@ -155,6 +156,7 @@ function route(){
   window.scrollTo(0,0);
   switch(p){
     case 'kayitlar': return viewList(a || 'all');
+    case 'gonderim': return viewShipments();
     case 'yeni': return can('sales','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
     case 'duzenle': return viewForm(+a);
@@ -327,6 +329,91 @@ function csv(rows, name){
   const cell = v => { v = v==null?'':String(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
   const txt = '﻿' + [cols.map(c=>c[0]).join(';'), ...rows.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'})); a.download = name; a.click();
+}
+
+// ---------------------------------------------------------------- AYLIK GÖNDERİM RAPORU
+const shipState = { year: null, month: '', exactOnly: false, cat: 'all' };
+const shipDate = d => d.ship_date || d.requested_ship_date || d.order_date || null;
+function viewShipments(){
+  const all = S.deals.filter(d => d.status === 'shipped' && shipDate(d));
+  const years = [...new Set(all.map(d => yearOf(shipDate(d))))].sort();
+  if (!shipState.year || !years.includes(shipState.year)) shipState.year = years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years[years.length-1];
+  const st = shipState, Y = st.year;
+  const pool = all.filter(d => yearOf(shipDate(d)) === Y && (!st.exactOnly || d.ship_date));
+  const inMonth = d => !st.month || +shipDate(d).slice(5,7) === +st.month;
+  const rows = pool.filter(inMonth).sort((a,b) => shipDate(a) < shipDate(b) ? -1 : 1);
+  const live = rows.filter(d => !d.is_internal);
+  const sum = a => a.reduce((t,d) => t + (+d.amount_usd||0), 0);
+  const est = rows.filter(d => !d.ship_date).length;
+  const prods = S.products.filter(p => st.cat === 'all' || p.category === st.cat);
+  const unitsOf = arr => { const u = {}; arr.forEach(d => Object.entries(d.items||{}).forEach(([c,q]) => u[c] = (u[c]||0) + +q)); return u; };
+  const sysUnits = Object.entries(unitsOf(rows)).filter(([c]) => (S.products.find(p=>p.code===c)||{}).category === 'sistem').reduce((t,[,q]) => t+q, 0);
+
+  // aylık seriler
+  const byM = Array.from({length:12}, (_,i) => pool.filter(d => +shipDate(d).slice(5,7) === i+1));
+  const mVal = byM.map(a => sum(a.filter(d=>!d.is_internal))), mMax = Math.max(1, ...mVal);
+  const mUnits = byM.map(unitsOf);
+  const usedProds = prods.filter(p => mUnits.some(u => u[p.code]));
+  const canShip = can('production','sales','admin');
+
+  shell('gonderim', `
+  <div class="pagehead"><div><h1>Aylık gönderim raporu</h1>
+    <p class="lede">Gönderilmiş siparişler sevk ayına göre. Sevk tarihi girilmemiş siparişlerde istenen sevk tarihi kullanılır ve listede ≈ ile gösterilir.</p></div>
+    <div style="display:flex;gap:8px"><button class="btn" id="scsv">CSV indir</button></div></div>
+  <div class="toolbar">
+    <label class="f" style="width:120px">Yıl<select id="sy">${years.map(y=>`<option ${y===Y?'selected':''}>${y}</option>`).join('')}</select></label>
+    <label class="f" style="width:150px">Ay<select id="sm"><option value="">Tüm yıl</option>${MONTHS.map((m,i)=>`<option value="${i+1}" ${+st.month===i+1?'selected':''}>${['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'][i]}</option>`).join('')}</select></label>
+    <label class="f" style="width:170px">Ürün grubu<select id="sc"><option value="all">Tümü</option>${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${st.cat===k?'selected':''}>${v}</option>`).join('')}</select></label>
+    <label style="display:flex;gap:6px;align-items:center;margin-top:20px;font-size:13px"><input type="checkbox" id="sx" ${st.exactOnly?'checked':''}> Sadece sevk tarihi girilmiş olanlar</label>
+  </div>
+  ${est ? `<div class="banner">${rows.length} gönderimin <b>${est}</b> tanesinde sevk tarihi girilmemiş; bu kayıtlar istenen sevk tarihine göre sayıldı.${canShip?' Listeden gerçek sevk tarihini girebilirsin.':''}</div>` : ''}
+
+  <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="kpi"><div class="v">${rows.length}</div><div class="l">Gönderilen sipariş</div><div class="d">${st.month?MONTHS[st.month-1]+' '+Y:Y}</div></div>
+    <div class="kpi"><div class="v">${fmtK(sum(live))}</div><div class="l">Gönderilen tutar</div><div class="d">dahili siparişler hariç</div></div>
+    <div class="kpi"><div class="v">${fmtN(sysUnits)}</div><div class="l">Deney seti adedi</div><div class="d">kontrolcü ve SMD hariç</div></div>
+    <div class="kpi"><div class="v">${new Set(rows.map(d=>d.country).filter(Boolean)).size}</div><div class="l">Ülke</div><div class="d">${new Set(rows.map(d=>d.customer_id)).size} müşteri</div></div>
+  </div>
+
+  <section class="panel"><h2>${Y} aylık gönderim tutarı</h2>
+    <p class="note" style="margin-top:-6px">Bir aya tıklayınca liste o aya filtrelenir.</p>
+    <div class="bars" style="height:200px">${mVal.map((v,i)=>`<button class="m" data-m="${i+1}" style="border:0;background:${+st.month===i+1?'var(--brand-soft)':'none'};cursor:pointer;border-radius:4px;padding:2px 0" title="${MONTHS[i]}: ${byM[i].length} sipariş, ${fmtUSD(v)}" aria-label="${MONTHS[i]}: ${byM[i].length} sipariş"><span style="font-size:11px;color:var(--muted)">${byM[i].length||''}</span><div class="pair"><div class="b" style="height:${v/mMax*100}%;width:60%;max-width:28px"></div></div><div class="lbl">${MONTHS[i]}</div></button>`).join('')}</div>
+  </section>
+
+  <section class="mt"><h2>Aylara göre gönderilen ürün adetleri — ${Y}</h2>
+    <div class="tablewrap"><table><thead><tr><th class="nosort">Ürün</th>${MONTHS.map((m,i)=>`<th class="nosort num" style="${+st.month===i+1?'color:var(--brand)':''}">${m}</th>`).join('')}<th class="nosort num">Toplam</th></tr></thead><tbody>
+    ${usedProds.length ? usedProds.map(p => { const t = mUnits.reduce((s,u)=>s+(u[p.code]||0),0); return `<tr style="cursor:default"><td>${esc(p.name)}</td>${mUnits.map((u,i)=>`<td class="num" style="${+st.month===i+1?'background:var(--brand-soft)':''}">${u[p.code]?fmtN(u[p.code]):''}</td>`).join('')}<td class="num"><b>${fmtN(t)}</b></td></tr>`; }).join('') : `<tr><td colspan="14" class="empty">Bu yıl ürün kalemi olan gönderim yok.</td></tr>`}
+    </tbody></table></div></section>
+
+  <section class="mt"><h2>Gönderilen siparişler${st.month?' — '+MONTHS[st.month-1]+' '+Y:' — '+Y}</h2>
+    <div class="tablewrap">${rows.length ? `<table><thead><tr><th class="nosort">Sevk</th><th class="nosort">No</th><th class="nosort">Müşteri</th><th class="nosort">Açıklama / ürünler</th><th class="nosort num">Tutar</th></tr></thead><tbody>
+    ${rows.map(d => `<tr data-id="${d.id}"><td style="white-space:nowrap">${d.ship_date ? fmtD(d.ship_date) : `<span title="Sevk tarihi girilmemiş; istenen sevk tarihi">≈ ${fmtD(shipDate(d))}</span>${canShip?`<div><input type="date" class="shipin" data-sid="${d.id}" max="${today()}" min="${d.order_date||MIN_DATE}" aria-label="Gerçek sevk tarihi" style="min-height:28px;padding:2px 6px;font-size:12px;margin-top:4px;width:140px"></div>`:''}`}</td>
+      <td class="mono">${esc(refNo(d))}</td><td>${esc(custName(d))}<div class="sub">${esc(ctryName(d.country))}</div></td>
+      <td>${esc(d.description)}<div class="items">${Object.entries(d.items||{}).map(([c,q])=>`<span>${fmtN(q)}× ${esc(prodName(c))}</span>`).join('')}</div></td>
+      <td class="num">${fmtUSD(d.amount_usd)}${d.is_internal?'<div class="sub">dahili</div>':''}</td></tr>`).join('')}
+    <tr class="tfoot"><td colspan="4">${rows.length} sipariş</td><td class="num">${fmtUSD(sum(live))}</td></tr></tbody></table>` : '<div class="empty">Bu dönemde gönderim yok.</div>'}</div></section>`);
+
+  q('#sy').onchange = e => { st.year = +e.target.value; viewShipments(); };
+  q('#sm').onchange = e => { st.month = e.target.value; viewShipments(); };
+  q('#sc').onchange = e => { st.cat = e.target.value; viewShipments(); };
+  q('#sx').onchange = e => { st.exactOnly = e.target.checked; viewShipments(); };
+  qa('.bars [data-m]').forEach(b => b.onclick = () => { st.month = String(+st.month === +b.dataset.m ? '' : b.dataset.m); viewShipments(); });
+  qa('tr[data-id]').forEach(tr => tr.onclick = e => { if (!e.target.classList.contains('shipin')) location.hash = '#/kayit/' + tr.dataset.id; });
+  qa('.shipin').forEach(inp => inp.onchange = async () => {
+    const d = S.deals.find(x => x.id === +inp.dataset.sid); const v = inp.value; if (!v) return;
+    if (v > today()) return toast('Sevk tarihi gelecekte olamaz', true);
+    if (d.order_date && v < d.order_date) return toast('Sevk tarihi sipariş tarihinden önce olamaz', true);
+    const { items, customer_name, ...deal } = d;
+    const { error } = await sb.rpc('save_deal', { p_deal: { ...deal, ship_date: v }, p_items: null, p_customer_name: null, p_customer_country: null });
+    if (error) return toast(dbErr(error), true);
+    d.ship_date = v; toast(`${refNo(d)} sevk tarihi kaydedildi`); viewShipments();
+  });
+  q('#scsv').onclick = () => {
+    const cols = [['Sevk tarihi',d=>d.ship_date||''],['Tarih esası',d=>d.ship_date?'Sevk tarihi':'İstenen sevk (tahmini)'],['Rapor tarihi',shipDate],['No',refNo],['Müşteri',custName],['Ülke',d=>ctryName(d.country)],['Açıklama',d=>d.description],['Tutar USD',d=>d.amount_usd],['Dahili',d=>d.is_internal?'Evet':''],...S.products.map(p=>[p.name,d=>(d.items||{})[p.code]||''])];
+    const cell = v => { v = v==null?'':String(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+    const txt = '﻿' + [cols.map(c=>c[0]).join(';'), ...rows.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'})); a.download = `acrome-gonderim-${Y}${st.month?'-'+String(st.month).padStart(2,'0'):''}.csv`; a.click();
+  };
 }
 
 // ---------------------------------------------------------------- DETAY
