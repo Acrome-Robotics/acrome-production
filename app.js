@@ -154,6 +154,7 @@ function shell(active, html){
     ...(can('sales','support','admin') ? [['yeni','Yeni kayıt']] : []),
     ['hr'],
     ['support','Support', supOpenCount() || ''],
+    ['bildirimler','Bildirimler', S.unread || ''],
     ['hr'],
     ['kaynaklar','Kaynak tablolar'],
     ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || ''],
@@ -191,6 +192,7 @@ function route(){
     case 'excel': return can('admin') ? viewSync() : viewReport();
     case 'support': return a ? viewTicket(+a) : viewSupport();
     case 'support-yeni': return canSup() ? viewTicketNew() : viewSupport();
+    case 'bildirimler': return viewNotifications();
     default: return viewReport();
   }
 }
@@ -478,6 +480,7 @@ function viewDetail(id){
     ${Object.keys(d.items||{}).length ? `<table class="mt"><tbody>${Object.entries(d.items).map(([c,q])=>`<tr style="cursor:default"><td>${esc(prodName(c))}</td><td class="num">${fmtN(q)}</td></tr>`).join('')}</tbody></table>`:'<p class="note">Ürün kalemi yok.</p>'}
     </section>
   </div>
+  ${(S.tickets||[]).some(x => x.deal_id === d.id) ? `<section class="panel mt"><h2>Support konuları</h2><ul class="sugg">${S.tickets.filter(x => x.deal_id === d.id).map(x => `<li><a href="#/support/${x.id}"><span class="mono">#${x.id}</span> ${esc(x.subject)}</a> ${supPill(x.status)} <span class="sub">${fmtD(x.opened_at.slice(0,10))}</span></li>`).join('')}</ul></section>` : ''}
   <section class="panel mt"><h2>Açıklama ve notlar</h2><dl class="kv">${kv('Detay', esc(d.details))}${kv('Not', esc(d.notes))}${kv('Kaynak', esc(d.source))}${kv('Son güncelleme', new Date(d.updated_at).toLocaleString('tr-TR'))}</dl></section>`);
   const del = q('#del');
   if (del) del.onclick = async () => {
@@ -1043,10 +1046,12 @@ let supPeople = null;
 
 async function loadSupport(){
   const { data, error } = await sb.from('support_tickets')
-    .select('id,subject,category,status,priority,product,customer_name,organization,country,contact_email,assignee,summary,resolution,tags,gmail_thread_ids,basecamp_urls,opened_at,last_activity_at,last_inbound_at,last_outbound_at,closed_at,created_at,updated_at')
+    .select('id,subject,category,status,priority,product,customer_name,organization,country,contact_email,assignee,summary,resolution,tags,gmail_thread_ids,basecamp_urls,opened_at,last_activity_at,last_inbound_at,last_outbound_at,closed_at,created_at,updated_at,deal_id,deal_link_source,ai_updated_at')
     .order('last_activity_at', { ascending:false }).range(0, 4999);
   if (error) { S.tickets = S.tickets || []; S.supErr = error.message; return; }
   S.tickets = data; S.supErr = null;
+  const n = await sb.from('support_notifications').select('id', { count:'exact', head:true }).is('read_at', null);
+  S.unread = n.error ? 0 : (n.count || 0);
 }
 async function people(){
   if (supPeople) return supPeople;
@@ -1073,8 +1078,16 @@ function supWait(t){
   }
   return null;
 }
+const dealNo = id => (S.deals.find(d => d.id === id) || {}).order_no || ('#' + id);
 const canSup = () => can('support','admin');
 const supOrgKey = t => { const d = (t.contact_email||'').split('@')[1]||''; const free = /^(gmail|hotmail|outlook|yahoo|icloud|live|163|qq)\./i.test(d); return { org: fold(String(t.organization||'').replace(/\(.*?\)/g,'')), dom: free ? '' : d.toLowerCase() }; };
+// e-posta akışına göre durum: cevap bekliyor mu, cevaplandı mı, hiç mail yok mu
+function mailState(t){
+  const i = t.last_inbound_at, o = t.last_outbound_at;
+  if (!i && !o) return { cls:'sub', txt:'Mail yok' };
+  if (i && (!o || i > o)) { const d = daysSince(i); return { cls: t.status === 'closed' ? 'sub' : d >= 2 ? 'late-txt' : 'amber-txt', txt:`Müşteri yazdı, cevap yok${d?` · ${d} gün`:''}` }; }
+  const d = daysSince(o); return { cls:'ok-txt', txt:`Cevaplandı${d?` · ${d} gün önce`:' · bugün'}` };
+}
 const supOpenCount = () => (S.tickets||[]).filter(t => t.category === 'support' && (t.status === 'new' || t.status === 'ours')).length;
 
 async function viewSupport(){
@@ -1103,7 +1116,7 @@ async function viewSupport(){
       (!ql || hitMap.has(t.id) || ('#' + t.id + ' ' + [t.subject,t.customer_name,t.organization,t.country,t.contact_email,t.summary,t.resolution,(t.tags||[]).join(' '),prodName(t.product)].join(' ')).toLocaleLowerCase('tr').includes(ql)));
     if (ql && s.hits) rows.sort((a,b) => ((hitMap.get(b.id)?.rank)||0) - ((hitMap.get(a.id)?.rank)||0));
     else rows.sort((a,b) => s.sort === 'open' ? (b.opened_at||'').localeCompare(a.opened_at||'') : (b.last_activity_at||'').localeCompare(a.last_activity_at||''));
-    q('#stbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">#</th><th class="nosort">Konu</th><th class="nosort">Müşteri</th><th class="nosort">Ürün</th><th class="nosort">Durum</th><th class="nosort">Sorumlu</th><th class="nosort">Son hareket</th></tr></thead><tbody>
+    q('#stbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">#</th><th class="nosort">Konu</th><th class="nosort">Müşteri</th><th class="nosort">Ürün</th><th class="nosort">Durum</th><th class="nosort">E-posta</th><th class="nosort">Sorumlu</th><th class="nosort">Son hareket</th></tr></thead><tbody>
       ${rows.map(t => { const w = supWait(t), h = hitMap.get(t.id);
         return `<tr data-tid="${t.id}"><td class="mono">#${t.id}</td>
         <td><b style="font-weight:600">${esc(t.subject)}</b>${t.priority==='high'?' <span class="pill sp-high">Acil</span>':''}
@@ -1113,9 +1126,10 @@ async function viewSupport(){
         <td>${esc(t.organization || t.customer_name || '—')}<div class="sub">${esc([t.organization?t.customer_name:'', t.country].filter(Boolean).join(' · '))}</div></td>
         <td>${t.product?esc(prodName(t.product)):'<span class="sub">—</span>'}</td>
         <td>${supPill(t.status)}${s.cat==='all'&&t.category!=='support'?`<div class="sub">${SUP_CAT[t.category]}</div>`:''}</td>
+        <td><span class="${mailState(t).cls}" style="font-size:13px">${mailState(t).txt}</span>${t.deal_id?`<div class="sub">${esc(dealNo(t.deal_id))}</div>`:''}</td>
         <td>${esc(personName(t.assignee)) || '<span class="sub">—</span>'}</td>
         <td style="white-space:nowrap">${ago(t.last_activity_at)}${w?`<div class="sub ${w.cls}">${w.txt}</div>`:''}</td></tr>`; }).join('')}
-      <tr class="tfoot"><td colspan="7">${rows.length} konu${ql?` · "${esc(s.q)}" araması${s.hits?' (mesaj içerikleri dahil)':''}`:''}</td></tr></tbody></table>`
+      <tr class="tfoot"><td colspan="8">${rows.length} konu${ql?` · "${esc(s.q)}" araması${s.hits?' (mesaj içerikleri dahil)':''}`:''}</td></tr></tbody></table>`
       : `<div class="empty">${ql ? 'Aramayla eşleşen konu yok.' : 'Bu filtrelerle konu yok.'}</div>`;
     qa('#stbl tr[data-tid]').forEach(tr => tr.onclick = () => location.hash = '#/support/' + tr.dataset.tid);
   };
@@ -1173,6 +1187,8 @@ async function viewTicket(id){
   const t = tr.data;
   if (tr.error || !t) return shell('support', `<h1>Konu bulunamadı</h1><p><a href="#/support">Support listesine dön</a></p>`);
   const msgs = mr.data || [], evs = (er.data || []).filter(e => e.kind !== 'created');
+  const sugg = t.deal_id ? [] : ((await sb.from('support_deal_suggestions').select('deal_id,score,reason').eq('ticket_id', id).order('score', { ascending:false })).data || []);
+  sb.from('support_notifications').update({ read_at: new Date().toISOString() }).eq('ticket_id', id).is('read_at', null).then(r => { if (!r.error && S.unread) loadSupport(); });
   const idx = S.tickets.findIndex(x => x.id === id); if (idx >= 0) S.tickets[idx] = { ...S.tickets[idx], ...t };
 
   const evText = e => e.kind === 'status' ? `Durum: ${SUP_STATUS[e.old_value]||e.old_value||'—'} → <b>${SUP_STATUS[e.new_value]||e.new_value}</b>`
@@ -1210,7 +1226,8 @@ async function viewTicket(id){
       ${can('admin')?`<button class="btn danger" id="tdel">Sil</button>`:''}</div></div>
   <div class="grid sup-grid">
     <div>
-      ${t.summary ? `<section class="panel"><h2>Özet</h2><p style="margin:0;white-space:pre-wrap">${esc(t.summary)}</p>${t.resolution?`<h2 class="mt">Çözüm</h2><p style="margin:0;white-space:pre-wrap">${esc(t.resolution)}</p>`:''}</section>` : ''}
+      ${aiPanel(t, msgs.length)}
+      ${t.summary ? `<section class="panel mt"><h2>Özet</h2><p style="margin:0;white-space:pre-wrap">${esc(t.summary)}</p>${t.resolution?`<h2 class="mt">Çözüm</h2><p style="margin:0;white-space:pre-wrap">${esc(t.resolution)}</p>`:''}</section>` : ''}
       <section class="panel mt"><h2>Zaman çizelgesi <span class="sub">(${msgs.length} mesaj)</span></h2>
         <div class="timeline">${items.length ? items.map(x => x.m ? msgHtml(x.m) : `<div class="ev"><span>${fmtDT(x.e.at)}</span> · ${esc(x.e.actor_name||'')} · ${evText(x.e)}</div>`).join('') : '<p class="note">Henüz mesaj yok.</p>'}</div>
       </section>
@@ -1230,7 +1247,8 @@ async function viewTicket(id){
         <p class="note">Seçilen konuların mesajları ve geçmişi bu konuya (#${t.id}) taşınır; eski konular silinir, özetleri buraya not olarak eklenir.</p><p><button class="btn">Birleştir</button></p></form></section>` : ''}
     </div>
     <aside>
-      <section class="panel"><h2>Takip</h2>
+      ${dealPanel(t, sugg)}
+      <section class="panel mt"><h2>Takip</h2>
         <form id="tf" class="fs" novalidate><fieldset ${canSup()?'':'disabled'} style="border:0;padding:0;margin:0;min-width:0">
           <label class="f">Durum<select name="status">${opt(SUP_STATUS, t.status)}</select></label>
           <label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${t.assignee===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
@@ -1282,7 +1300,16 @@ async function viewTicket(id){
   qa('[data-merge]').forEach(b => b.onclick = e => { e.stopPropagation(); if (!confirmInline(b, `#${b.dataset.merge} bu konuya taşınacak, onaylamak için tekrar bas`)) return; b.disabled = true; doMerge([+b.dataset.merge], b); });
   qa('tr[data-hid]').forEach(r => r.onclick = () => location.hash = '#/support/' + r.dataset.hid);
   const mf = q('#mf'); if (mf) mf.onsubmit = e => { e.preventDefault(); const ids = [...new Set(e.target.ids.value.split(/[^0-9]+/).filter(Boolean).map(Number))].filter(x => x !== id); if (!ids.length) return toast('Konu numarası gir', true); const b = e.target.querySelector('button'); if (!confirmInline(b, 'Onaylamak için tekrar bas')) return; b.disabled = true; doMerge(ids, b); };
+  q('#aicopy') && (q('#aicopy').onclick = () => { navigator.clipboard.writeText(t.ai_reply || '').then(() => toast('Taslak kopyalandı'), () => toast('Kopyalanamadı', true)); });
   if (!canSup()) return;
+  const link = async (dealId, src) => {
+    const { error } = await sb.from('support_tickets').update({ deal_id: dealId, deal_link_source: dealId ? src : null }).eq('id', id);
+    if (error) return toast(dbErr(error), true);
+    toast(dealId ? 'Sipariş bağlandı' : 'Sipariş bağlantısı kaldırıldı'); await loadSupport(); viewTicket(id);
+  };
+  qa('[data-link]').forEach(b => b.onclick = () => link(+b.dataset.link, 'manual'));
+  q('#dunlink') && (q('#dunlink').onclick = () => link(null));
+  q('#dform') && (q('#dform').onsubmit = e => { e.preventDefault(); const v = e.target.no.value.trim().toUpperCase().replace(/^(ACRPO)?[- ]?/, 'ACRPO-'); const d = S.deals.find(x => (x.order_no || '').toUpperCase() === v); if (!d) return toast('Bu numarada sipariş bulunamadı', true); link(d.id, 'manual'); });
   q('#tf').onsubmit = e => {
     e.preventDefault(); const f = e.target;
     const v = n => f[n].value.trim() || null;
@@ -1306,6 +1333,71 @@ async function viewTicket(id){
     if (error) return toast(dbErr(error), true);
     toast('Not silindi'); viewTicket(id);
   });
+}
+
+function aiPanel(t, n){
+  if (!t.ai_summary) return `<section class="panel ai"><h2>Yapay zekâ özeti</h2><p class="note" style="margin:0">Bu konunun özeti henüz hazırlanmadı. Her gün 09:30 ve 16:30'daki senkronda, yeni mail gelen konularla birlikte sırayla hazırlanır.</p></section>`;
+  const stale = t.ai_msg_count != null && n > t.ai_msg_count;
+  return `<section class="panel ai"><h2>Yapay zekâ özeti</h2><p class="note" style="margin:-6px 0 10px">${fmtDT(t.ai_updated_at)} itibarıyla tüm geçmişten${stale?' · <span class="amber-txt">sonra yeni mesaj geldi, bir sonraki senkronda güncellenecek</span>':''}</p>
+    <p style="margin:0;white-space:pre-wrap">${esc(t.ai_summary)}</p>
+    ${t.ai_next_step ? `<h3 class="mt">Önerilen adım</h3><p style="margin:0;white-space:pre-wrap">${esc(t.ai_next_step)}</p>` : ''}
+    ${t.ai_reply ? `<h3 class="mt">Önerilen dönüş <button class="btn sm" id="aicopy" style="margin-left:8px">Kopyala</button></h3><div class="draft">${esc(t.ai_reply)}</div><p class="note" style="margin:6px 0 0">Taslaktır; göndermeden önce kontrol edin. Mail sistemden gönderilmez.</p>` : ''}
+  </section>`;
+}
+function dealPanel(t, sugg){
+  const d = t.deal_id ? S.deals.find(x => x.id === t.deal_id) : null;
+  const items = d => Object.entries(d.items||{}).map(([c,q])=>`${fmtN(q)}× ${esc(prodName(c))}`).join(', ');
+  const src = { order_no:'sipariş numarasından', auto:'müşteri + ürün eşleşmesinden', manual:'elle' };
+  if (d) return `<section class="panel"><h2>Sipariş</h2><dl class="kv">
+      <dt>Sipariş</dt><dd><a href="#/kayit/${d.id}" class="mono">${esc(d.order_no || d.opp_no)}</a></dd>
+      <dt>Müşteri</dt><dd>${esc(custName(d))}${d.reseller?` <span class="sub">(${esc(d.reseller)})</span>`:''}</dd>
+      ${items(d)?`<dt>Ürünler</dt><dd>${items(d)}</dd>`:''}
+      <dt>Sipariş / sevk</dt><dd>${fmtD(d.order_date)} / ${fmtShip(d)}</dd></dl>
+      <p class="note">Eşleşme: ${src[t.deal_link_source] || '—'}${canSup()?` · <button class="linkbtn" id="dunlink">kaldır</button>`:''}</p></section>`;
+  const opts = sugg.map(s => { const x = S.deals.find(y => y.id === s.deal_id); return x ? `<li><a href="#/kayit/${x.id}" class="mono">${esc(x.order_no)}</a> ${esc(custName(x))} <span class="sub">${fmtD(x.order_date)} · ${esc(s.reason||'')}</span>${canSup()?` <button class="btn sm" data-link="${x.id}">Bağla</button>`:''}</li>` : ''; }).join('');
+  return `<section class="panel"><h2>Sipariş</h2>
+    ${opts ? `<p class="note" style="margin-top:0">Hangi sipariş olduğu kesin değil. Olası siparişler:</p><ul class="sugg">${opts}</ul>` : '<p class="note" style="margin-top:0">Bu konu bir siparişle eşleşmedi.</p>'}
+    <div class="banner" style="margin:8px 0 0">Emin değilseniz müşteriye <b>sipariş numarasını</b> (ACRPO-…) veya cihazın <b>seri numarasını</b> sorun.</div>
+    ${canSup() ? `<form id="dform" class="fs" novalidate style="margin-top:10px"><label class="f">Sipariş no ile bağla<input name="no" type="text" placeholder="ACRPO-512" list="dealnos"></label><datalist id="dealnos">${S.deals.filter(x=>x.order_no).slice(-400).map(x=>`<option value="${esc(x.order_no)}">${esc(custName(x))}</option>`).join('')}</datalist><p style="margin:6px 0 0"><button class="btn sm">Bağla</button></p></form>` : ''}
+  </section>`;
+}
+
+// ---------------------------------------------------------------- BİLDİRİMLER
+const PUSH_FN = APP_CONFIG.supabaseUrl + '/functions/v1/support-push';
+const b64ToU8 = b => { const p = '='.repeat((4 - b.length % 4) % 4); const r = atob((b + p).replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from([...r].map(c => c.charCodeAt(0))); };
+async function enablePush(btn){
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return toast('Bu tarayıcı bildirim desteklemiyor. iPhone\'da önce siteyi Paylaş → Ana Ekrana Ekle ile ekleyip oradan açın.', true);
+  btn.disabled = true;
+  try {
+    const reg = await navigator.serviceWorker.register('sw.js');
+    if (await Notification.requestPermission() !== 'granted') throw new Error('Bildirim izni verilmedi');
+    const { publicKey } = await (await fetch(PUSH_FN + '?action=publicKey', { headers:{ apikey: APP_CONFIG.supabaseKey } })).json();
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64ToU8(publicKey) });
+    const j = sub.toJSON();
+    const { error } = await sb.from('push_subscriptions').upsert({ endpoint:j.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth, user_agent:navigator.userAgent.slice(0,200) }, { onConflict:'endpoint' });
+    if (error) throw error;
+    toast('Bu cihazda bildirimler açıldı'); viewNotifications();
+  } catch(e) { btn.disabled = false; toast(e.message || String(e), true); }
+}
+async function viewNotifications(){
+  shell('bildirimler', `<div class="empty">Yükleniyor…</div>`);
+  const [nr, sr] = await Promise.all([
+    sb.from('support_notifications').select('id,ticket_id,created_at,read_at').order('created_at', { ascending:false }).limit(100),
+    sb.from('push_subscriptions').select('id,user_agent,created_at').order('created_at'),
+  ]);
+  const ns = nr.data || [], subs = sr.data || [];
+  const tk = id => (S.tickets||[]).find(t => t.id === id);
+  let here = false; try { const reg = await navigator.serviceWorker?.getRegistration('sw.js'); here = !!(reg && await reg.pushManager.getSubscription()); } catch {}
+  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde, konunun sorumlusuna (sorumlu yoksa Sipariş + Support rolündekilere) bildirim gider. Bildirimde yalnızca yeni mail geldiği yazar; ayrıntı sitede.</p></div></div>
+    <section class="panel"><h2>Bu cihaz</h2>
+      <p class="note" style="margin-top:0">${here ? 'Bu cihazda bildirimler açık.' : 'Bu cihazda bildirim almak için aç. Telefon ve bilgisayarda ayrı ayrı açılır.'} Kayıtlı cihaz sayın: ${subs.length}.</p>
+      <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}</p>
+    </section>
+    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
+  q('#pon') && (q('#pon').onclick = e => enablePush(e.target));
+  q('#ptest').onclick = async e => { e.target.disabled = true; const { data, error } = await sb.rpc('support_push_test'); e.target.disabled = false; if (error) return toast(dbErr(error), true); toast('Test gönderildi'); await loadSupport(); viewNotifications(); };
+  q('#pread') && (q('#pread').onclick = async () => { await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); await loadSupport(); viewNotifications(); });
+  qa('tr[data-nt]').forEach(r => r.onclick = () => r.dataset.nt && (location.hash = '#/support/' + r.dataset.nt));
 }
 
 async function viewTicketNew(){
