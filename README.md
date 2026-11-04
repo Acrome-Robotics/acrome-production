@@ -28,6 +28,7 @@ Excel'deki "Production Planning" dosyasının yerini alan web uygulaması.
 | İzleyici | Rapor ve kayıtları görür (her yeni @acrome.net hesabının varsayılanı) |
 | Satış | Fırsat/sipariş ekler ve düzenler, müşteri ekler |
 | Üretim | Planlanan sevk, sevk tarihi, durum ve gecikme açıklamasını günceller |
+| Sipariş + Support | Satış yetkilerinin tamamı + support konularını düzenleme, not, kapatma, birleştirme |
 | Yönetici | Her şey + silme, ürün yönetimi, rol verme |
 
 ## Başka bir yere taşımak (ör. Firebase web.app)
@@ -54,4 +55,5 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Yeni mailler zamanlanmış görevle `support_ingest(jsonb)` fonksiyonu üzerinden eklenir (yalnızca sunucu tarafı çağırabilir). Aynı mail iki kez eklenmez (`external_id`).
 - Müşteriden yeni mail gelince konu otomatik "Bizde"ye, Acrome cevap verince "Müşteride"ye geçer.
 - Arama: `support_search(q)` konu alanlarında ve mesaj gövdelerinde önek eşleşmeli arar.
-- Tüm roller (İzleyici dahil) support konularını görür ve düzenler; mail kayıtlarını yalnızca yönetici değiştirebilir, notu yazan kişi kendi notunu silebilir.
+- Support konularını tüm roller görür; yalnızca **Sipariş + Support** ve **Yönetici** düzenler. Mail kayıtlarını yalnızca yönetici değiştirebilir, notu yazan kişi kendi notunu silebilir.
+- `support_merge(keep, drops[])`: aynı müşterinin aynı ürün için açılmış konularını tek konuda toplar; eski konuların özeti ve çözümü not olarak kalır. Konu sayfasında "Bu müşterinin destek geçmişi" listesi ve "Buraya birleştir" düğmesi var.

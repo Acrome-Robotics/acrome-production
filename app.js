@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------- sabitler
 const STAGES = { qualify:'1 · Nitelendirme', advance:'2 · İlerliyor', closing:'3 · Kapanış', won:'Kazanıldı', lost:'Kaybedildi' };
 const STATUSES = { pipeline:'Fırsat', production:'Üretimde', shipped:'Gönderildi', lost:'Kaybedildi', archived:'Arşiv' };
-const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', admin:'Yönetici' };
+const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', support:'Sipariş + Support', admin:'Yönetici' };
 const CATS = { sistem:'Deney setleri', kontrolcu:'Kontrolcüler', smd:'SMD' };
 const CURRENCIES = ['USD','EUR','GBP','TRY'];
 const MONTHS = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
@@ -151,7 +151,7 @@ function shell(active, html){
     ['kayitlar/pipeline','Açık fırsatlar', cnt('pipeline')],
     ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
     ['kayitlar/all','Tüm kayıtlar', S.deals.length],
-    ...(can('sales','admin') ? [['yeni','Yeni kayıt']] : []),
+    ...(can('sales','support','admin') ? [['yeni','Yeni kayıt']] : []),
     ['hr'],
     ['support','Support', supOpenCount() || ''],
     ['hr'],
@@ -179,7 +179,7 @@ function route(){
   switch(p){
     case 'kayitlar': return viewList(a || 'all');
     case 'gonderim': return viewShipments();
-    case 'yeni': return can('sales','admin') ? viewForm(null) : viewReport();
+    case 'yeni': return can('sales','support','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
     case 'duzenle': return viewForm(+a);
     case 'kaynaklar': return viewSources(a || 'musteriler');
@@ -190,7 +190,7 @@ function route(){
     case 'ice-aktar': return can('admin') ? viewImport() : viewReport();
     case 'excel': return can('admin') ? viewSync() : viewReport();
     case 'support': return a ? viewTicket(+a) : viewSupport();
-    case 'support-yeni': return viewTicketNew();
+    case 'support-yeni': return canSup() ? viewTicketNew() : viewSupport();
     default: return viewReport();
   }
 }
@@ -330,7 +330,7 @@ function viewList(tab){
         ${tab==='shipped'?`<td>${fmtShip(d)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}
         <td class="num">${fmtUSD(d.amount_usd)}${d.currency!=='USD'&&d.amount_orig?`<div class="sub">${fmtN(d.amount_orig)} ${d.currency}</div>`:''}</td></tr>`; }).join('')}
       <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
-      </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${can('sales','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
+      </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${can('sales','support','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
     qa('#tbl th[data-s]').forEach(th => th.onclick = () => { const k = th.dataset.s; if (s.sort===k) s.dir*=-1; else { s.sort=k; s.dir = k==='cust'||k==='ref'||k==='due' ? 1 : -1; } draw(); });
     qa('#tbl tr[data-id]').forEach(tr => tr.onclick = () => location.hash = '#/kayit/' + tr.dataset.id);
     q('#csv').onclick = () => csv(rows, `acrome-${tab}-${T}.csv`);
@@ -338,7 +338,7 @@ function viewList(tab){
   if (tab === 'production' && listState.sort === 'date') { listState.sort = 'due'; listState.dir = 1; }
   shell('kayitlar/' + tab, `<div class="pagehead"><div><h1>${{production:'Üretimdeki siparişler',pipeline:'Açık fırsatlar',shipped:'Gönderilen siparişler',lost:'Kaybedilen fırsatlar',archived:'Arşiv',all:'Tüm kayıtlar'}[tab]}</h1>
     <p class="lede">${tab==='archived'?'Excel\'in eski yıllarında kalan ve 2026 listesine taşınmamış fırsatlar.':'Satıra tıklayınca kaydın detayı açılır.'}</p></div>
-    <div style="display:flex;gap:8px"><button class="btn" id="csv">CSV indir</button>${can('sales','admin')?'<a class="btn primary" href="#/yeni">Yeni kayıt</a>':''}</div></div>
+    <div style="display:flex;gap:8px"><button class="btn" id="csv">CSV indir</button>${can('sales','support','admin')?'<a class="btn primary" href="#/yeni">Yeni kayıt</a>':''}</div></div>
     <div class="toolbar"><div class="seg">${Object.entries(tabs).map(([k,v])=>`<button data-t="${k}" class="${k===tab?'on':''}">${v}</button>`).join('')}</div></div>
     <div class="toolbar">
       <input type="search" id="fq" placeholder="Ara: no, müşteri, açıklama…" value="${esc(listState.q)}" aria-label="Ara">
@@ -388,7 +388,7 @@ function viewShipments(){
   const mVal = byM.map(a => sum(a.filter(d=>!d.is_internal))), mMax = Math.max(1, ...mVal);
   const mUnits = byM.map(unitsOf);
   const usedProds = prods.filter(p => mUnits.some(u => u[p.code]));
-  const canShip = can('production','sales','admin');
+  const canShip = can('production','sales','support','admin');
 
   shell('gonderim', `
   <div class="pagehead"><div><h1>Aylık gönderim raporu</h1>
@@ -460,9 +460,9 @@ function viewDetail(id){
   <p><a href="#/kayitlar/${d.status}">← ${STATUSES[d.status]} listesi</a></p>
   <div class="pagehead"><div><h1>${esc(custName(d))}</h1><p class="lede"><span class="mono">${esc(refNo(d))}</span>${d.order_no&&d.opp_no?` · ${esc(d.opp_no)}`:''} · ${esc(d.description)}</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">${pill(d.status)}
-    ${can('sales','admin') && d.status==='pipeline' ? `<a class="btn primary" href="#/duzenle/${d.id}?siparis">Siparişe çevir</a>`:''}
+    ${can('sales','support','admin') && d.status==='pipeline' ? `<a class="btn primary" href="#/duzenle/${d.id}?siparis">Siparişe çevir</a>`:''}
     ${can('production') && d.status==='production' ? `<a class="btn primary" href="#/duzenle/${d.id}">Sevk bilgisi gir</a>`:''}
-    ${can('sales','admin','production') ? `<a class="btn" href="#/duzenle/${d.id}">Düzenle</a>`:''}
+    ${can('sales','support','admin','production') ? `<a class="btn" href="#/duzenle/${d.id}">Düzenle</a>`:''}
     ${can('admin') ? `<button class="btn danger" id="del">Sil</button>`:''}</div></div>
   ${iss.length ? `<div class="banner"><b>Excel'den aktarımda düzeltilen alanlar:</b><br>${iss.map(i=>esc(i.message)).join('<br>')}</div>`:''}
   <div class="grid g2">
@@ -492,7 +492,7 @@ function viewDetail(id){
 function viewForm(id){
   const ex = id ? S.deals.find(x => x.id === id) : null;
   if (id && !ex) return viewDetail(id);
-  if (!can('sales','admin','production')) return viewDetail(id);
+  if (!can('sales','support','admin','production')) return viewDetail(id);
   const convert = /siparis/.test(location.hash);
   const prodOnly = can('production');
   const d = ex ? structuredClone(ex) : { status:'pipeline', stage:'qualify', currency:'USD', items:{}, lead_date: today() };
@@ -678,8 +678,8 @@ function viewSources(tab){
   if (tab === 'musteriler') {
     const agg = {}; S.deals.forEach(d => { const a = agg[d.customer_id] = agg[d.customer_id] || {n:0, won:0, amt:0, last:''}; a.n++; if (['production','shipped'].includes(d.status)) { a.won++; a.amt += +d.amount_usd||0; } const dt = d.order_date||d.lead_date||''; if (dt > a.last) a.last = dt; });
     body = `<div class="toolbar"><input type="search" id="sq" placeholder="Müşteri ara…" aria-label="Müşteri ara"></div>
-    <div class="tablewrap"><table><thead><tr><th class="nosort">Müşteri</th><th class="nosort">Ülke</th><th class="nosort num">Kayıt</th><th class="nosort num">Sipariş</th><th class="nosort num">Toplam ciro</th><th class="nosort">Son hareket</th>${can('sales','admin')?'<th class="nosort"></th>':''}</tr></thead>
-    <tbody id="sb">${S.customers.map(c => { const a = agg[c.id]||{n:0,won:0,amt:0,last:''}; return `<tr data-n="${esc(c.name.toLocaleLowerCase('tr'))}" style="cursor:default"><td>${esc(c.name)}</td><td>${esc(ctryName(c.country))}</td><td class="num">${a.n}</td><td class="num">${a.won}</td><td class="num">${fmtUSD(a.amt)}</td><td>${fmtD(a.last)}</td>${can('sales','admin')?`<td><button class="btn sm" data-ec="${c.id}">Düzenle</button></td>`:''}</tr>`; }).join('')}</tbody></table></div>`;
+    <div class="tablewrap"><table><thead><tr><th class="nosort">Müşteri</th><th class="nosort">Ülke</th><th class="nosort num">Kayıt</th><th class="nosort num">Sipariş</th><th class="nosort num">Toplam ciro</th><th class="nosort">Son hareket</th>${can('sales','support','admin')?'<th class="nosort"></th>':''}</tr></thead>
+    <tbody id="sb">${S.customers.map(c => { const a = agg[c.id]||{n:0,won:0,amt:0,last:''}; return `<tr data-n="${esc(c.name.toLocaleLowerCase('tr'))}" style="cursor:default"><td>${esc(c.name)}</td><td>${esc(ctryName(c.country))}</td><td class="num">${a.n}</td><td class="num">${a.won}</td><td class="num">${fmtUSD(a.amt)}</td><td>${fmtD(a.last)}</td>${can('sales','support','admin')?`<td><button class="btn sm" data-ec="${c.id}">Düzenle</button></td>`:''}</tr>`; }).join('')}</tbody></table></div>`;
   } else if (tab === 'urunler') {
     body = `<p class="note">Yeni ürün kolonu eklemek için Excel'de sütun açmak yerine buraya ürün eklenir; tüm formlar ve raporlar otomatik güncellenir.</p>
     <div class="tablewrap"><table><thead><tr><th class="nosort">Kod</th><th class="nosort">Ad</th><th class="nosort">Grup</th><th class="nosort">Durum</th>${can('admin')?'<th class="nosort"></th>':''}</tr></thead><tbody>
@@ -739,7 +739,7 @@ function viewIssues(){
   const groups = CHECKS.map(c => [c, S.deals.filter(c.test)]).filter(([,a]) => a.length);
   const dups = dupCustomers();
   const dealCount = cid => S.deals.filter(d => d.customer_id === cid).length;
-  const editable = can('sales','admin','production');
+  const editable = can('sales','support','admin','production');
   shell('uyarilar', `<div class="pagehead"><div><h1>Veri kontrolü</h1><p class="lede">Otomatik kontroller her açılışta yeniden hesaplanır: kaydı düzelttiğinde o satır listeden kendiliğinden düşer. Excel aktarım notları ise kayıt düzenlenip "düzeltildi" işaretlenince kapanır.</p></div></div>
   ${!groups.length && !dups.length && !open.length ? '<div class="panel empty">Açık sorun yok.</div>' : ''}
   ${groups.map(([c, arr]) => `<details class="panel" style="margin-bottom:12px" ${arr.length<=15?'open':''}><summary style="cursor:pointer;font-weight:650">${esc(c.title)} <span class="pill st-lost" style="margin-left:6px">${arr.length}</span><div class="note" style="font-weight:400">${esc(c.fix)}</div></summary>
@@ -776,7 +776,7 @@ async function viewAudit(){
 // ---------------------------------------------------------------- KULLANICILAR
 async function viewUsers(){
   shell('kullanicilar', `<div class="pagehead"><div><h1>Kullanıcılar</h1><p class="lede">@acrome.net adresiyle açılan her hesap İzleyici olarak başlar: rapor ve kayıtları görür, değiştiremez. Veri girecek kişilere buradan Satış veya Üretim rolü ver. Birinin erişimini kapatmak için rolünü "Erişim kapalı" yap.</p></div></div>
-  <div class="panel" style="margin-bottom:16px"><dl class="kv"><dt>Erişim kapalı</dt><dd>Giriş yapabilir ama hiçbir veriyi göremez.</dd><dt>İzleyici</dt><dd>Rapor ve kayıtları görür, değiştiremez.</dd><dt>Satış</dt><dd>Fırsat ve sipariş girer, düzenler; müşteri ekler.</dd><dt>Üretim</dt><dd>Yalnızca planlanan sevk, sevk tarihi, durum (Üretimde ↔ Gönderildi) ve gecikme açıklamasını değiştirir.</dd><dt>Yönetici</dt><dd>Her şey + silme, ürün yönetimi, rol verme.</dd></dl></div>
+  <div class="panel" style="margin-bottom:16px"><dl class="kv"><dt>Erişim kapalı</dt><dd>Giriş yapabilir ama hiçbir veriyi göremez.</dd><dt>İzleyici</dt><dd>Rapor ve kayıtları görür, değiştiremez.</dd><dt>Satış</dt><dd>Fırsat ve sipariş girer, düzenler; müşteri ekler.</dd><dt>Üretim</dt><dd>Yalnızca planlanan sevk, sevk tarihi, durum (Üretimde ↔ Gönderildi) ve gecikme açıklamasını değiştirir.</dd><dt>Sipariş + Support</dt><dd>Satış rolünün tüm yetkileri (fırsat, sipariş, müşteri) + support konularını düzenler: durum, sorumlu, not, kapatma, birleştirme.</dd><dt>Yönetici</dt><dd>Her şey + silme, ürün yönetimi, rol verme.</dd></dl><p class="note" style="margin:10px 0 0">Support konularını herkes görür; yalnızca <b>Sipariş + Support</b> ve <b>Yönetici</b> düzenler.</p></div>
   <div class="tablewrap" id="us"><div class="empty">Yükleniyor…</div></div>`);
   const { data, error } = await sb.from('profiles').select('*').order('created_at');
   if (error) { q('#us').innerHTML = `<div class="empty">${esc(dbErr(error))}</div>`; return; }
@@ -1073,6 +1073,8 @@ function supWait(t){
   }
   return null;
 }
+const canSup = () => can('support','admin');
+const supOrgKey = t => { const d = (t.contact_email||'').split('@')[1]||''; const free = /^(gmail|hotmail|outlook|yahoo|icloud|live|163|qq)\./i.test(d); return { org: fold(String(t.organization||'').replace(/\(.*?\)/g,'')), dom: free ? '' : d.toLowerCase() }; };
 const supOpenCount = () => (S.tickets||[]).filter(t => t.category === 'support' && (t.status === 'new' || t.status === 'ours')).length;
 
 async function viewSupport(){
@@ -1119,7 +1121,7 @@ async function viewSupport(){
   };
 
   shell('support', `<div class="pagehead"><div><h1>Support</h1><p class="lede">support@acrome.net konuları, cevaplar ve notlar tek yerde. Yeni mailler otomatik eklenir; arama mail içeriklerinde de yapılır.</p></div>
-    <div style="display:flex;gap:8px"><button class="btn" id="scsv">CSV indir</button><a class="btn primary" href="#/support-yeni">Yeni konu</a></div></div>
+    <div style="display:flex;gap:8px"><button class="btn" id="scsv">CSV indir</button>${canSup()?'<a class="btn primary" href="#/support-yeni">Yeni konu</a>':''}</div></div>
     ${S.supErr ? `<div class="banner">Support verisi okunamadı: ${esc(S.supErr)}</div>` : ''}
     <div class="kpis">
       <div class="kpi ${kOurs.length?'alert':''}"><div class="v">${kOurs.length}</div><div class="l">Bizde bekleyen</div><div class="d">${kLate.length?kLate.length+' konu 2+ gündür bekliyor':'Geciken yok'}</div></div>
@@ -1175,10 +1177,11 @@ async function viewTicket(id){
 
   const evText = e => e.kind === 'status' ? `Durum: ${SUP_STATUS[e.old_value]||e.old_value||'—'} → <b>${SUP_STATUS[e.new_value]||e.new_value}</b>`
     : e.kind === 'assignee' ? `Sorumlu: ${esc(e.old_value||'—')} → <b>${esc(e.new_value||'—')}</b>`
+    : e.kind === 'merged' ? `Birleştirildi: ${esc(e.old_value)} "${esc(e.new_value||'')}"`
     : e.kind === 'category' ? `Kategori: ${SUP_CAT[e.old_value]||e.old_value} → <b>${SUP_CAT[e.new_value]||e.new_value}</b>` : esc(e.kind);
   const items = [...msgs.map(m => ({ at:m.sent_at, m })), ...evs.map(e => ({ at:e.at, e }))].sort((a,b) => a.at.localeCompare(b.at));
   const who = m => m.direction === 'in' ? 'Müşteri' : m.direction === 'out' ? 'Acrome' : SUP_SRC[m.source] || 'Dahili';
-  const mine = m => ['note','call','meet'].includes(m.source) && (m.created_by === S.profile.id || can('admin'));
+  const mine = m => canSup() && ['note','call','meet'].includes(m.source) && (m.created_by === S.profile.id || can('admin'));
   const msgHtml = m => {
     const long = (m.body||'').length > 900;
     return `<article class="msg msg-${m.direction} src-${m.source}">
@@ -1192,6 +1195,9 @@ async function viewTicket(id){
       ${(m.attachments||[]).length ? `<div class="items" style="margin-top:6px">${m.attachments.map(a => `<span>📎 ${esc(a.name||a)}</span>`).join('')}</div>` : ''}
     </article>`;
   };
+  const myKey = supOrgKey(t);
+  const hist = (S.tickets||[]).filter(h => h.id !== t.id && h.category !== 'other' && (() => { const k = supOrgKey(h); return (myKey.org && myKey.org.length > 3 && k.org === myKey.org) || (myKey.dom && k.dom === myKey.dom); })())
+    .sort((a,b) => (b.product===t.product) - (a.product===t.product) || b.opened_at.localeCompare(a.opened_at));
   const opt = (o, v, blank) => (blank?`<option value="">${blank}</option>`:'') + Object.entries(o).map(([k,l]) => `<option value="${k}" ${v===k?'selected':''}>${l}</option>`).join('');
   const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
 
@@ -1200,7 +1206,7 @@ async function viewTicket(id){
   <div class="pagehead"><div><h1>${esc(t.subject)}</h1>
     <p class="lede"><span class="mono">#${t.id}</span> · ${esc([t.organization, t.customer_name, t.country].filter(Boolean).join(' · ') || 'Müşteri belirtilmemiş')} · açıldı ${fmtD(t.opened_at.slice(0,10))}</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${supPill(t.status)}
-      ${t.status!=='closed'?`<button class="btn primary" id="tclose">Kapat</button>`:`<button class="btn" id="treopen">Yeniden aç</button>`}
+      ${!canSup()?'':t.status!=='closed'?`<button class="btn primary" id="tclose">Kapat</button>`:`<button class="btn" id="treopen">Yeniden aç</button>`}
       ${can('admin')?`<button class="btn danger" id="tdel">Sil</button>`:''}</div></div>
   <div class="grid sup-grid">
     <div>
@@ -1208,7 +1214,10 @@ async function viewTicket(id){
       <section class="panel mt"><h2>Zaman çizelgesi <span class="sub">(${msgs.length} mesaj)</span></h2>
         <div class="timeline">${items.length ? items.map(x => x.m ? msgHtml(x.m) : `<div class="ev"><span>${fmtDT(x.e.at)}</span> · ${esc(x.e.actor_name||'')} · ${evText(x.e)}</div>`).join('') : '<p class="note">Henüz mesaj yok.</p>'}</div>
       </section>
-      <section class="panel mt"><h2>Not ekle</h2>
+      ${hist.length ? `<section class="panel mt"><h2>Bu müşterinin destek geçmişi <span class="sub">(${hist.length} konu)</span></h2>
+        <div class="tablewrap"><table><tbody>${hist.map(h => `<tr data-hid="${h.id}"><td class="mono">#${h.id}</td><td>${esc(h.subject)}<div class="sub">${h.product?esc(prodName(h.product)):'Ürün yok'} · açıldı ${fmtD(h.opened_at.slice(0,10))}</div></td><td>${supPill(h.status)}</td>${canSup()?`<td><button class="btn sm" data-merge="${h.id}" title="#${h.id} bu konunun içine taşınır">Buraya birleştir</button></td>`:''}</tr>`).join('')}</tbody></table></div>
+        <p class="note">Aynı kurum veya aynı e-posta alan adından gelen diğer konular. Aynı ürün için olanları birleştirince tek bir support geçmişi oluşur.</p></section>` : ''}
+      ${canSup() ? `<section class="panel mt"><h2>Not ekle</h2>
         <form id="nf" class="fs" novalidate>
           <div class="row r2"><label class="f">Tür<select name="src"><option value="note">Not</option><option value="call">Telefon görüşmesi</option><option value="meet">Meet / toplantı</option></select></label>
           <label class="f">Zaman<input type="datetime-local" name="at" value="${nowLocal()}"></label></div>
@@ -1216,10 +1225,13 @@ async function viewTicket(id){
           <div class="row r2"><label class="f">Durumu da değiştir<select name="st"><option value="">Değiştirme</option>${opt(SUP_STATUS, '')}</select></label><div></div></div>
           <p><button class="btn primary">Notu kaydet</button></p>
         </form></section>
+      <section class="panel mt"><h2>Konu numarasıyla birleştir</h2>
+        <form id="mf" class="fs" novalidate><div class="row r2"><label class="f">Birleştirilecek konu no <span class="hint">virgülle birden fazla</span><input type="text" name="ids" placeholder="ör. 13, 33" inputmode="numeric"></label><div></div></div>
+        <p class="note">Seçilen konuların mesajları ve geçmişi bu konuya (#${t.id}) taşınır; eski konular silinir, özetleri buraya not olarak eklenir.</p><p><button class="btn">Birleştir</button></p></form></section>` : ''}
     </div>
     <aside>
       <section class="panel"><h2>Takip</h2>
-        <form id="tf" class="fs" novalidate>
+        <form id="tf" class="fs" novalidate><fieldset ${canSup()?'':'disabled'} style="border:0;padding:0;margin:0;min-width:0">
           <label class="f">Durum<select name="status">${opt(SUP_STATUS, t.status)}</select></label>
           <label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${t.assignee===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
           <label class="f">Öncelik<select name="priority">${opt(SUP_PRIO, t.priority)}</select></label>
@@ -1232,8 +1244,8 @@ async function viewTicket(id){
           <label class="f">Etiketler <span class="hint">virgülle ayır</span><input type="text" name="tags" value="${esc((t.tags||[]).join(', '))}"></label>
           <label class="f">Özet<textarea name="summary" rows="4">${esc(t.summary||'')}</textarea></label>
           <label class="f">Çözüm <span class="hint">kapanınca ne yapıldı</span><textarea name="resolution" rows="3">${esc(t.resolution||'')}</textarea></label>
-          <p><button class="btn primary">Kaydet</button></p>
-        </form>
+          ${canSup()?'<p><button class="btn primary">Kaydet</button></p>':'<p class="note">Düzenlemek için yöneticiden <b>Sipariş + Support</b> rolü iste.</p>'}
+        </fieldset></form>
         <dl class="kv mt">
           <dt>Son müşteri</dt><dd>${fmtDT(t.last_inbound_at)}</dd>
           <dt>Son Acrome</dt><dd>${fmtDT(t.last_outbound_at)}</dd>
@@ -1262,6 +1274,15 @@ async function viewTicket(id){
     if (error) return toast(dbErr(error), true);
     S.tickets = S.tickets.filter(x => x.id !== id); toast('Konu silindi'); location.hash = '#/support';
   };
+  const doMerge = async (ids, btn) => {
+    const { error } = await sb.rpc('support_merge', { keep:id, drops:ids });
+    if (error) { if (btn) btn.disabled = false; return toast(dbErr(error), true); }
+    toast(`#${ids.join(', #')} bu konuya birleştirildi`); await loadSupport(); viewTicket(id);
+  };
+  qa('[data-merge]').forEach(b => b.onclick = e => { e.stopPropagation(); if (!confirmInline(b, `#${b.dataset.merge} bu konuya taşınacak, onaylamak için tekrar bas`)) return; b.disabled = true; doMerge([+b.dataset.merge], b); });
+  qa('tr[data-hid]').forEach(r => r.onclick = () => location.hash = '#/support/' + r.dataset.hid);
+  const mf = q('#mf'); if (mf) mf.onsubmit = e => { e.preventDefault(); const ids = [...new Set(e.target.ids.value.split(/[^0-9]+/).filter(Boolean).map(Number))].filter(x => x !== id); if (!ids.length) return toast('Konu numarası gir', true); const b = e.target.querySelector('button'); if (!confirmInline(b, 'Onaylamak için tekrar bas')) return; b.disabled = true; doMerge(ids, b); };
+  if (!canSup()) return;
   q('#tf').onsubmit = e => {
     e.preventDefault(); const f = e.target;
     const v = n => f[n].value.trim() || null;
