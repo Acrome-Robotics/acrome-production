@@ -3,7 +3,7 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', e => {
   e.waitUntil(self.registration.showNotification('Acrome', {
-    body: 'Yeni bir bildiriminiz var (support maili ya da stok sayımı).',
+    body: 'Yeni support maili geldi.',
     tag: 'acrome', renotify: true,
     icon: 'icon-192.png', badge: 'icon-192.png',
   }));

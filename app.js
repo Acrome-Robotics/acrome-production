@@ -12,7 +12,7 @@ const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sale
   orders:'Fırsat ve siparişlerin tümünü düzenler, müşteri ekler; stok, BOM ve alım taleplerini yönetir.',
   support:'Support konuları ve RMA kayıtlarını düzenler: durum, sorumlu, not, kapatma, birleştirme.',
   purchasing:'Alım taleplerinin durumunu, fiyatını ve tedarikçisini yönetir; tedarikçi ekler.',
-  stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller. Her ayın ilk cuması sayım bildirimi alır.',
+  stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller. Her ayın ilk cuması sayım e-postası alır.',
   admin:'Her şey + silme, ürün yönetimi, rol verme.' };
 const userRoles = p => !p ? [] : Array.isArray(p.roles) ? p.roles : p.role === 'pending' ? [] : p.role === 'support' ? ['orders','support'] : [p.role];
 const roleLabel = p => userRoles(p).length ? userRoles(p).map(r => ROLES[r] || r).join(' + ') : ROLES.pending;
@@ -327,7 +327,7 @@ function todaySections(){
     const fol = tk.filter(t => mine(t) && t.status === 'customer' && supWait(t));
     S_.push({ id:'fol', title:'Müşteride 7+ gün · takip maili atılmalı', link:'#/support', rows: fol.map(tRow), empty:'Takip bekleyen yok.' });
   }
-  if (S.unread) S_.push({ id:'not', title:'Okunmamış bildirimler', link:'#/bildirimler', count:S.unread, rows:[{ href:'#/bildirimler', main:`${S.unread} okunmamış bildirim`, sub:'Support mailleri ve stok sayımı', meta:'', hot:true }], alert:true });
+  if (S.unread) S_.push({ id:'not', title:'Okunmamış bildirimler', link:'#/bildirimler', count:S.unread, rows:[{ href:'#/bildirimler', main:`${S.unread} okunmamış bildirim`, sub:'', meta:'', hot:true }], alert:true });
   if (prodR || view) {
     const late = prod.filter(d => due(d) && due(d) < T).sort((a,b) => due(a).localeCompare(due(b)));
     S_.push({ id:'late', title:'Geciken siparişler', link:'#/kayitlar/production', rows: late.map(d => dRow(d, true)), empty:'Geciken sipariş yok.', alert:true });
@@ -1609,7 +1609,7 @@ async function viewNotifications(){
   const ns = nr.data || [], subs = sr.data || [];
   const tk = id => (S.tickets||[]).find(t => t.id === id);
   let here = false; try { const reg = await navigator.serviceWorker?.getRegistration('sw.js'); here = !!(reg && await reg.pushManager.getSubscription()); } catch {}
-  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde konunun sorumlusuna ve ilgili kişilerine; her ayın ilk cuması (sayım günü) depo sorumlularına (Depo / Stok rolü) bildirim gider. Telefona gelen bildirimde yalnızca "yeni bildirim" yazar; ayrıntı burada.</p></div></div>
+  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde konunun sorumlusuna ve ilgili kişilerine telefon/bilgisayar bildirimi gider. Stok sayımı bildirimleri (Depo / Stok rolü) burada görünür ve kayıtlı e-posta adresine gönderilir.</p></div></div>
     <section class="panel"><h2>Bu cihaz</h2>
       <p class="note" style="margin-top:0">${here ? 'Bu cihazda bildirimler açık.' : 'Bu cihazda bildirim almak için aç. Telefon ve bilgisayarda ayrı ayrı açılır.'} Kayıtlı cihaz sayın: ${subs.length}.</p>
       <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}${ns.some(n=>n.read_at)?'<button class="btn" id="pdelr">Okunanları sil</button>':''}${ns.length?'<button class="btn danger" id="pdelall">Tümünü sil</button>':''}</p>
@@ -1964,7 +1964,7 @@ async function viewStock(g){
   const hasImg = new Set(((await sb.from('stock_item_images').select('item_id').range(0, 9999)).data || []).map(x => x.item_id));
   const bomName = id => (S.boms.find(b => b.id === id) || {}).name || '';
   const I = S.items.filter(i => G.cats.includes(i.category));
-  const cats = Object.fromEntries(G.cats.map(c => [c, STK_CAT[c]]));
+  const cats = Object.fromEntries(G.cats.filter(c => I.some(i => i.category === c)).map(c => [c, STK_CAT[c]]));
   const val = I.filter(i => (i.currency || 'TRY') === 'TRY').reduce((a, i) => a + (+i.qty || 0) * (+i.unit_price || 0), 0);
   const nCrit = I.filter(critical).length;
   const boms = S.boms.filter(b => b.kind !== 'pcb' || g === 'e');
@@ -1977,7 +1977,7 @@ async function viewStock(g){
     <div class="kpi"><div class="v">${I.filter(i => i.qty != null && +i.qty <= 0).length}</div><div class="l">Stokta yok</div><div class="d">stok 0</div></div>
     <div class="kpi"><div class="v">${fmtTRY(val)}</div><div class="l">Stok değeri</div><div class="d">TL fiyatlı kalemler</div></div>
   </div>
-  <div class="toolbar">${G.cats.length > 1 ? `<div class="seg" id="scat">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
+  <div class="toolbar">${Object.keys(cats).length > 1 ? `<div class="seg" id="scat">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
     <div class="seg" id="sonly">${[['', 'Hepsi'], ['crit', 'Kritik'], ['zero', 'Stok 0'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div>
     <input type="search" id="sq" placeholder="Ara: kod, ad, malzeme, tedarikçi, konum…" value="${esc(s.q)}">
     <select id="sbom"><option value="">Tüm ürünler / BOM'lar</option>${boms.map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>
@@ -2103,12 +2103,12 @@ async function viewStockUpdate(g, arg){
   const lines = (await sb.from('bom_lines').select('bom_id,item_id').not('item_id', 'is', null).range(0, 9999)).data || [];
   const inBom = {}; lines.forEach(l => (inBom[l.bom_id] = inBom[l.bom_id] || new Set()).add(l.item_id));
   const I = S.items.filter(i => G.cats.includes(i.category)), changed = new Map();
-  const cats = Object.fromEntries(G.cats.map(c => [c, STK_CAT[c]]));
+  const cats = Object.fromEntries(G.cats.filter(c => I.some(i => i.category === c)).map(c => [c, STK_CAT[c]]));
   const MODES = { sayim:['Sayım', 'Sayılan gerçek adet'], giris:['Giriş', 'Gelen adet'], cikis:['Çıkış', 'Çıkan adet'] };
-  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}. Depo sorumlularına (Depo / Stok rolü) bir gün önce 14:00'te hatırlatma, sayım günü 09:00'da bildirim, 18:00'de sayılmayan parça özeti gider.</p></div></div>
+  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}. Depo sorumlularına (Depo / Stok rolü) e-posta ile: bir gün önce 14:00'te hatırlatma, sayım günü 09:00'da bildirim, 18:00'de sayılmayan parça özeti.</p></div></div>
   ${countBanner()}
   <div class="toolbar"><div class="seg" id="sgm">${Object.entries(MODES).map(([k, v]) => `<button data-m="${k}" class="${s.mode === k ? 'on' : ''}">${v[0]}</button>`).join('')}</div>
-    ${G.cats.length > 1 ? `<div class="seg" id="sgc">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
+    ${Object.keys(cats).length > 1 ? `<div class="seg" id="sgc">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
     <div class="seg" id="sgo">${[['', 'Hepsi'], ['uncounted', 'Bu ay sayılmadı'], ['crit', 'Kritik'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
   <div class="toolbar"><input type="search" id="sgq" placeholder="Ara: kod, ad, konum…" value="${esc(s.q)}">
     <select id="sgb"><option value="">Tüm parçalar</option>${S.boms.filter(b => b.kind !== 'pcb' || g === 'e').map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
