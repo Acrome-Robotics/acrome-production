@@ -12,7 +12,7 @@ const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sale
   orders:'Fırsat ve siparişlerin tümünü düzenler, müşteri ekler; stok, BOM ve alım taleplerini yönetir.',
   support:'Support konuları ve RMA kayıtlarını düzenler: durum, sorumlu, not, kapatma, birleştirme.',
   purchasing:'Alım taleplerinin durumunu, fiyatını ve tedarikçisini yönetir; tedarikçi ekler.',
-  stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller.',
+  stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller. Her ayın ilk cuması sayım bildirimi alır.',
   admin:'Her şey + silme, ürün yönetimi, rol verme.' };
 const userRoles = p => !p ? [] : Array.isArray(p.roles) ? p.roles : p.role === 'pending' ? [] : p.role === 'support' ? ['orders','support'] : [p.role];
 const roleLabel = p => userRoles(p).length ? userRoles(p).map(r => ROLES[r] || r).join(' + ') : ROLES.pending;
@@ -95,7 +95,7 @@ async function loadAll(){
   await loadSupport();
   await loadRma();
   await Promise.all([loadStock(true), loadPurCount()]);
-  if (isCountDay() && can('stock', 'production')) sb.rpc('stock_count_notify').then(r => { if (r && r.data) loadSupport(); }, () => {});
+  if (isCountDay() && can('stock')) sb.rpc('stock_count_notify').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
 // aylık stok sayımı: her ayın ilk cuması
 const isCountDay = (d = new Date()) => d.getDay() === 5 && d.getDate() <= 7;
@@ -1598,7 +1598,7 @@ async function viewNotifications(){
   const ns = nr.data || [], subs = sr.data || [];
   const tk = id => (S.tickets||[]).find(t => t.id === id);
   let here = false; try { const reg = await navigator.serviceWorker?.getRegistration('sw.js'); here = !!(reg && await reg.pushManager.getSubscription()); } catch {}
-  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde konunun sorumlusuna ve ilgili kişilerine; her ayın ilk cuması (sayım günü) Depo / Stok ve Üretim rolündekilere bildirim gider. Telefona gelen bildirimde yalnızca "yeni bildirim" yazar; ayrıntı burada.</p></div></div>
+  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde konunun sorumlusuna ve ilgili kişilerine; her ayın ilk cuması (sayım günü) depo sorumlularına (Depo / Stok rolü) bildirim gider. Telefona gelen bildirimde yalnızca "yeni bildirim" yazar; ayrıntı burada.</p></div></div>
     <section class="panel"><h2>Bu cihaz</h2>
       <p class="note" style="margin-top:0">${here ? 'Bu cihazda bildirimler açık.' : 'Bu cihazda bildirim almak için aç. Telefon ve bilgisayarda ayrı ayrı açılır.'} Kayıtlı cihaz sayın: ${subs.length}.</p>
       <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}${ns.some(n=>n.read_at)?'<button class="btn" id="pdelr">Okunanları sil</button>':''}${ns.length?'<button class="btn danger" id="pdelall">Tümünü sil</button>':''}</p>
@@ -2091,7 +2091,7 @@ async function viewStockUpdate(g){
   const I = S.items.filter(i => G.cats.includes(i.category)), changed = new Map();
   const cats = Object.fromEntries(G.cats.map(c => [c, STK_CAT[c]]));
   const MODES = { sayim:['Sayım', 'Sayılan gerçek adet'], giris:['Giriş', 'Gelen adet'], cikis:['Çıkış', 'Çıkan adet'] };
-  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}; Depo / Stok ve Üretim rolündekilere o sabah bildirim gider.</p></div></div>
+  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}; depo sorumlularına (Depo / Stok rolü) o sabah 09:00'da bildirim gider.</p></div></div>
   ${countBanner()}
   <div class="toolbar"><div class="seg" id="sgm">${Object.entries(MODES).map(([k, v]) => `<button data-m="${k}" class="${s.mode === k ? 'on' : ''}">${v[0]}</button>`).join('')}</div>
     ${G.cats.length > 1 ? `<div class="seg" id="sgc">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
