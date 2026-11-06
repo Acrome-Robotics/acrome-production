@@ -103,7 +103,7 @@ async function start(){
 function renderAuth(mode='in'){
   const up = mode === 'up', reset = mode === 'reset';
   $app.innerHTML = `<div class="auth"><div class="box">
-    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Üretim planlama · Support</small></div></div>
+    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Satış · Support · RMA</small></div></div>
     <h1 style="margin-top:18px">${reset?'Şifre sıfırla':up?'Hesap oluştur':'Giriş yap'}</h1>
     <p class="note">${up?'@acrome.net adresinle hesap açınca raporları ve kayıtları hemen görebilirsin. Veri girişi için yöneticiden Satış veya Üretim rolü iste.':reset?'E-posta adresine sıfırlama bağlantısı gönderilir.':'Acrome ekip hesabınla giriş yap.'}</p>
     <form id="af" novalidate>
@@ -145,30 +145,42 @@ const logo = () => `<svg width="28" height="28" viewBox="0 0 32 32" aria-hidden=
 function shell(active, html){
   const cnt = st => S.deals.filter(d => d.status === st).length;
   const openIssues = S.issues.filter(i => !i.resolved).length;
+  // menü: ana başlıklar ve alt başlıklar
   const nav = [
-    ['rapor','Rapor'],
-    ['gonderim','Aylık gönderim raporu'],
-    ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
-    ['kayitlar/pipeline','Açık fırsatlar', cnt('pipeline')],
-    ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
-    ['kayitlar/all','Tüm kayıtlar', S.deals.length],
-    ...(can('sales','support','admin') ? [['yeni','Yeni kayıt']] : []),
-    ['hr'],
-    ['support','Support', supOpenCount() || ''],
-    ['rma','RMA', (S.rmas||[]).filter(rmaOpen).length || ''],
-    ['bildirimler','Bildirimler', S.unread || ''],
-    ['hr'],
-    ['kaynaklar','Kaynak tablolar'],
-    ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || ''],
-    ['gecmis','Değişiklik geçmişi'],
-    ...(can('admin') ? [['kullanicilar','Kullanıcılar']] : []),
-    ...(can('admin') && !S.deals.length ? [['ice-aktar','Excel verisini içe aktar']] : []),
-    ...(can('admin') && S.deals.length ? [['excel','Excel\'den güncelle']] : []),
+    ['Satış', [
+      ['rapor','Rapor'],
+      ['gonderim','Aylık gönderim raporu'],
+      ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
+      ['kayitlar/pipeline','Açık fırsatlar', cnt('pipeline')],
+      ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
+      ['kayitlar/all','Tüm kayıtlar', S.deals.length],
+      ...(can('sales','support','admin') ? [['yeni','Yeni kayıt']] : []),
+    ]],
+    ['Support', [
+      ['support','Konular', supOpenCount() || ''],
+      ['bildirimler','Bildirimler', S.unread || ''],
+      ...(can('support','admin') ? [['support-yeni','Yeni konu']] : []),
+    ]],
+    ['RMA', [
+      ['rma','RMA kayıtları', (S.rmas||[]).filter(rmaOpen).length || ''],
+      ['rma-rapor','3 aylık rapor'],
+      ...(can('support','admin') ? [['rma-yeni','Yeni RMA']] : []),
+    ]],
+    ['Alımlar', [[null,'Yakında']]],
+    ['Stok', [[null,'Yakında']]],
+    ['Veri', [
+      ['kaynaklar','Kaynak tablolar'],
+      ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || ''],
+      ['gecmis','Değişiklik geçmişi'],
+      ...(can('admin') ? [['kullanicilar','Kullanıcılar']] : []),
+      ...(can('admin') && !S.deals.length ? [['ice-aktar','Excel verisini içe aktar']] : []),
+      ...(can('admin') && S.deals.length ? [['excel','Excel\'den güncelle']] : []),
+    ]],
   ];
   $app.innerHTML = `<div class="topbar"><div class="brand" style="padding:0">${logo()} Acrome</div><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side">
-    <div class="brand">${logo()}<div>Acrome<small>Üretim planlama · Support</small></div></div>
-    <nav class="nav">${nav.map(n => n[0]==='hr' ? '<hr>' : `<a href="#/${n[0]}" class="${active===n[0]?'on':''}">${n[1]}<span class="count">${n[2]??''}</span></a>`).join('')}</nav>
+    <div class="brand">${logo()}<div>Acrome<small>Satış · Support · RMA</small></div></div>
+    <nav class="nav">${nav.map(([g, items]) => `<div class="ngroup"><div class="nhead">${g}</div>${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===n[0]?'on':''}">${n[1]}<span class="count">${n[2]??''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div>`).join('')}</nav>
     <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${ROLES[S.profile.role]} · <button class="linkbtn" id="lo">Çıkış</button><br>${themeSwitch()}</div>
   </aside><main class="main" id="main">${html}</main></div>`;
   q('#lo').onclick = () => sb.auth.signOut();
@@ -1052,7 +1064,7 @@ let supPeople = null;
 
 async function loadSupport(){
   const { data, error } = await sb.from('support_tickets')
-    .select('id,subject,category,status,priority,product,customer_name,organization,country,contact_email,assignee,summary,resolution,tags,gmail_thread_ids,basecamp_urls,opened_at,last_activity_at,last_inbound_at,last_outbound_at,closed_at,created_at,updated_at,deal_id,deal_link_source,ai_updated_at')
+    .select('id,subject,category,status,priority,product,customer_name,organization,country,contact_email,assignee,watchers,summary,resolution,tags,gmail_thread_ids,basecamp_urls,opened_at,last_activity_at,last_inbound_at,last_outbound_at,closed_at,created_at,updated_at,deal_id,deal_link_source,ai_updated_at')
     .order('last_activity_at', { ascending:false }).range(0, 4999);
   if (error) { S.tickets = S.tickets || []; S.supErr = error.message; return; }
   S.tickets = data; S.supErr = null;
@@ -1060,6 +1072,8 @@ async function loadSupport(){
   S.unread = n.error ? 0 : (n.count || 0);
   const ss = await sb.from('support_sync_state').select('key,updated_at');
   S.syncAt = Object.fromEntries((ss.data||[]).map(r => [r.key, r.updated_at]));
+  const st = await sb.from('support_settings').select('key,value');
+  S.supSet = Object.fromEntries((st.data||[]).map(r => [r.key, r.value]));
 }
 // son senkron satırı: 14 saatten eskiyse uyarı (günde 2 çalışma: 09:30 / 16:30)
 function syncLine(){
@@ -1126,7 +1140,7 @@ async function viewSupport(){
       (s.cat === 'all' || t.category === s.cat) &&
       (s.tab === 'all' || (s.tab === 'open' ? t.status !== 'closed' : s.tab === 'ours' ? (t.status === 'ours' || t.status === 'new') : t.status === s.tab)) &&
       (!s.product || t.product === s.product) &&
-      (!s.who || (s.who === 'me' ? t.assignee === S.profile.id : s.who === 'none' ? !t.assignee : t.assignee === s.who)) &&
+      (!s.who || (s.who === 'me' ? (t.assignee === S.profile.id || (t.watchers||[]).includes(S.profile.id)) : s.who === 'none' ? !t.assignee : t.assignee === s.who)) &&
       (!ql || hitMap.has(t.id) || ('#' + t.id + ' ' + [t.subject,t.customer_name,t.organization,t.country,t.contact_email,t.summary,t.resolution,(t.tags||[]).join(' '),prodName(t.product)].join(' ')).toLocaleLowerCase('tr').includes(ql)));
     if (ql && s.hits) rows.sort((a,b) => ((hitMap.get(b.id)?.rank)||0) - ((hitMap.get(a.id)?.rank)||0));
     else rows.sort((a,b) => s.sort === 'open' ? (b.opened_at||'').localeCompare(a.opened_at||'') : (b.last_activity_at||'').localeCompare(a.last_activity_at||''));
@@ -1141,7 +1155,7 @@ async function viewSupport(){
         <td>${t.product?esc(prodName(t.product)):'<span class="sub">—</span>'}</td>
         <td>${supPill(t.status)}${s.cat==='all'&&t.category!=='support'?`<div class="sub">${SUP_CAT[t.category]}</div>`:''}</td>
         <td><span class="${mailState(t).cls}" style="font-size:13px">${mailState(t).txt}</span>${t.deal_id?`<div class="sub">${esc(dealNo(t.deal_id))}</div>`:''}</td>
-        <td>${esc(personName(t.assignee)) || '<span class="sub">—</span>'}</td>
+        <td>${esc(personName(t.assignee)) || '<span class="sub">—</span>'}${(t.watchers||[]).length ? `<div class="sub">+ ${(t.watchers||[]).map(personName).filter(Boolean).map(esc).join(', ')}</div>` : ''}</td>
         <td style="white-space:nowrap">${ago(t.last_activity_at)}${w?`<div class="sub ${w.cls}">${w.txt}</div>`:''}</td></tr>`; }).join('')}
       <tr class="tfoot"><td colspan="8">${rows.length} konu${ql?` · "${esc(s.q)}" araması${s.hits?' (mesaj içerikleri dahil)':''}`:''}</td></tr></tbody></table>`
       : `<div class="empty">${ql ? 'Aramayla eşleşen konu yok.' : 'Bu filtrelerle konu yok.'}</div>`;
@@ -1207,6 +1221,7 @@ async function viewTicket(id){
 
   const evText = e => e.kind === 'status' ? `Durum: ${SUP_STATUS[e.old_value]||e.old_value||'—'} → <b>${SUP_STATUS[e.new_value]||e.new_value}</b>`
     : e.kind === 'assignee' ? `Sorumlu: ${esc(e.old_value||'—')} → <b>${esc(e.new_value||'—')}</b>`
+    : e.kind === 'watchers' ? `İlgili kişiler: ${esc(e.old_value||'—')} → <b>${esc(e.new_value||'—')}</b>`
     : e.kind === 'merged' ? `Birleştirildi: ${esc(e.old_value)} "${esc(e.new_value||'')}"`
     : e.kind === 'category' ? `Kategori: ${SUP_CAT[e.old_value]||e.old_value} → <b>${SUP_CAT[e.new_value]||e.new_value}</b>` : esc(e.kind);
   const items = [...msgs.map(m => ({ at:m.sent_at, m })), ...evs.map(e => ({ at:e.at, e }))].sort((a,b) => b.at.localeCompare(a.at));
@@ -1267,6 +1282,8 @@ async function viewTicket(id){
         <form id="tf" class="fs" novalidate><fieldset ${canSup()?'':'disabled'} style="border:0;padding:0;margin:0;min-width:0">
           <label class="f">Durum<select name="status">${opt(SUP_STATUS, t.status)}</select></label>
           <label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${t.assignee===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+          <div class="f wbox"><span class="wt">İlgili kişiler</span><span class="hint">yeni müşteri mailinde onlara da bildirim gider</span>
+            <div class="watchers">${supPeople.filter(p => p.id !== t.assignee).map(p=>`<label class="chk"><input type="checkbox" name="w" value="${p.id}" ${(t.watchers||[]).includes(p.id)?'checked':''}> ${esc(p.name)}</label>`).join('')}</div></div>
           <label class="f">Öncelik<select name="priority">${opt(SUP_PRIO, t.priority)}</select></label>
           <label class="f">Kategori<select name="category">${opt(SUP_CAT, t.category)}</select></label>
           <label class="f">Ürün<select name="product"><option value="">—</option>${S.products.map(p=>`<option value="${p.code}" ${t.product===p.code?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
@@ -1328,7 +1345,9 @@ async function viewTicket(id){
   q('#tf').onsubmit = e => {
     e.preventDefault(); const f = e.target;
     const v = n => f[n].value.trim() || null;
-    upd({ status:f.status.value, assignee:v('assignee'), priority:f.priority.value, category:f.category.value, product:v('product'),
+    const assignee = v('assignee');
+    const watchers = [...f.querySelectorAll('input[name=w]:checked')].map(x => x.value).filter(x => x !== assignee);
+    upd({ status:f.status.value, assignee, watchers, priority:f.priority.value, category:f.category.value, product:v('product'),
       customer_name:v('customer_name'), organization:v('organization'), country:v('country'), contact_email:v('contact_email'),
       tags: f.tags.value.split(',').map(x => x.trim()).filter(Boolean), summary:v('summary'), resolution:v('resolution') });
   };
@@ -1422,8 +1441,9 @@ async function viewNotifications(){
 }
 
 async function viewTicketNew(){
+  if (!S.supSet) await loadSupport();
   await people();
-  shell('support', `<p><a href="#/support">← Support listesi</a></p><h1>Yeni support konusu</h1>
+  shell('support-yeni', `<p><a href="#/support">← Support listesi</a></p><h1>Yeni support konusu</h1>
   <p class="lede">Mail dışında gelen (telefon, Meet, Basecamp, yüz yüze) bir konuyu kaydetmek için. Mailden gelenler otomatik eklenir.</p>
   <form id="tn" class="fs" style="max-width:760px" novalidate>
     <label class="f">Konu<input type="text" name="subject" required></label>
@@ -1431,7 +1451,7 @@ async function viewTicketNew(){
     <label class="f">Ürün<select name="product"><option value="">—</option>${S.products.map(p=>`<option value="${p.code}">${esc(p.name)}</option>`).join('')}</select></label></div>
     <div class="row r2"><label class="f">Müşteri (kişi)<input type="text" name="customer_name"></label><label class="f">Kurum / bayi<input type="text" name="organization"></label></div>
     <div class="row r2"><label class="f">Ülke<input type="text" name="country"></label><label class="f">E-posta<input type="email" name="contact_email"></label></div>
-    <div class="row r2"><label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${p.id===S.profile.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+    <div class="row r2"><label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${p.id===((S.supSet||{}).default_assignee||S.profile.id)?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
     <label class="f">Kaynak<select name="src"><option value="note">Not</option><option value="call">Telefon</option><option value="meet">Meet</option></select></label></div>
     <label class="f">Talep / ilk not<textarea name="body" rows="5"></textarea></label>
     <p><button class="btn primary">Konuyu aç</button></p>
@@ -1536,7 +1556,7 @@ async function viewRmaReport(qsel){
   const grp = (arr, key) => { const m = new Map(); arr.forEach(r => { const k = (key(r) || '').trim() || '— (girilmemiş)'; m.set(k, (m.get(k)||0) + 1); }); return [...m.entries()].sort((a,b) => b[1]-a[1]); };
   const byKind = Object.keys(RMA_COST).map(k => [RMA_COST[k], sum(C.filter(c => c.kind === k).map(c => c.amount_try))]).filter(x => x[1]);
   const tbl = (head, rows) => rows.length ? `<table><thead><tr>${head.map(h=>`<th class="nosort">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="note">Veri yok.</p>';
-  shell('rma', `<p><a href="#/rma">← RMA listesi</a></p>
+  shell('rma-rapor', `<p><a href="#/rma">← RMA listesi</a></p>
   <div class="pagehead"><div><h1>RMA raporu · ${cur}</h1><p class="lede">Talep tarihi bu çeyrekte olan RMA'lar${R.some(r=>r.is_draft)?' (geçmişten çıkarılan taslaklar dahil)':''}.</p></div>
     <div style="display:flex;gap:8px;align-items:center"><select id="rq" aria-label="Çeyrek">${(qs.length?qs:[cur]).map(x=>`<option ${x===cur?'selected':''}>${x}</option>`).join('')}</select><button class="btn" onclick="window.print()">Yazdır / PDF</button></div></div>
   <div class="kpis">
@@ -1592,7 +1612,7 @@ async function viewRmaForm(id, preset){
   const warrantyTxt = r.in_warranty == null ? (d ? 'Sevk tarihi yok, hesaplanamadı' : 'Sipariş bağlı değil') : `${r.in_warranty ? 'Garanti içi' : 'Garanti dışı'} · bitiş ${fmtD(r.warranty_end)} (${(r.deal_country||'').toUpperCase()==='TR'?'yurt içi 2 yıl':'yurt dışı 1 yıl'})`;
   const totals = (() => { const c = costs.filter(x=>x.direction==='cost'), i = costs.filter(x=>x.direction==='income'); const sum = a => a.reduce((s,x)=>s+(+x.amount_try||0),0); return { c:sum(c), i:sum(i), miss:costs.filter(x=>x.currency!=='TRY'&&!x.fx_rate).length }; })();
 
-  shell('rma', `<p><a href="#/rma">← RMA listesi</a></p>
+  shell(id ? 'rma' : 'rma-yeni', `<p><a href="#/rma">← RMA listesi</a></p>
   <div class="pagehead"><div><h1>${id ? esc(r.code) : 'Yeni RMA'}</h1>
     <p class="lede">${esc(r.customer || r.customer_name || 'Müşteri belirtilmemiş')}${r.order_no?` · <a href="#/kayit/${r.deal_id}" class="mono">${esc(r.order_no)}</a>`:''}${r.ticket_id?` · <a href="#/support/${r.ticket_id}">Support #${r.ticket_id}</a>`:''}</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${r.is_draft?'<span class="pill rp-draft">Taslak</span>':''}${id?rmaPill(r.status):''}

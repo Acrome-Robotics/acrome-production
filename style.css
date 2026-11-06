@@ -275,3 +275,13 @@ td.num{text-align:right;white-space:nowrap}
 @media print{ aside.side,.sidebar,nav,.toolbar,.btn{display:none !important} main{margin:0 !important} }
 .syncline{margin:4px 0 0;font-size:13px}
 .warn-t{color:var(--warn,#b45309);font-weight:600}
+.watchers{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px}
+.watchers .chk{display:inline-flex;align-items:center;gap:6px;font-weight:400;font-size:14px;cursor:pointer}
+fieldset:disabled .watchers .chk{cursor:default;opacity:.8}
+.wbox{display:flex;flex-direction:column;gap:4px;font-size:13px;margin-bottom:8px}
+.wbox .wt{font-weight:600}.wbox .hint{color:var(--muted)}
+/* menü grupları */
+.ngroup{margin:0 0 12px}
+.ngroup + .ngroup{border-top:1px solid var(--line);padding-top:10px}
+.nhead{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:2px 10px 4px}
+.nav .nsoon{display:block;padding:6px 10px;font-size:13px;color:var(--muted);font-style:italic}
