@@ -1397,15 +1397,19 @@ async function viewNotifications(){
   const ns = nr.data || [], subs = sr.data || [];
   const tk = id => (S.tickets||[]).find(t => t.id === id);
   let here = false; try { const reg = await navigator.serviceWorker?.getRegistration('sw.js'); here = !!(reg && await reg.pushManager.getSubscription()); } catch {}
-  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde, konunun sorumlusuna (sorumlu yoksa Sipariş + Support rolündekilere) bildirim gider. Bildirimde yalnızca yeni mail geldiği yazar; ayrıntı sitede.</p></div></div>
+  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde, yalnızca konunun sorumlusuna bildirim gider (sorumlusu olmayan konularda bildirim gitmez). Bildirimde yalnızca yeni mail geldiği yazar; ayrıntı sitede.</p></div></div>
     <section class="panel"><h2>Bu cihaz</h2>
       <p class="note" style="margin-top:0">${here ? 'Bu cihazda bildirimler açık.' : 'Bu cihazda bildirim almak için aç. Telefon ve bilgisayarda ayrı ayrı açılır.'} Kayıtlı cihaz sayın: ${subs.length}.</p>
-      <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}</p>
+      <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}${ns.some(n=>n.read_at)?'<button class="btn" id="pdelr">Okunanları sil</button>':''}${ns.length?'<button class="btn danger" id="pdelall">Tümünü sil</button>':''}</p>
     </section>
-    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
+    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
   q('#pon') && (q('#pon').onclick = e => enablePush(e.target));
   q('#ptest').onclick = async e => { e.target.disabled = true; const { data, error } = await sb.rpc('support_push_test'); e.target.disabled = false; if (error) return toast(dbErr(error), true); toast('Test gönderildi'); await loadSupport(); viewNotifications(); };
   q('#pread') && (q('#pread').onclick = async () => { await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); await loadSupport(); viewNotifications(); });
+  const ndel = async (qb, msg) => { const { error } = await qb; if (error) return toast(dbErr(error), true); toast(msg); await loadSupport(); viewNotifications(); };
+  q('#pdelr') && (q('#pdelr').onclick = () => ndel(sb.from('support_notifications').delete().not('read_at', 'is', null), 'Okunan bildirimler silindi'));
+  q('#pdelall') && (q('#pdelall').onclick = e => { if (e.target.dataset.ok) return ndel(sb.from('support_notifications').delete().gte('id', 0), 'Tüm bildirimler silindi'); e.target.dataset.ok = 1; e.target.textContent = 'Emin misin? Tekrar bas'; });
+  qa('.ndel').forEach(b => b.onclick = e => { e.stopPropagation(); ndel(sb.from('support_notifications').delete().eq('id', +b.dataset.nid), 'Bildirim silindi'); });
   qa('tr[data-nt]').forEach(r => r.onclick = () => r.dataset.nt && (location.hash = '#/support/' + r.dataset.nt));
 }
 
