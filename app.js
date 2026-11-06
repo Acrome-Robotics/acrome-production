@@ -217,8 +217,9 @@ function shell(active, html){
     ]],
     ['Stok', 'box', [
       ['mekanik-stok','Mekanik stok', (S.items||[]).filter(i => critical(i) && grpOfCat(i.category) === 'm').length || ''],
+      ...(canStock() ? [['mekanik-sayim','Mekanik sayım', '', '', 'sub']] : []),
       ['elektronik-stok','Elektronik stok', (S.items||[]).filter(i => critical(i) && grpOfCat(i.category) === 'e').length || ''],
-      ...(canStock() ? [['mekanik-sayim','Mekanik sayım', '', '', 'sub'], ['elektronik-sayim','Elektronik sayım', '', '', 'sub']] : []),
+      ...(canStock() ? [['elektronik-sayim','Elektronik sayım', '', '', 'sub']] : []),
       ['bom','BOM listesi'],
       ...(/^bom/.test(active) ? [
         ...(S.boms||[]).filter(b => b.kind === 'product').map(b => ['bom/' + b.id, esc(b.name), '', '', 'sub', 'bom-p' + b.id]),
