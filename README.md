@@ -95,3 +95,9 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - `#/daily`: günlük toplantı notları; kişi başına gün kartı (Yapılanlar / Yapılacaklar), haftalık hedef, önceki günün yapılacakları, notlarda arama. `#/daily/k<id>`: kişinin haftalık geçmişi (Excel düzeni).
 - Tablolar `daily_notes(person_id, day)`, `daily_goals(person_id, week)`; kişiler `att_people` (ayrılanlar pasif). Yazma: kendi kartı + yönetici.
 - `#/daily-aktar` (yönetici): DailyMeetings Excel'inden üretilen JSON'u `daily_admin_import()` ile aktarır (var olan notların üzerine yazmaz).
+
+## Milestone 1 — 7 Kasım 2026 (`milestone-1-2026-11-07`)
+Geri dönülebilir sabit nokta. Kapsam: satış/sipariş, support + RMA, stok (mekanik/elektronik, sayım), BOM, alımlar + aylık alım raporu, tedarikçiler (gruplar, site hesapları), PCB, motor testleri, çalışma planı + aylık rapor, daily notları, Bugün sayfası, çoklu rol (Personel dahil), e-posta bildirimleri (notify-mail).
+- **Kod:** `git checkout milestone-1-2026-11-07` (yayına almak için bu etiketten dal açıp main'e birleştirin).
+- **Veri:** Supabase'te `snap_20261107` şemasında tüm public tabloların kopyası var. Tek tablo geri yükleme: `truncate public.X cascade; insert into public.X select * from snap_20261107.X;` (yalnızca yönetici, önce yeni bir yedek alın).
+- **Şema:** Supabase migration geçmişinde son kayıt `milestone_snapshot_20261107`.
