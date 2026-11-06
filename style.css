@@ -273,3 +273,5 @@ td.num{text-align:right;white-space:nowrap}
 .rp-draft{background:var(--soft);color:var(--muted);border:1px dashed var(--line)}
 .row.req label.f{font-weight:600}
 @media print{ aside.side,.sidebar,nav,.toolbar,.btn{display:none !important} main{margin:0 !important} }
+.syncline{margin:4px 0 0;font-size:13px}
+.warn-t{color:var(--warn,#b45309);font-weight:600}

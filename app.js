@@ -1058,6 +1058,14 @@ async function loadSupport(){
   S.tickets = data; S.supErr = null;
   const n = await sb.from('support_notifications').select('id', { count:'exact', head:true }).is('read_at', null);
   S.unread = n.error ? 0 : (n.count || 0);
+  const ss = await sb.from('support_sync_state').select('key,updated_at');
+  S.syncAt = Object.fromEntries((ss.data||[]).map(r => [r.key, r.updated_at]));
+}
+// son senkron satırı: 14 saatten eskiyse uyarı (günde 2 çalışma: 09:30 / 16:30)
+function syncLine(){
+  const z = S.syncAt || {}, old = t => !t || (Date.now() - new Date(t)) > 14 * 36e5;
+  const one = (k, label, hint) => `${label}: ${z[k] ? fmtDT(z[k]) : '—'}${old(z[k]) ? ` <b class="warn-t">· gecikti${hint ? ' (' + hint + ')' : ''}</b>` : ''}`;
+  return `<p class="note syncline">Son senkron · ${one('gmail','Mail')} · ${one('basecamp_cards','Basecamp','bilgisayar kapalı olabilir; açılınca kaldığı yerden devam eder')}</p>`;
 }
 async function people(){
   if (supPeople) return supPeople;
@@ -1140,7 +1148,7 @@ async function viewSupport(){
     qa('#stbl tr[data-tid]').forEach(tr => tr.onclick = () => location.hash = '#/support/' + tr.dataset.tid);
   };
 
-  shell('support', `<div class="pagehead"><div><h1>Support</h1><p class="lede">support@acrome.net konuları, cevaplar ve notlar tek yerde. Yeni mailler otomatik eklenir; arama mail içeriklerinde de yapılır.</p></div>
+  shell('support', `<div class="pagehead"><div><h1>Support</h1><p class="lede">support@acrome.net konuları, cevaplar ve notlar tek yerde. Yeni mailler otomatik eklenir; arama mail içeriklerinde de yapılır.</p>${syncLine()}</div>
     <div style="display:flex;gap:8px"><button class="btn" id="scsv">CSV indir</button>${canSup()?'<a class="btn primary" href="#/support-yeni">Yeni konu</a>':''}</div></div>
     ${S.supErr ? `<div class="banner">Support verisi okunamadı: ${esc(S.supErr)}</div>` : ''}
     <div class="kpis">
