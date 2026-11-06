@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------- sabitler
 const STAGES = { qualify:'1 · Nitelendirme', advance:'2 · İlerliyor', closing:'3 · Kapanış', won:'Kazanıldı', lost:'Kaybedildi' };
 const STATUSES = { pipeline:'Fırsat', production:'Üretimde', shipped:'Gönderildi', lost:'Kaybedildi', archived:'Arşiv' };
-const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', orders:'Sipariş', support:'Support', purchasing:'Satın alma', stock:'Depo / Stok', personel:'Personel', admin:'Yönetici' };
+const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', orders:'Sipariş', support:'Support', purchasing:'Satın alma', stock:'Depo / Stok', muhasebe:'Muhasebe', personel:'Personel', admin:'Yönetici' };
 // rol ayrıntıları (Kullanıcılar sayfası)
 const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sales:'Fırsat ve sipariş girer, düzenler; müşteri ekler.',
   production:'Üretim alanlarını (planlanan sevk, sevk tarihi, durum, gecikme) değiştirir; sipariş aşamalarını günceller (bölüm seçildiyse yalnız o aşamaları); stok, BOM ve alım taleplerini yönetir.',
@@ -13,10 +13,15 @@ const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sale
   support:'Support konuları ve RMA kayıtlarını düzenler: durum, sorumlu, not, kapatma, birleştirme.',
   purchasing:'Alım taleplerinin durumunu, fiyatını ve tedarikçisini yönetir; tedarikçi ekler.',
   stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller. Her ayın ilk cuması sayım e-postası alır.',
-  personel:'Yalnızca haftalık çalışma planını görür ve kendi satırını doldurur (atölye, stajyer vb.).',
+  muhasebe:'Masraf formlarının hepsini görür; onaylar, reddeder, ödendi işaretler. Diğer sayfaları izleyici gibi görür.',
+  personel:'Yalnızca haftalık çalışma planını, daily notlarını ve kendi masraf formunu görür (atölye, stajyer vb.).',
   admin:'Her şey + silme, ürün yönetimi, rol verme.' };
 const staffOnly = () => !!S.profile && userRoles(S.profile).length > 0 && userRoles(S.profile).every(r => r === 'personel');
 const userRoles = p => !p ? [] : Array.isArray(p.roles) ? p.roles : p.role === 'pending' ? [] : p.role === 'support' ? ['orders','support'] : [p.role];
+// Rol önizleme (yalnız yönetici, geliştirme kontrolü için): arayüzü seçilen rollerle gösterir; veri ve yazma yetkisi yöneticininkidir.
+const PV_KEY = 'rolePreview';
+const getPreview = () => { try { return JSON.parse(localStorage.getItem(PV_KEY) || 'null'); } catch { return null; } };
+const realAdmin = () => userRoles(S.realProfile || S.profile).includes('admin');
 const roleLabel = p => userRoles(p).length ? userRoles(p).map(r => ROLES[r] || r).join(' + ') : ROLES.pending;
 const CATS = { sistem:'Deney setleri', kontrolcu:'Kontrolcüler', smd:'SMD' };
 const CURRENCIES = ['USD','EUR','GBP','TRY'];
@@ -101,7 +106,7 @@ async function loadAll(){
   S.deals = d.data; S.customers = c.data; S.products = p.data; S.countries = k.data; S.issues = i.data; S.loaded = true;
   await loadSupport();
   await loadRma();
-  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadAttToday().catch(() => {})]);
+  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadAttToday().catch(() => {})]);
   if (isCountDay() && can('stock')) sb.rpc('stock_count_notify_me').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
 // aylık stok sayımı: her ayın ilk cuması
@@ -125,7 +130,9 @@ async function start(){
   if (!S.session) return renderAuth();
   const { data, error } = await sb.from('profiles').select('*').eq('id', S.session.user.id).maybeSingle();
   if (error) { $app.innerHTML = `<div class="boot">Profil okunamadı: ${esc(error.message)}</div>`; return; }
-  S.profile = data || { role:'pending', email:S.session.user.email };
+  S.profile = data || { role:'pending', email:S.session.user.email }; S.realProfile = S.profile;
+  { const pv = getPreview(); if (pv && Array.isArray(pv.roles) && pv.roles.length && userRoles(S.profile).includes('admin'))
+      S.profile = { ...S.profile, roles:pv.roles, role:pv.roles.includes('admin') ? 'admin' : pv.roles[0], departments:pv.departments || [], _preview:true }; }
   if (S.profile.role === 'pending' || !userRoles(S.profile).length) return renderPending();
   if (staffOnly()) { Object.assign(S, { deals:[], customers:[], products:[], countries:[], issues:[], items:[], boms:[], tickets:[], rmas:[] });
     try { await loadAttToday(); } catch {} window.onhashchange = route; return route(); }
@@ -200,6 +207,8 @@ function shell(active, html){
   const ekip = ['Ekip', 'users', [
       ['calisma-plani','Haftalık çalışma planı', attTodayEmpty() ? 1 : '', 'hot'],
       ['daily','Daily notları'],
+      ['masraf','Masraf formu'],
+      ...(canAcc() ? [['masraf-liste','Masraf formları', S.expPending || '', 'hot']] : []),
       ...(can('admin') ? [['calisma-raporu','Aylık çalışma raporu'], ['calisma-kisiler','Çalışma planı kişileri']] : []),
     ]];
   const nav = staffOnly() ? [ekip] : [
@@ -258,14 +267,16 @@ function shell(active, html){
     ]],
   ];
   const todayHot = staffOnly() ? 0 : todayCount();
-  $app.innerHTML = `<div class="topbar"><div class="brand" style="padding:0">${logo()} Acrome</div><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
+  const home = staffOnly() ? '#/calisma-plani' : '#/bugun';
+  $app.innerHTML = `<div class="topbar"><a class="brand homelink" href="${home}" style="padding:0" title="Ana sayfa">${logo()} Acrome</a><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side"><button class="btn sm side-close" id="sideclose" type="button">Kapat ✕</button>
-    <div class="brand">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></div>
+    <a class="brand homelink" href="${home}" title="Ana sayfa">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></a>
     <nav class="nav">${staffOnly() ? '' : `<a href="#/bugun" class="ntop ${active==='bugun'?'on':''}">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>`}${nav.map(([g, ic, items]) => { const cur = items.some(n => (n[5] || n[0]) === active), closed = !cur && (navClosed().includes(g) || matchMedia('(max-width:820px)').matches), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
       return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===(n[5]||n[0])?'on':''}${n[4]==='sub'?' sub2':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
-    <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${esc(roleLabel(S.profile))} · <button class="linkbtn" id="lo">Çıkış</button><div class="prefs">${themeSwitch()}${densSwitch()}</div></div>
-  </aside><main class="main" id="main">${html}</main></div>`;
+    <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${esc(roleLabel(S.profile))} · <button class="linkbtn" id="lo">Çıkış</button>${realAdmin() ? ` · <a href="#/rol-onizleme">Rol önizleme</a>` : ''}<div class="prefs">${themeSwitch()}${densSwitch()}</div></div>
+  </aside><main class="main" id="main">${S.profile._preview ? `<div class="pvbar" role="status"><span>👁 <b>Rol önizleme:</b> ${esc(roleLabel(S.profile))}${myDeps().length ? ' · bölüm: ' + esc(myDeps().map(stgName).join(', ')) : ''}. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkinle yapılır.</span><span><a href="#/rol-onizleme">Değiştir</a> · <button class="linkbtn" id="pvexit">Önizlemeden çık</button></span></div>` : ''}${html}</main></div>`;
   q('#lo').onclick = () => sb.auth.signOut();
+  q('#pvexit') && (q('#pvexit').onclick = () => { try { localStorage.removeItem(PV_KEY); } catch {} location.hash = '#/kullanicilar'; location.reload(); });
   qa('.nhead').forEach(h => h.onclick = () => { const g = h.parentNode, k = g.dataset.g, set = new Set(navClosed());
     g.classList.toggle('closed'); const c = g.classList.contains('closed'); h.setAttribute('aria-expanded', !c); c ? set.add(k) : set.delete(k);
     try { localStorage.setItem('navClosed', JSON.stringify([...set])); } catch {} });
@@ -277,6 +288,9 @@ function shell(active, html){
 function route(){
   const [p, a] = location.hash.replace(/^#\/?/,'').split('?')[0].split('/');
   window.scrollTo(0,0); if (typeof closeAttPop === 'function') closeAttPop();
+  if (p === 'rol-onizleme' && realAdmin()) return viewRolePreview();
+  if (p === 'masraf') return a ? viewExpenseDetail(+a) : viewExpense();
+  if (p === 'masraf-liste') return canAcc() ? viewExpenseList() : viewExpense();
   if (staffOnly()) return p === 'sifre' ? viewNewPassword() : p === 'daily' ? viewDaily(a) : viewAttendance(a);
   switch(p){
     case 'calisma-plani': case 'yoklama': return viewAttendance(a);
@@ -391,6 +405,8 @@ function todaySections(){
     const out = (S.items || []).filter(i => i.qty != null && +i.qty <= 0 && (S.prodItemIds || new Set()).has(i.id));
     S_.push({ max:5, foot: out.length ? `${out.filter(i => grpOfCat(i.category) === 'm').length} mekanik · ${out.filter(i => grpOfCat(i.category) === 'e').length} elektronik` : '', id:'out', title:'Stokta biten parçalar (ürünlerde kullanılan)', link:'#/mekanik-stok', rows: out.map(i => ({ href:'#/stok/' + i.id, main:esc(i.name), sub:esc(i.supplier_text || ''), meta:'<span class="amber-txt">stok 0</span>', hot:false })), empty:'Ürünlerde kullanılan parçalarda biten yok.' });
   }
+  if (canAcc() && (S.expPendingList || []).length) S_.push({ id:'exp', title:'Onay bekleyen masraf formları', link:'#/masraf-liste', alert:true,
+    rows: S.expPendingList.map(r => ({ href:'#/masraf/' + r.id, main:esc(r.user_name || ''), sub:esc(r.title), meta:`<span class="sub">${sumByCur(r.expense_items)}</span>`, hot:true })) });
   if (isAdmin) { const n = S.issues.filter(i => !i.resolved).length + liveProblemCount();
     if (n) S_.push({ id:'data', title:'Veri kontrolü', link:'#/uyarilar', rows:[{ href:'#/uyarilar', main:`${n} kayıtta eksik veya hatalı bilgi`, sub:'', meta:'', hot:false }] }); }
   return S_;
@@ -798,6 +814,181 @@ async function viewBoard(){
       ${ds.length ? ds.map(d => card(d, k)).join('') : '<p class="tok">✓ Bu aşamada bekleyen sipariş yok.</p>'}</section>`).join('')}</div>`);
   qa('[data-bm]').forEach(b => b.onclick = () => { st.mine = b.dataset.bm === '1'; viewBoard(); });
   qa('.bcard').forEach(el => { const d = S.deals.find(x => x.id === +el.dataset.bid); bindStgActions(el, d, () => viewBoard()); });
+}
+
+// ---------------------------------------------------------------- MASRAF FORMU
+// Herkes kendi harcamalarını fiş/fatura görseliyle gönderir; formların hepsini Muhasebe ve Yönetici görür, onaylar, ödendi işaretler.
+const EXP_CAT = ['Yemek', 'Ulaşım (taksi, toplu taşıma)', 'Yakıt / otopark / otoyol', 'Konaklama', 'Uçak / tren / otobüs bileti', 'Kargo / posta', 'Malzeme / ofis', 'Temsil / ağırlama', 'Diğer'];
+const EXP_ST = { gonderildi:'Onay bekliyor', onaylandi:'Onaylandı', reddedildi:'Reddedildi', odendi:'Ödendi' };
+const EXP_CUR = ['TRY', 'USD', 'EUR', 'GBP'];
+const canAcc = () => can('muhasebe', 'admin');
+const expPill = s => `<span class="pill ex-${s}">${EXP_ST[s] || s}</span>`;
+const sumByCur = items => { const m = {}; (items || []).forEach(i => m[i.currency] = (m[i.currency] || 0) + +i.amount); return Object.entries(m).map(([c, v]) => fmtMoney(v, c)).join(' + ') || '—'; };
+async function loadExpPending(){
+  if (!canAcc()) { S.expPending = 0; S.expPendingList = []; return; }
+  const { data } = await sb.from('expense_reports').select('id,title,user_name,created_at,expense_items(amount,currency)').eq('status', 'gonderildi').order('created_at').limit(50);
+  S.expPendingList = data || []; S.expPending = S.expPendingList.length;
+}
+// telefondan çekilen büyük fotoğrafları yüklemeden önce küçült (≈1800 px, JPEG)
+async function shrinkReceipt(file){
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 400e3 || typeof createImageBitmap !== 'function') return file;
+  try { const img = await createImageBitmap(file), k = Math.min(1, 1800 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const b = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.82));
+    return b && b.size < file.size ? new File([b], file.name.replace(/\.\w+$/, '') + '.jpg', { type:'image/jpeg' }) : file; } catch { return file; }
+}
+const expItemHtml = i => `<div class="exitem" data-i="${i}">
+  <label class="f">Tarih<input type="date" name="day" value="${today()}" max="${today()}" min="${MIN_DATE}" required></label>
+  <label class="f">Tür<select name="category">${EXP_CAT.map(c => `<option>${c}</option>`).join('')}</select></label>
+  <label class="f exdesc">Açıklama<input name="description" required maxlength="500" placeholder="Ne için? ör. müşteri ziyareti taksi"></label>
+  <label class="f">Tutar<span class="examt"><input name="amount" type="number" step="0.01" min="0.01" required inputmode="decimal"><select name="currency" aria-label="Para birimi">${EXP_CUR.map(c => `<option>${c}</option>`).join('')}</select></span></label>
+  <label class="f">Proje / sipariş <span class="hint">isteğe bağlı</span><input name="project" maxlength="120"></label>
+  <label class="f">Fiş / fatura <span class="hint">foto veya PDF</span><input name="file" type="file" accept="image/*,application/pdf"></label>
+  <button type="button" class="btn sm exdel" title="Bu kalemi sil" aria-label="Bu kalemi sil">Kalemi sil</button></div>`;
+async function viewExpense(){
+  const me = S.profile.id;
+  shell('masraf', `<div class="empty">Yükleniyor…</div>`);
+  const { data } = await sb.from('expense_reports').select('*,expense_items(amount,currency)').eq('user_id', me).order('created_at', { ascending:false }).limit(50);
+  const mine = data || [], ay = new Date().toLocaleDateString('tr-TR', { month:'long', year:'numeric' });
+  shell('masraf', `<div class="pagehead"><div><h1>Masraf formu</h1><p class="lede">Şirket için kendi cebinden yaptığın harcamaları muhasebeye ilet. Her kalem için fişin/faturanın fotoğrafını ekle; telefondan doğrudan fotoğraf çekebilirsin. Formu yalnızca sen, Muhasebe ve yöneticiler görür.</p></div>${canAcc() ? '<a class="btn" href="#/masraf-liste">Tüm masraf formları</a>' : ''}</div>
+    <form id="exf" class="panel" novalidate><h2>Yeni form</h2>
+      <div class="grid g2"><label class="f">Form başlığı<input name="title" required maxlength="200" value="${esc(ay)} masrafları"></label>
+        <label class="f">Not <span class="hint">isteğe bağlı, muhasebeye</span><input name="note" maxlength="2000"></label></div>
+      <div id="exitems">${expItemHtml(0)}</div>
+      <p style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn" id="exadd">+ Kalem ekle</button><span class="sub" id="extot"></span></p>
+      <div class="err-box" id="exerr"></div>
+      <button class="btn primary" type="submit" id="exsend">Muhasebeye gönder</button></form>
+    <section class="mt"><h2>Gönderdiğim formlar</h2><div class="tablewrap">${mine.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Başlık</th><th class="nosort num">Tutar</th><th class="nosort">Durum</th></tr></thead><tbody>
+      ${mine.map(r => `<tr data-ex="${r.id}"><td style="white-space:nowrap">${fmtD(r.created_at.slice(0, 10))}</td><td>${esc(r.title)}<div class="sub">${(r.expense_items || []).length} kalem${r.review_note ? ' · ' + esc(r.review_note) : ''}</div></td><td class="num">${sumByCur(r.expense_items)}</td><td>${expPill(r.status)}${r.paid_at ? `<div class="sub">${fmtD(r.paid_at)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Henüz form göndermedin.</div>'}</div></section>`);
+  const box = q('#exitems'); let n = 1;
+  const tot = () => { const its = qa('.exitem', box).map(el => ({ amount:+q('[name=amount]', el).value || 0, currency:q('[name=currency]', el).value })).filter(x => x.amount > 0); q('#extot').textContent = its.length ? 'Toplam: ' + sumByCur(its) : ''; };
+  const bind = () => { qa('.exdel', box).forEach(b => b.onclick = () => { if (qa('.exitem', box).length > 1) { b.closest('.exitem').remove(); tot(); } else toast('En az bir kalem olmalı', true); });
+    qa('[name=amount],[name=currency]', box).forEach(x => x.oninput = tot); };
+  bind();
+  q('#exadd').onclick = () => { box.insertAdjacentHTML('beforeend', expItemHtml(n++)); bind(); q('.exitem:last-child [name=description]', box).focus(); };
+  qa('tr[data-ex]').forEach(tr => tr.onclick = () => location.hash = '#/masraf/' + tr.dataset.ex);
+  q('#exf').onsubmit = async e => {
+    e.preventDefault(); const err = q('#exerr'), btn = q('#exsend'); err.textContent = '';
+    const f = new FormData(e.target), title = String(f.get('title') || '').trim();
+    if (!title) { err.textContent = 'Form başlığı gir.'; return; }
+    const els = qa('.exitem', box), items = [];
+    for (const [k, el] of els.entries()) {
+      const v = nm => q(`[name=${nm}]`, el).value.trim(), file = q('[name=file]', el).files[0];
+      if (!v('day') || v('day') > today()) { err.textContent = `${k + 1}. kalem: geçerli bir tarih gir.`; return; }
+      if (!v('description')) { err.textContent = `${k + 1}. kalem: açıklama yaz.`; return; }
+      if (!(+v('amount') > 0)) { err.textContent = `${k + 1}. kalem: tutarı gir.`; return; }
+      if (file && file.size > 15e6) { err.textContent = `${k + 1}. kalem: dosya çok büyük (en fazla 15 MB).`; return; }
+      items.push({ day:v('day'), category:v('category'), description:v('description'), amount:+v('amount'), currency:v('currency'), project:v('project'), file });
+    }
+    if (!items.some(x => x.file) && !confirm('Hiçbir kaleme fiş/fatura eklemedin. Yine de gönderilsin mi?')) return;
+    btn.disabled = true; btn.textContent = 'Gönderiliyor…';
+    try {
+      for (const [k, it] of items.entries()) {
+        if (!it.file) continue;
+        const fl = await shrinkReceipt(it.file), safe = fl.name.normalize('NFKD').replace(/[^\w.-]+/g, '_').slice(-80);
+        const path = `${me}/${Date.now()}-${k}-${safe}`;
+        const { error } = await sb.storage.from('masraf').upload(path, fl, { contentType:fl.type || 'application/octet-stream', upsert:false });
+        if (error) throw new Error(`${k + 1}. kalemin dosyası yüklenemedi: ${error.message}`);
+        it.receipt_path = path; it.receipt_name = it.file.name;
+      }
+      const { data: id, error } = await sb.rpc('expense_submit', { p:{ title, note:String(f.get('note') || ''), items:items.map(({ file, ...x }) => x) } });
+      if (error) throw error;
+      toast('Masraf formu muhasebeye gönderildi'); location.hash = '#/masraf/' + id;
+    } catch (x) { err.textContent = dbErr(x); btn.disabled = false; btn.textContent = 'Muhasebeye gönder'; }
+  };
+}
+async function openReceipt(path){
+  const w = window.open('', '_blank');
+  const { data, error } = await sb.storage.from('masraf').createSignedUrl(path, 300);
+  if (error || !data) { w && w.close(); return toast('Dosya açılamadı: ' + (error ? error.message : ''), true); }
+  if (w) w.location = data.signedUrl; else location.href = data.signedUrl;
+}
+async function viewExpenseDetail(id){
+  shell(canAcc() ? 'masraf-liste' : 'masraf', `<div class="empty">Yükleniyor…</div>`);
+  const { data: r } = await sb.from('expense_reports').select('*,expense_items(*)').eq('id', id).maybeSingle();
+  if (!r) return shell('masraf', `<h1>Form bulunamadı</h1><p><a href="#/masraf">Masraf formuna dön</a></p>`);
+  const its = (r.expense_items || []).sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id), own = r.user_id === S.profile.id, acc = canAcc();
+  const act = st => `<button class="btn ${st === 'onaylandi' || st === 'odendi' ? 'primary' : st === 'reddedildi' ? 'danger' : ''}" data-ex="${st}">${{ onaylandi:'Onayla', reddedildi:'Reddet', odendi:'Ödendi olarak işaretle', gonderildi:'Onay bekliyor\'a geri al' }[st]}</button>`;
+  shell(acc ? 'masraf-liste' : 'masraf', `<p><a href="${acc ? '#/masraf-liste' : '#/masraf'}">← ${acc ? 'Masraf formları' : 'Masraf formum'}</a></p>
+    <div class="pagehead"><div><h1>${esc(r.title)}</h1><p class="lede">${esc(r.user_name || '')} · ${fmtDT(r.created_at)} · ${its.length} kalem · <b>${sumByCur(its)}</b></p></div><div>${expPill(r.status)}</div></div>
+    ${r.note ? `<div class="banner" style="background:var(--soft)"><b>Not:</b> ${esc(r.note)}</div>` : ''}
+    ${r.reviewed_by_name ? `<p class="note">${esc(EXP_ST[r.status])}: ${esc(r.reviewed_by_name)} · ${fmtDT(r.reviewed_at)}${r.paid_at ? ' · ödeme ' + fmtD(r.paid_at) : ''}${r.review_note ? ` — <i>${esc(r.review_note)}</i>` : ''}</p>` : ''}
+    <div class="tablewrap"><table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Tür</th><th class="nosort">Açıklama</th><th class="nosort">Proje</th><th class="nosort num">Tutar</th><th class="nosort">Fiş</th></tr></thead><tbody>
+      ${its.map(i => `<tr style="cursor:default"><td style="white-space:nowrap">${fmtD(i.day)}</td><td>${esc(i.category)}</td><td>${esc(i.description)}</td><td>${esc(i.project || '')}</td><td class="num" style="white-space:nowrap">${fmtMoney(i.amount, i.currency)}</td><td>${i.receipt_path ? `<button class="btn sm" data-rc="${esc(i.receipt_path)}" title="${esc(i.receipt_name || '')}">Aç</button>` : '<span class="amber-txt">yok</span>'}</td></tr>`).join('')}
+      <tr class="tfoot"><td colspan="4">Toplam</td><td class="num">${sumByCur(its)}</td><td></td></tr></tbody></table></div>
+    ${acc ? `<section class="panel mt"><h2>Muhasebe</h2><div class="grid g2"><label class="f">Not <span class="hint">reddederken zorunlu; gönderen görür</span><input id="exnote" maxlength="500" value="${esc(r.review_note || '')}"></label>
+      ${r.status === 'onaylandi' ? `<label class="f">Ödeme tarihi<input type="date" id="expaid" value="${today()}" max="${today()}"></label>` : ''}</div>
+      <p style="display:flex;gap:8px;flex-wrap:wrap">${(r.status === 'gonderildi' ? ['onaylandi', 'reddedildi'] : r.status === 'onaylandi' ? ['odendi', 'gonderildi'] : ['gonderildi']).map(act).join('')}</p></section>` : ''}
+    ${own && r.status === 'gonderildi' ? `<p class="mt"><button class="btn danger" id="exrm">Formu geri çek (sil)</button> <span class="sub">Muhasebe incelemeden önce geri çekebilirsin.</span></p>` : ''}`);
+  qa('[data-rc]').forEach(b => b.onclick = () => openReceipt(b.dataset.rc));
+  qa('[data-ex]').forEach(b => b.onclick = async () => {
+    const st = b.dataset.ex, note = (q('#exnote') || {}).value || '';
+    if (st === 'reddedildi' && !note.trim()) return toast('Reddetme nedenini Not alanına yaz', true);
+    b.disabled = true;
+    const { error } = await sb.rpc('expense_review', { p_id:id, p_status:st, p_note:note, p_paid:(q('#expaid') || {}).value || null });
+    if (error) { b.disabled = false; return toast(dbErr(error), true); }
+    toast('Form: ' + EXP_ST[st]); await loadExpPending(); viewExpenseDetail(id);
+  });
+  q('#exrm') && (q('#exrm').onclick = async e => {
+    if (!e.target.dataset.ok) { e.target.dataset.ok = 1; e.target.textContent = 'Emin misin? Tekrar bas'; return; }
+    const paths = its.map(i => i.receipt_path).filter(Boolean);
+    const { error } = await sb.from('expense_reports').delete().eq('id', id);
+    if (error) return toast(dbErr(error), true);
+    if (paths.length) await sb.storage.from('masraf').remove(paths);
+    toast('Form geri çekildi'); location.hash = '#/masraf';
+  });
+}
+const expState = { st:'gonderildi', month:'', person:'' };
+async function viewExpenseList(){
+  shell('masraf-liste', `<div class="empty">Yükleniyor…</div>`);
+  const { data } = await sb.from('expense_reports').select('*,expense_items(*)').order('created_at', { ascending:false }).limit(1000);
+  const all = data || [], st = expState;
+  const months = [...new Set(all.map(r => r.created_at.slice(0, 7)))].sort().reverse(), people = [...new Set(all.map(r => r.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
+  const rows = all.filter(r => (!st.st || r.status === st.st) && (!st.month || r.created_at.startsWith(st.month)) && (!st.person || r.user_name === st.person));
+  const items = rows.flatMap(r => (r.expense_items || []).map(i => ({ ...i, r })));
+  const pend = all.filter(r => r.status === 'gonderildi'), appr = all.filter(r => r.status === 'onaylandi');
+  const tabs = { gonderildi:'Onay bekleyen', onaylandi:'Onaylanan (ödenecek)', odendi:'Ödenen', reddedildi:'Reddedilen', '':'Tümü' };
+  const mName = m => new Date(m + '-01T00:00:00').toLocaleDateString('tr-TR', { month:'long', year:'numeric' });
+  shell('masraf-liste', `<div class="pagehead"><div><h1>Masraf formları</h1><p class="lede">Personelin gönderdiği masraf formları. Satıra tıklayınca kalemler ve fişler açılır; onay, ret ve ödeme oradan işaretlenir.</p></div><button class="btn" id="excsv">CSV indir (kalemler)</button></div>
+    <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+      <div class="kpi"><div class="v">${pend.length}</div><div class="l">Onay bekleyen form</div><div class="d">${sumByCur(pend.flatMap(r => r.expense_items))}</div></div>
+      <div class="kpi"><div class="v">${appr.length}</div><div class="l">Onaylı, ödenecek</div><div class="d">${sumByCur(appr.flatMap(r => r.expense_items))}</div></div>
+      <div class="kpi"><div class="v">${rows.length}</div><div class="l">Listelenen form</div><div class="d">${sumByCur(items)}</div></div></div>
+    <div class="toolbar"><div class="seg">${Object.entries(tabs).map(([k, v]) => `<button data-xs="${k}" class="${st.st === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
+    <div class="toolbar"><select id="xm" aria-label="Ay"><option value="">Tüm aylar</option>${months.map(m => `<option value="${m}" ${st.month === m ? 'selected' : ''}>${mName(m)}</option>`).join('')}</select>
+      <select id="xp" aria-label="Kişi"><option value="">Tüm kişiler</option>${people.map(p => `<option ${st.person === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>
+    <div class="tablewrap">${rows.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Kişi</th><th class="nosort">Başlık</th><th class="nosort num">Tutar</th><th class="nosort">Fiş</th><th class="nosort">Durum</th></tr></thead><tbody>
+      ${rows.map(r => { const its = r.expense_items || [], miss = its.filter(i => !i.receipt_path).length;
+        return `<tr data-ex="${r.id}"><td style="white-space:nowrap">${fmtD(r.created_at.slice(0, 10))}</td><td>${esc(r.user_name || '')}</td><td>${esc(r.title)}<div class="sub">${its.length} kalem</div></td><td class="num" style="white-space:nowrap">${sumByCur(its)}</td><td>${miss ? `<span class="amber-txt">${miss} eksik</span>` : '<span class="sub">tam</span>'}</td><td>${expPill(r.status)}${r.paid_at ? `<div class="sub">${fmtD(r.paid_at)}</div>` : ''}</td></tr>`; }).join('')}
+      </tbody></table>` : '<div class="empty">Bu filtrelerle form yok.</div>'}</div>`);
+  qa('[data-xs]').forEach(b => b.onclick = () => { st.st = b.dataset.xs; viewExpenseList(); });
+  q('#xm').onchange = e => { st.month = e.target.value; viewExpenseList(); };
+  q('#xp').onchange = e => { st.person = e.target.value; viewExpenseList(); };
+  qa('tr[data-ex]').forEach(tr => tr.onclick = () => location.hash = '#/masraf/' + tr.dataset.ex);
+  q('#excsv').onclick = () => {
+    const head = ['Form no', 'Gönderim', 'Kişi', 'Form', 'Durum', 'Masraf tarihi', 'Tür', 'Açıklama', 'Proje', 'Tutar', 'Para birimi', 'Fiş', 'Ödeme tarihi'];
+    const lines = [head, ...items.map(i => [i.r.id, i.r.created_at.slice(0, 10), i.r.user_name || '', i.r.title, EXP_ST[i.r.status], i.day, i.category, i.description, i.project || '', String(i.amount).replace('.', ','), i.currency, i.receipt_path ? 'var' : 'yok', i.r.paid_at || ''])]
+      .map(x => x.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `masraflar-${st.month || 'tum'}.csv`; a.click();
+  };
+}
+
+// ---------------------------------------------------------------- ROL ÖNİZLEME (yalnız yönetici)
+function viewRolePreview(){
+  const pv = getPreview() || { roles:[], departments:[] }, R = Object.keys(ROLE_INFO).filter(k => k !== 'pending');
+  shell('rol-onizleme', `<div class="pagehead"><div><h1>Rol önizleme</h1><p class="lede">Rolleri seç, siteyi o rollerdeki bir kişi nasıl görüyorsa öyle gör: menü, Bugün sayfası, butonlar ve düzenleme alanları seçilen rollere göre değişir. Yalnız arayüz değişir; veriler yönetici yetkinle okunur ve yaptığın kayıtlar gerçek olarak kaydedilir. Bu sayfa geliştirme sırasında kontrol içindir.</p></div></div>
+    <section class="panel"><h2>Roller</h2><div class="rolechk">${R.map(k => `<label class="chk"><input type="checkbox" data-pr="${k}" ${pv.roles.includes(k) ? 'checked' : ''}> ${ROLES[k]}</label>`).join('')}</div>
+      <h2 class="mt">Üretim bölümü <span class="sub" style="font-weight:400">· yalnız Üretim rolünde geçerli, boş = tüm aşamalar</span></h2>
+      <div class="rolechk">${STG.map(([k, n]) => `<label class="chk"><input type="checkbox" data-pd="${k}" ${(pv.departments || []).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+      <p class="mt" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="pvgo">Bu rollerle gör</button>${S.profile._preview ? '<button class="btn" id="pvoff">Önizlemeyi kapat</button>' : ''}</p>
+      <dl class="kv mt">${R.map(k => `<dt>${ROLES[k]}</dt><dd>${ROLE_INFO[k]}</dd>`).join('')}</dl></section>`);
+  q('#pvgo').onclick = () => {
+    const roles = qa('[data-pr]:checked').map(x => x.dataset.pr), departments = qa('[data-pd]:checked').map(x => x.dataset.pd);
+    if (!roles.length) return toast('En az bir rol seç', true);
+    try { localStorage.setItem(PV_KEY, JSON.stringify({ roles, departments })); } catch { return toast('Tarayıcı ayarı kaydetmeye izin vermiyor', true); }
+    location.hash = '#/bugun'; location.reload();
+  };
+  q('#pvoff') && (q('#pvoff').onclick = () => { try { localStorage.removeItem(PV_KEY); } catch {} location.hash = '#/kullanicilar'; location.reload(); });
 }
 
 // ---------------------------------------------------------------- FORM
@@ -1741,7 +1932,7 @@ async function viewNotifications(){
       <p class="note" style="margin-top:0">${here ? 'Bu cihazda bildirimler açık.' : 'Bu cihazda bildirim almak için aç. Telefon ve bilgisayarda ayrı ayrı açılır.'} Kayıtlı cihaz sayın: ${subs.length}.</p>
       <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}${ns.some(n=>n.read_at)?'<button class="btn" id="pdelr">Okunanları sil</button>':''}${ns.length?'<button class="btn danger" id="pdelall">Tümünü sil</button>':''}</p>
     </section>
-    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" data-nl="${esc(n.link||'')}" data-nid2="${n.id}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : n.title ? `${/^sayim/.test(n.kind || '') ? '<b>Stok sayımı</b> · ' : ''}${esc(n.title)}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
+    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" data-nl="${esc(n.link||'')}" data-nid2="${n.id}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : n.title ? `${/^sayim/.test(n.kind || '') ? '<b>Stok sayımı</b> · ' : n.kind === 'masraf' ? '<b>Masraf</b> · ' : ''}${esc(n.title)}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
   q('#pon') && (q('#pon').onclick = e => enablePush(e.target));
   q('#ptest').onclick = async e => { e.target.disabled = true; const { data, error } = await sb.rpc('support_push_test'); e.target.disabled = false; if (error) return toast(dbErr(error), true); toast('Test gönderildi'); await loadSupport(); viewNotifications(); };
   q('#pread') && (q('#pread').onclick = async () => { await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); await loadSupport(); viewNotifications(); });

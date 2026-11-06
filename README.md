@@ -102,6 +102,14 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Yetki: her bölüm kendi aşamasını günceller. Kullanıcılar sayfasında kişiye **Üretim bölümü** seçilir (`profiles.departments`); bölümü boş olan Üretim rolü tüm aşamaları, Sipariş rolü Gönderim'i, Yönetici hepsini günceller (`can_stage`).
 - Tablolar `deal_stages(deal_id, stage)`, `deal_stage_events`; yazma yalnız `deal_stage_set()` ile. Gönderim "Bitti" → sevk tarihi zorunlu, sipariş "Gönderildi"ye geçer.
 
+### Masraf formu (7 Kasım 2026)
+- `#/masraf`: her kullanıcı (Personel dahil) kendi masraf formunu gönderir: başlık, not ve kalemler (tarih, tür, açıklama, tutar + para birimi, proje/sipariş, fiş/fatura fotoğrafı veya PDF). Fotoğraflar yüklenmeden önce küçültülür. Kendi gönderdiklerini ve durumunu görür; muhasebe incelemeden geri çekebilir.
+- `#/masraf-liste` (Muhasebe + Yönetici): tüm formlar, durum/ay/kişi filtresi, CSV. Form sayfasında Onayla / Reddet (not zorunlu) / Ödendi (tarih). Muhasebeye yeni form, gönderene karar için site içi bildirim (e-posta yok).
+- Yeni rol **Muhasebe**. Tablolar `expense_reports`, `expense_items`; yazma `expense_submit()`, `expense_review()`. Fişler özel `masraf` deposunda (`<kullanıcı id>/...`); kişi kendi dosyalarını, Muhasebe ve Yönetici hepsini görür.
+
+### Rol önizleme (geçici, geliştirme kontrolü)
+- Yönetici, sol alttaki "Rol önizleme" ile rolleri (ve üretim bölümünü) seçip siteyi o rolle görür. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkisiyle yapılır. Tarayıcıda `rolePreview` anahtarında tutulur; üstteki şeritten çıkılır. Sonra kaldırılacak.
+
 ## Yedekleme ve senkronlar (7 Kasım 2026)
 Sistem kullanıcının bilgisayarına bağlı değildir.
 - **Yedek:** Google Apps Script (Serhan'ın hesabında, proje "AcromeERPYedek") her pazar 03:00 `backup-export`'u çağırır, Drive'da "Acrome Site Yedekleri" klasörüne `json.gz` kaydeder (son 12). Her ayın 1'i 04:00 `backup-restore-test` son yedeği ayrı `restore_test` şemasına yükleyip canlıyla satır satır karşılaştırır ve şemayı siler (sonuç `backup_checks`). Kimlik: Vault `backup_token` (Apps Script'te `BACKUP_TOKEN`).
