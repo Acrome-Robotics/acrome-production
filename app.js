@@ -842,8 +842,8 @@ const expItemHtml = i => `<div class="exitem" data-i="${i}">
   <label class="f">Tür<select name="category">${EXP_CAT.map(c => `<option>${c}</option>`).join('')}</select></label>
   <label class="f exdesc">Açıklama<input name="description" required maxlength="500" placeholder="Ne için? ör. müşteri ziyareti taksi"></label>
   <label class="f">Tutar<span class="examt"><input name="amount" type="number" step="0.01" min="0.01" required inputmode="decimal"><select name="currency" aria-label="Para birimi">${EXP_CUR.map(c => `<option>${c}</option>`).join('')}</select></span></label>
-  <label class="f">Proje / sipariş <span class="hint">isteğe bağlı</span><input name="project" maxlength="120"></label>
-  <label class="f">Fiş / fatura <span class="hint">foto veya PDF</span><input name="file" type="file" accept="image/*,application/pdf"></label>
+  <label class="f">Proje / sipariş<input name="project" maxlength="120" placeholder="isteğe bağlı"></label>
+  <label class="f">Fiş / fatura (foto veya PDF)<input name="file" type="file" accept="image/*,application/pdf"></label>
   <button type="button" class="btn sm exdel" title="Bu kalemi sil" aria-label="Bu kalemi sil">Kalemi sil</button></div>`;
 async function viewExpense(){
   const me = S.profile.id;
@@ -853,7 +853,8 @@ async function viewExpense(){
   shell('masraf', `<div class="pagehead"><div><h1>Masraf formu</h1><p class="lede">Şirket için kendi cebinden yaptığın harcamaları muhasebeye ilet. Her kalem için fişin/faturanın fotoğrafını ekle; telefondan doğrudan fotoğraf çekebilirsin. Formu yalnızca sen, Muhasebe ve yöneticiler görür.</p></div>${canAcc() ? '<a class="btn" href="#/masraf-liste">Tüm masraf formları</a>' : ''}</div>
     <form id="exf" class="panel" novalidate><h2>Yeni form</h2>
       <div class="grid g2"><label class="f">Form başlığı<input name="title" required maxlength="200" value="${esc(ay)} masrafları"></label>
-        <label class="f">Not <span class="hint">isteğe bağlı, muhasebeye</span><input name="note" maxlength="2000"></label></div>
+        <label class="f">Not<input name="note" maxlength="2000" placeholder="isteğe bağlı, muhasebeye"></label></div>
+      <p class="note" style="margin:0 0 4px">Gönderen: <b>${esc(S.profile.full_name || S.profile.email)}</b> — muhasebe formu bu adla görür.</p>
       <div id="exitems">${expItemHtml(0)}</div>
       <p style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn" id="exadd">+ Kalem ekle</button><span class="sub" id="extot"></span></p>
       <div class="err-box" id="exerr"></div>
