@@ -343,3 +343,34 @@ fieldset:disabled .watchers .chk{cursor:default;opacity:.8}
 .compact .panel,.compact .fs{padding:12px 14px}
 .compact .msg{padding:7px 12px}
 .compact .msg .body.clip{max-height:140px}
+/* ---------- stok / BOM / alımlar ---------- */
+.nav a.sub2{padding-left:46px;font-size:13px;color:var(--muted)}
+.nav a.sub2.on{color:var(--ink)}
+.nav a.sub2.on::before{left:34px}
+.stkbig{font-stretch:80%;font-weight:750;font-size:26px}
+.stkbig small{font-size:13px;color:var(--muted);font-weight:500}
+.plainfs{border:0;padding:0;margin:0;min-width:0}
+.bomgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.bomcard{display:flex;flex-direction:column;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;color:var(--ink);text-decoration:none}
+.bomcard:hover{border-color:var(--muted);text-decoration:none}
+.bomcard.is-zero{border-left:3px solid var(--red)}
+.bomcard .bc-row{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.bomcard .bc-row b{color:var(--ink)}
+.bomcard .bc-row b.late-txt{color:var(--red)}
+.tcount{font-size:12px;font-weight:700;background:var(--soft);border-radius:999px;padding:0 8px;vertical-align:middle}
+.kpi-in{width:90px !important;min-height:34px !important;font-size:20px;font-weight:700;padding:2px 8px !important}
+.secrow td{background:var(--head);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);cursor:default}
+.qpin,.pcin{width:84px;min-height:30px !important;padding:3px 6px !important;text-align:right}
+.segl{display:inline-block;padding:7px 12px;font-weight:550;color:var(--muted);text-decoration:none}
+.segl + .segl{border-left:1px solid var(--line)}
+.segl.on{background:var(--ink);color:var(--paper)}
+.segl:hover{text-decoration:none}
+.pu-talep{background:var(--violet-soft);color:var(--violet)}
+.pu-onaylandi,.pu-proforma{background:var(--data-soft);color:var(--data)}
+.pu-siparis_verildi,.pu-eft_bekliyor{background:var(--amber-soft);color:var(--amber)}
+.pu-alindi{background:var(--green-soft);color:var(--green)}
+.pu-reddedildi{background:var(--red-soft);color:var(--red)}
+.pu-arsiv{background:var(--grey-soft);color:var(--muted)}
+.pstat button{font-size:13px}
+.qpin,.pcin{width:84px !important;border-color:transparent !important;background:transparent !important}
+tr:hover .qpin,tr:hover .pcin,.qpin:focus,.pcin:focus{border-color:var(--line) !important;background:var(--surface) !important}

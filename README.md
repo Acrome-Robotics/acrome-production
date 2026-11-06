@@ -71,3 +71,9 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Düzenleme: Sipariş + Support ve Yönetici; diğer roller görür. Support konusundan ve sipariş sayfasından "RMA aç".
 
 > Yayın notu: `app.js` / `style.css` değiştiğinde `index.html` içindeki `?v=` etiketini artırın; aksi halde tarayıcılar eski dosyayı önbellekten kullanabilir.
+
+## Stok ve Alımlar
+- Tablolar: `stock_items`, `stock_moves`, `boms` (ürün / proje / PCB dizgi), `bom_lines`, `v_bom_lines`, `pcb_boards`, `pcb_log`, `motor_tests`, `suppliers`, `purchases`.
+- Stok yalnızca `stock_move()` fonksiyonuyla değişir (giriş, çıkış, sayım; her değişiklik hareket kaydı bırakır).
+- Alım talebini her rol açabilir; durumu Üretim, Sipariş + Support ve Yönetici değiştirir. Bir parçaya bağlı talep "Alındı" olunca stoğa otomatik girer.
+- İlk veri: yönetici `#/stok-aktar` sayfasından `acrome-stok-aktarim.json` dosyasını bir kez yükler (`stock_admin_import`).
