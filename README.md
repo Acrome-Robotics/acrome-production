@@ -77,3 +77,10 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Stok yalnızca `stock_move()` fonksiyonuyla değişir (giriş, çıkış, sayım; her değişiklik hareket kaydı bırakır).
 - Alım talebini her rol açabilir; durumu Üretim, Sipariş + Support ve Yönetici değiştirir. Bir parçaya bağlı talep "Alındı" olunca stoğa otomatik girer.
 - İlk veri: yönetici `#/stok-aktar` sayfasından `acrome-stok-aktarim.json` dosyasını bir kez yükler (`stock_admin_import`).
+
+### Stok ayrımı, parça kodları, site hesapları (6 Kasım 2026)
+- Mekanik stok (`#/mekanik-stok`) ve Elektronik stok (`#/elektronik-stok`: elektronik + komponent + hazır) ayrı sayfalar; sayımlar da ayrı (`#/mekanik-sayim`, `#/elektronik-sayim`). "Kritik" filtresi = stok < minimum.
+- Parça kodu: `TÜR-ÜRÜN-SIRA` (TÜR: M mekanik, E elektronik, K komponent, H hazır, D diğer · ÜRÜN: BB, BBT, PEN, STW, STP, DLT, C1D, C2D, ARM, SMD, SPR, ORT, PCB, GEN). Yeni parçada boş bırakılırsa `stock_next_code` verir.
+- BOM detayında Mekanik / Elektronik sekmeleri.
+- Alımlarda "İlgili ürün / proje" (`purchases.bom_id`), listede hızlı "Acil" işareti ve filtreler; `#/alim-rapor` aylık alım raporu.
+- Tedarikçi site hesapları `supplier_accounts` tablosunda; RLS `can_purchase()` (Satın alma, Depo / Stok, Üretim, Sipariş, Yönetici). Kimlik no / kart bilgisi tutulmaz.

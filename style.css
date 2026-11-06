@@ -382,3 +382,12 @@ tr:hover .qpin,tr:hover .pcin,.qpin:focus,.pcin:focus{border-color:var(--line) !
 .savebar{position:sticky;bottom:12px;margin-top:12px;display:flex;gap:10px;align-items:center;justify-content:flex-end;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;box-shadow:0 4px 16px rgba(0,0,0,.08)}
 .savebar span{margin-right:auto;font-weight:600}
 .sgin{width:110px !important;text-align:right}
+
+/* stok ayrımı · alım aciliyeti · ürün/proje etiketi */
+.kpi-click{cursor:pointer}
+.kpi-click:hover{background:var(--brand-soft)}
+.urgbtn{font:inherit;font-size:11px;font-weight:650;line-height:1;padding:3px 7px;border-radius:999px;border:1px dashed var(--line);background:none;color:var(--muted);cursor:pointer;opacity:.55;vertical-align:1px}
+tr:hover .urgbtn,.urgbtn:focus-visible{opacity:1}
+.urgbtn.on{opacity:1;border:1px solid var(--red,#c62828);background:var(--red,#c62828);color:#fff}
+.chip.bomchip{font-size:11px;padding:1px 8px;vertical-align:1px}
+.pwv{letter-spacing:.04em}

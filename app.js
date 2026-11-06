@@ -202,10 +202,12 @@ function shell(active, html){
       ['alimlar','Talepler', S.purOpen || ''],
       ['alim-yeni','Yeni talep'],
       ['tedarikciler','Tedarikçiler'],
+      ...(canPurchase() ? [['tedarikciler/hesaplar','Site hesapları', '', '', '', 'tedarikciler-hesap']] : []),
     ]],
     ['Stok', 'box', [
-      ['stok','Parçalar', (S.items||[]).filter(i => lowStock(i) && (S.prodItemIds||new Set()).has(i.id)).length || ''],
-      ...(canStock() ? [['stok-guncelle','Stok güncelleme']] : []),
+      ['mekanik-stok','Mekanik stok', (S.items||[]).filter(i => critical(i) && grpOfCat(i.category) === 'm').length || ''],
+      ['elektronik-stok','Elektronik stok', (S.items||[]).filter(i => critical(i) && grpOfCat(i.category) === 'e').length || ''],
+      ...(canStock() ? [['mekanik-sayim','Mekanik sayım', '', '', 'sub'], ['elektronik-sayim','Elektronik sayım', '', '', 'sub']] : []),
       ['bom','BOM listesi'],
       ...(/^bom/.test(active) ? [
         ...(S.boms||[]).filter(b => b.kind === 'product').map(b => ['bom/' + b.id, b.name, '', '', 'sub', 'bom-p' + b.id]),
@@ -219,6 +221,7 @@ function shell(active, html){
       ['rapor','Üretim ve satış raporu'],
       ['gonderim','Aylık gönderim raporu'],
       ['rma-rapor','RMA 3 aylık rapor'],
+      ['alim-rapor','Aylık alım raporu'],
     ]],
     ['Veri', 'db', [
       ['kaynaklar','Kaynak tablolar'],
@@ -269,17 +272,21 @@ function route(){
     case 'rma-rapor': return viewRmaReport(a);
     case 'rma-yeni': { if (!canRma()) return viewRma(); const m = /^([td])(\d+)$/.exec(a||''); return viewRmaForm(null, m ? (m[1]==='t' ? { ticket_id:+m[2] } : { deal_id:+m[2] }) : {}); }
       case 'bugun': return viewToday();
-    case 'stok': return a ? viewStockItem(+a) : viewStock();
-    case 'stok-yeni': return canStock() ? viewStockItem(null) : viewStock();
+    case 'stok': return a ? viewStockItem(+a) : viewStock('m');
+    case 'mekanik-stok': return viewStock('m');
+    case 'elektronik-stok': return viewStock('e');
+    case 'stok-yeni': return canStock() ? viewStockItem(null, a) : viewStock(a);
     case 'stok-aktar': return viewStockImport();
-    case 'stok-guncelle': return viewStockUpdate();
+    case 'stok-guncelle': case 'mekanik-sayim': return viewStockUpdate('m');
+    case 'elektronik-sayim': return viewStockUpdate('e');
+    case 'alim-rapor': return viewPurchaseReport();
     case 'bom': return a === 'proje' ? viewBomList('proje') : a ? viewBom(+a) : viewBomList();
     case 'bom-yeni': return viewBomNew(a);
     case 'pcb': return viewPcb(a);
     case 'motor-test': return viewMotorTests();
     case 'alimlar': return a ? viewPurchase(+a) : viewPurchases();
     case 'alim-yeni': { const m = /^i(\d+)$/.exec(a || ''); const it = m && (S.items||[]).find(i => i.id === +m[1]);
-      return viewPurchase(null, it ? { item_id:it.id, item_name:it.name, unit:it.category === 'mekanik' ? 'Mekanik' : 'Elektronik', supplier_id:it.supplier_id, unit_price:it.unit_price, currency:it.currency } : {}); }
+      return viewPurchase(null, it ? { item_id:it.id, item_name:it.name, unit:grpOfCat(it.category) === 'm' ? 'Mekanik' : 'Elektronik', supplier_id:it.supplier_id, unit_price:it.unit_price, currency:it.currency } : {}); }
     case 'tedarikciler': return viewSuppliers(a);
     case 'rapor': return viewReport();
     default: return viewToday();
@@ -335,7 +342,7 @@ function todaySections(){
     const kc = PO.filter(p => p.kind === 'kontrol');
     if (kc.length) S_.push({ id:'kon', title:'Kontrol edilecek konular', link:'#/alimlar', rows: kc.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:'', meta:'', hot:false })) });
     const out = (S.items || []).filter(i => i.qty != null && +i.qty <= 0 && (S.prodItemIds || new Set()).has(i.id));
-    S_.push({ id:'out', title:'Stokta biten parçalar (ürünlerde kullanılan)', link:'#/stok', rows: out.map(i => ({ href:'#/stok/' + i.id, main:esc(i.name), sub:esc(i.supplier_text || ''), meta:'<span class="amber-txt">stok 0</span>', hot:false })), empty:'Ürünlerde kullanılan parçalarda biten yok.' });
+    S_.push({ id:'out', title:'Stokta biten parçalar (ürünlerde kullanılan)', link:'#/mekanik-stok', rows: out.map(i => ({ href:'#/stok/' + i.id, main:esc(i.name), sub:esc(i.supplier_text || ''), meta:'<span class="amber-txt">stok 0</span>', hot:false })), empty:'Ürünlerde kullanılan parçalarda biten yok.' });
   } else {
     const mineP = PO.filter(p => p.created_by === me || p.requester === me);
     S_.push({ id:'myp', title:'Açık alım taleplerim', link:'#/alimlar', rows: mineP.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:esc(p.project || ''), meta:`<span class="pill pu-${p.status}">${PUR_ST[p.status]}</span>`, hot:false })), empty:'Açık alım talebiniz yok.' });
@@ -1923,55 +1930,70 @@ const supName = id => (S.suppliers || []).find(s => s.id === id)?.name || '';
 const lowStock = i => i.qty != null && ((i.min_qty != null && +i.qty < +i.min_qty) || +i.qty <= 0);
 
 // ---------------------------------------------------------------- PARÇALAR
-const stkState = { cat:'all', q:'', bom:'', only:'' };
-async function viewStock(){
+// Mekanik ve elektronik stok ayrı sayfalar
+const STK_GRP = { m:{ key:'mekanik-stok', upd:'mekanik-sayim', title:'Mekanik stok', cats:['mekanik','diger'], newCat:'mekanik' },
+                  e:{ key:'elektronik-stok', upd:'elektronik-sayim', title:'Elektronik stok', cats:['elektronik','komponent','hazir'], newCat:'elektronik' } };
+const grpOfCat = c => STK_GRP.e.cats.includes(c) ? 'e' : 'm';
+const critical = i => i.qty != null && i.min_qty != null && +i.qty < +i.min_qty;
+const stkStates = { m:{ cat:'all', q:'', bom:'', only:'' }, e:{ cat:'all', q:'', bom:'', only:'' } };
+async function viewStock(g){
+  g = g === 'e' ? 'e' : 'm';
+  const G = STK_GRP[g], s = stkStates[g];
   await loadStock(true);
-  const lines = (await sb.from('bom_lines').select('bom_id,item_id').not('item_id', 'is', null)).data || [];
+  const lines = (await sb.from('bom_lines').select('bom_id,item_id').not('item_id', 'is', null).range(0, 9999)).data || [];
   const usedIn = {}; lines.forEach(l => { (usedIn[l.item_id] = usedIn[l.item_id] || new Set()).add(l.bom_id); });
   const hasImg = new Set(((await sb.from('stock_item_images').select('item_id').range(0, 9999)).data || []).map(x => x.item_id));
   const bomName = id => (S.boms.find(b => b.id === id) || {}).name || '';
-  const I = S.items, s = stkState;
+  const I = S.items.filter(i => G.cats.includes(i.category));
+  const cats = Object.fromEntries(G.cats.map(c => [c, STK_CAT[c]]));
   const val = I.filter(i => (i.currency || 'TRY') === 'TRY').reduce((a, i) => a + (+i.qty || 0) * (+i.unit_price || 0), 0);
-  shell('stok', `<div class="pagehead"><div><h1>Parçalar</h1><p class="lede">Mekanik ve elektronik parçalar, komponentler ve hazır alınan ürünler. Stok değişiklikleri hareket kaydıyla tutulur.</p></div>
-    <div style="display:flex;gap:8px">${canStock() ? '<a class="btn" href="#/stok-guncelle">Stok güncelle</a><a class="btn primary" href="#/stok-yeni">Yeni parça</a>' : ''}</div></div>
-  ${I.length ? '' : `<div class="banner">Henüz stok verisi yok. ${can('admin') ? '<a href="#/stok-aktar">Excel\'den hazırlanan stok verisini içe aktar</a>' : 'Yönetici stok verisini içe aktarınca burada görünecek.'}</div>`}
+  const nCrit = I.filter(critical).length;
+  const boms = S.boms.filter(b => b.kind !== 'pcb' || g === 'e');
+  shell(G.key, `<div class="pagehead"><div><h1>${G.title}</h1><p class="lede">${g === 'm' ? 'Mekanik parçalar (talaşlı imalat, lazer, pleksi, rulman, bağlantı elemanı…).' : 'Elektronik parçalar, PCB komponentleri ve hazır alınan ürünler.'} Kod biçimi: TÜR-ÜRÜN-SIRA (ör. ${g === 'm' ? 'M-BBT-004' : 'E-STW-002, K-PCB-031'}).</p></div>
+    <div style="display:flex;gap:8px">${canStock() ? `<a class="btn" href="#/${G.upd}">Sayım / giriş-çıkış</a><a class="btn primary" href="#/stok-yeni/${g}">Yeni parça</a>` : ''}</div></div>
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
     <div class="kpi"><div class="v">${I.length}</div><div class="l">Parça kalemi</div><div class="d">${I.filter(i => i.qty == null).length} kalemde stok girilmemiş</div></div>
-    <div class="kpi ${I.filter(lowStock).length ? 'alert' : ''}"><div class="v">${I.filter(lowStock).length}</div><div class="l">Biten / minimum altı</div><div class="d">stok 0 ya da minimumun altında</div></div>
+    <div class="kpi ${nCrit ? 'alert' : ''} kpi-click" id="kcrit" title="Kritik stokları göster"><div class="v">${nCrit}</div><div class="l">Kritik stok</div><div class="d">minimumun altında · göstermek için tıkla</div></div>
+    <div class="kpi"><div class="v">${I.filter(i => i.qty != null && +i.qty <= 0).length}</div><div class="l">Stokta yok</div><div class="d">stok 0</div></div>
     <div class="kpi"><div class="v">${fmtTRY(val)}</div><div class="l">Stok değeri</div><div class="d">TL fiyatlı kalemler</div></div>
-    <div class="kpi"><div class="v">${S.boms.filter(b => b.kind === 'product').length}</div><div class="l">Ürün BOM'u</div><div class="d">${S.boms.filter(b => b.kind === 'project').length} proje · ${S.boms.filter(b => b.kind === 'pcb').length} PCB</div></div>
   </div>
-  <div class="toolbar"><div class="seg" id="scat">${Object.entries({ all:'Tümü', ...STK_CAT }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>
-    <input type="search" id="sq" placeholder="Ara: ad, kod, malzeme, tedarikçi, konum…" value="${esc(s.q)}">
-    <select id="sbom"><option value="">Tüm ürünler / BOM'lar</option>${S.boms.map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
-    <select id="sonly"><option value="">Hepsi</option><option value="low" ${s.only === 'low' ? 'selected' : ''}>Biten / minimum altı</option><option value="nil" ${s.only === 'nil' ? 'selected' : ''}>Stok girilmemiş</option></select></div>
+  <div class="toolbar">${G.cats.length > 1 ? `<div class="seg" id="scat">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
+    <div class="seg" id="sonly">${[['', 'Hepsi'], ['crit', 'Kritik'], ['zero', 'Stok 0'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div>
+    <input type="search" id="sq" placeholder="Ara: kod, ad, malzeme, tedarikçi, konum…" value="${esc(s.q)}">
+    <select id="sbom"><option value="">Tüm ürünler / BOM'lar</option>${boms.map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>
   <div class="tablewrap" id="stbl"></div>`);
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
     const rows = I.filter(i => (s.cat === 'all' || i.category === s.cat) && (!s.bom || (usedIn[i.id] && usedIn[i.id].has(+s.bom)))
-      && (!s.only || (s.only === 'low' ? lowStock(i) : i.qty == null))
-      && (!ql || [i.name, i.code, i.mfr_no, i.material, i.process, i.supplier_text, supName(i.supplier_id), i.location, i.description].join(' ').toLocaleLowerCase('tr').includes(ql)));
-    q('#stbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Parça</th><th class="nosort">Tür</th><th class="nosort num">Stok</th><th class="nosort num">Birim fiyat</th><th class="nosort">Konum</th><th class="nosort">Tedarikçi</th><th class="nosort">Kullanıldığı yer</th></tr></thead><tbody>
-      ${rows.slice(0, 600).map(i => `<tr data-iid="${i.id}"><td><b style="font-weight:600">${esc(i.name)}</b>${hasImg.has(i.id) ? ' <span class="imgdot" title="Görseli var">◉</span>' : ''}${i.code || i.mfr_no ? `<div class="sub mono">${esc(i.code || i.mfr_no)}</div>` : ''}${i.material || i.process ? `<div class="sub opt">${esc([i.material, i.process].filter(Boolean).join(' · '))}</div>` : ''}</td>
-        <td>${STK_CAT[i.category] || i.category}</td>
-        <td class="num"><b class="${lowStock(i) ? 'late-txt' : ''}" style="font-size:15px">${i.qty == null ? '<span class="sub">—</span>' : fmtQ(i.qty)}</b> <span class="sub">${esc(i.unit || '')}</span>${i.min_qty != null ? `<div class="sub">min ${fmtQ(i.min_qty)}</div>` : ''}</td>
+      && (!s.only || (s.only === 'crit' ? critical(i) : s.only === 'zero' ? i.qty != null && +i.qty <= 0 : i.qty == null))
+      && (!ql || [i.code, i.name, i.mfr_no, i.material, i.process, i.supplier_text, supName(i.supplier_id), i.location, i.description].join(' ').toLocaleLowerCase('tr').includes(ql)))
+      .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'tr', { numeric:true }));
+    q('#stbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Kod</th><th class="nosort">Parça</th><th class="nosort num">Stok</th><th class="nosort num">Min</th><th class="nosort num">Birim fiyat</th><th class="nosort">Konum</th><th class="nosort">Tedarikçi</th><th class="nosort">Kullanıldığı yer</th></tr></thead><tbody>
+      ${rows.slice(0, 600).map(i => `<tr data-iid="${i.id}"><td class="mono" style="white-space:nowrap">${esc(i.code || '—')}</td><td><b style="font-weight:600">${esc(i.name)}</b>${hasImg.has(i.id) ? ' <span class="imgdot" title="Görseli var">◉</span>' : ''}${i.mfr_no ? `<div class="sub mono">${esc(i.mfr_no)}</div>` : ''}${i.material || i.process ? `<div class="sub opt">${esc([i.material, i.process].filter(Boolean).join(' · '))}</div>` : ''}</td>
+        <td class="num"><b class="${critical(i) || (i.qty != null && +i.qty <= 0) ? 'late-txt' : ''}" style="font-size:15px">${i.qty == null ? '<span class="sub">—</span>' : fmtQ(i.qty)}</b> <span class="sub">${esc(i.unit || '')}</span></td>
+        <td class="num sub">${i.min_qty == null ? '' : fmtQ(i.min_qty)}</td>
         <td class="num">${fmtMoney(i.unit_price, i.currency)}</td><td style="white-space:nowrap">${esc(i.location || '') || '<span class="sub">—</span>'}</td>
         <td>${esc(supName(i.supplier_id) || i.supplier_text || '') || '<span class="sub">—</span>'}</td>
         <td><span class="sub">${[...(usedIn[i.id] || [])].map(bomName).filter(Boolean).slice(0, 3).map(esc).join(', ')}${(usedIn[i.id] || new Set()).size > 3 ? '…' : ''}</span></td></tr>`).join('')}</tbody>
-      <tfoot><tr class="tfoot"><td colspan="7">${rows.length} kalem${rows.length > 600 ? ' (ilk 600 gösteriliyor; aramayı daraltın)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+      <tfoot><tr class="tfoot"><td colspan="8">${rows.length} kalem${rows.length > 600 ? ' (ilk 600 gösteriliyor; aramayı daraltın)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('#stbl tr[data-iid]').forEach(r => r.onclick = () => location.hash = '#/stok/' + r.dataset.iid);
   };
   draw();
   qa('#scat button').forEach(b => b.onclick = () => { s.cat = b.dataset.c; qa('#scat button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  const setOnly = v => { s.only = v; qa('#sonly button').forEach(x => x.classList.toggle('on', x.dataset.o === v)); draw(); };
+  qa('#sonly button').forEach(b => b.onclick = () => setOnly(b.dataset.o));
+  q('#kcrit').onclick = () => setOnly('crit');
   q('#sq').oninput = e => { s.q = e.target.value; draw(); };
   q('#sbom').onchange = e => { s.bom = e.target.value; draw(); };
-  q('#sonly').onchange = e => { s.only = e.target.value; draw(); };
 }
 
-async function viewStockItem(id){
+
+const CODE_GRP = { BB:'Ball Balancing', BBT:'Ball Balancing Table', PEN:'Pendulum', STW:'Stewart', STP:'Stewart PRO', DLT:'Delta', C1D:'1-DOF', C2D:'2-DOF', ARM:'Robot kol', SMD:'SMD', SPR:'Sparkle', ORT:'Ortak (birden fazla ürün)', PCB:'PCB komponenti', GEN:'Genel / diğer' };
+async function viewStockItem(id, g){
   await loadStock();
-  let i = id ? (await sb.from('stock_items').select('*').eq('id', id).maybeSingle()).data : { category:'mekanik', unit:'adet', currency:'TRY' };
-  if (!i) return shell('stok', `<h1>Parça bulunamadı</h1><p><a href="#/stok">Parçalara dön</a></p>`);
+  let i = id ? (await sb.from('stock_items').select('*').eq('id', id).maybeSingle()).data : { category:g === 'e' ? 'elektronik' : 'mekanik', unit:'adet', currency:'TRY' };
+  if (!i) return shell('mekanik-stok', `<h1>Parça bulunamadı</h1><p><a href="#/mekanik-stok">Mekanik stok</a> · <a href="#/elektronik-stok">Elektronik stok</a></p>`);
+  const G = STK_GRP[grpOfCat(i.category)];
   const [mv, ln, pu] = id ? await Promise.all([
     sb.from('stock_moves').select('*').eq('item_id', id).order('at', { ascending:false }).limit(100),
     sb.from('bom_lines').select('bom_id,qty_per,alt_group').eq('item_id', id),
@@ -1980,13 +2002,13 @@ async function viewStockItem(id){
   const ed = canStock(), v = k => esc(i[k] ?? '');
   const tx = (k, l, hint) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="text" name="${k}" value="${v(k)}"></label>`;
   const nm = (k, l, hint) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="number" step="any" name="${k}" value="${v(k)}"></label>`;
-  shell(id ? 'stok' : 'stok-yeni', `<p><a href="#/stok">← Parçalar</a></p>
+  shell(G.key, `<p><a href="#/${G.key}">← ${G.title}</a></p>
   <div class="pagehead"><div><h1>${id ? esc(i.name) : 'Yeni parça'}</h1>${id ? `<p class="lede">${STK_CAT[i.category] || ''}${i.source ? ' · kaynak: ' + esc(i.source) : ''}</p>` : ''}</div>
     ${id ? `<div style="display:flex;gap:8px;align-items:center"><span class="stkbig ${lowStock(i) ? 'late-txt' : ''}">${i.qty == null ? '—' : fmtQ(i.qty)} <small>${esc(i.unit || '')}</small></span>
       <a class="btn" href="#/alim-yeni/i${i.id}">Alım talebi</a>${can('admin') ? '<button class="btn danger" id="idel">Sil</button>' : ''}</div>` : ''}</div>
   <div class="grid sup-grid"><div>
     <form id="itf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
-      <div class="row r2">${tx('name', 'Parça adı')}${tx('code', 'Parça no / kod')}</div>
+      <div class="row ${i.code ? 'r2' : ''}">${tx('name', 'Parça adı')}${tx('code', 'Parça kodu', i.code ? 'TÜR-ÜRÜN-SIRA' : 'boş bırakılırsa otomatik verilir')}${i.code ? '' : `<label class="f">Kod grubu <span class="hint">hangi ürünün parçası</span><select name="grp">${Object.entries(CODE_GRP).map(([k, l]) => `<option value="${k}" ${k === (i.category === 'komponent' ? 'PCB' : 'ORT') ? 'selected' : ''}>${k} · ${esc(l)}</option>`).join('')}</select></label>`}</div>
       <div class="row">${'<label class="f">Tür' + stkSel('category', STK_CAT, i.category) + '</label>'}${tx('unit', 'Birim', 'adet, metre, kg')}${tx('location', 'Konum / raf')}</div>
       <div class="row">${id ? `<label class="f">Stok <span class="hint">değiştirmek için sağdaki kutuyu kullanın</span><input type="text" value="${i.qty == null ? '' : fmtQ(i.qty)}" disabled></label>` : nm('qty', 'Açılış stoğu')}${nm('min_qty', 'Minimum stok', 'altına düşünce uyarı')}${tx('mfr_no', 'Üretici no')}</div>
       <div class="row">${nm('unit_price', 'Birim fiyat')}<label class="f">Para birimi${stkSel('currency', { TRY:'TRY', USD:'USD', EUR:'EUR' }, i.currency || 'TRY')}</label><label class="f">Tedarikçi<select name="supplier_id"><option value="">—</option>${S.suppliers.map(s => `<option value="${s.id}" ${i.supplier_id === s.id ? 'selected' : ''}>${esc(s.name)}${s.blacklisted ? ' (kara liste)' : ''}</option>`).join('')}</select></label></div>
@@ -2019,6 +2041,7 @@ async function viewStockItem(id){
     const o = { name:g('name'), code:g('code') || null, category:f.category.value, unit:g('unit') || 'adet', location:g('location') || null, min_qty:num0(g('min_qty')),
       mfr_no:g('mfr_no') || null, unit_price:num0(g('unit_price')), currency:f.currency.value, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
       material:g('material') || null, process:g('process') || null, supplier_text:g('supplier_text') || null, link:g('link') || null, description:g('description') || null, notes:g('notes') || null };
+    if (!o.code && f.grp) { const r = await sb.rpc('stock_next_code', { p_cat:o.category, p_grp:f.grp.value }); if (!r.error && r.data) o.code = r.data; }
     if (!id) {
       const start = num0(g('qty'));
       const { data, error } = await sb.from('stock_items').insert(o).select('id').single();
@@ -2044,23 +2067,27 @@ async function viewStockItem(id){
     toast('Stok güncellendi'); S.stockLoaded = false; viewStockItem(id);
   });
   q('#idel') && (q('#idel').onclick = async () => { const b = q('#idel'); if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = 'Emin misin? Tekrar bas'; return; }
-    const { error } = await sb.from('stock_items').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); S.stockLoaded = false; location.hash = '#/stok'; });
+    const { error } = await sb.from('stock_items').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); S.stockLoaded = false; location.hash = '#/' + G.key; });
 }
 
-// ---------------------------------------------------------------- STOK GÜNCELLEME (toplu sayım / giriş / çıkış)
-const sgState = { cat:'all', q:'', bom:'', mode:'sayim' };
-async function viewStockUpdate(){
-  if (!canStock()) return viewStock();
+// ---------------------------------------------------------------- STOK GÜNCELLEME (mekanik / elektronik ayrı; sayım / giriş / çıkış)
+const sgStates = { m:{ cat:'all', q:'', bom:'', mode:'sayim', only:'' }, e:{ cat:'all', q:'', bom:'', mode:'sayim', only:'' } };
+async function viewStockUpdate(g){
+  g = g === 'e' ? 'e' : 'm';
+  if (!canStock()) return viewStock(g);
+  const G = STK_GRP[g], s = sgStates[g];
   await loadStock(true);
   const lines = (await sb.from('bom_lines').select('bom_id,item_id').not('item_id', 'is', null).range(0, 9999)).data || [];
   const inBom = {}; lines.forEach(l => (inBom[l.bom_id] = inBom[l.bom_id] || new Set()).add(l.item_id));
-  const s = sgState, changed = new Map();
+  const I = S.items.filter(i => G.cats.includes(i.category)), changed = new Map();
+  const cats = Object.fromEntries(G.cats.map(c => [c, STK_CAT[c]]));
   const MODES = { sayim:['Sayım', 'Sayılan gerçek adet'], giris:['Giriş', 'Gelen adet'], cikis:['Çıkış', 'Çıkan adet'] };
-  shell('stok-guncelle', `<div class="pagehead"><div><h1>Stok güncelleme</h1><p class="lede">Sayım ya da toplu giriş-çıkış için. Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir.</p></div></div>
+  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var.</p></div></div>
   <div class="toolbar"><div class="seg" id="sgm">${Object.entries(MODES).map(([k, v]) => `<button data-m="${k}" class="${s.mode === k ? 'on' : ''}">${v[0]}</button>`).join('')}</div>
-    <div class="seg" id="sgc">${Object.entries({ all:'Tümü', ...STK_CAT }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
-  <div class="toolbar"><input type="search" id="sgq" placeholder="Ara: ad, kod, konum…" value="${esc(s.q)}">
-    <select id="sgb"><option value="">Tüm parçalar</option>${S.boms.map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
+    ${G.cats.length > 1 ? `<div class="seg" id="sgc">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
+    <div class="seg" id="sgo">${[['', 'Hepsi'], ['crit', 'Kritik'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
+  <div class="toolbar"><input type="search" id="sgq" placeholder="Ara: kod, ad, konum…" value="${esc(s.q)}">
+    <select id="sgb"><option value="">Tüm parçalar</option>${S.boms.filter(b => b.kind !== 'pcb' || g === 'e').map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
     <input type="text" id="sgn" placeholder="Not (ör. Kasım 2026 sayımı, ACRPO-540 girişi)" style="max-width:340px"></div>
   <div class="tablewrap" id="sgt"></div>
   <div class="savebar" id="sgbar" hidden><span id="sgcnt"></span><button class="btn" id="sgclr">Temizle</button><button class="btn primary" id="sgsave">Kaydet</button></div>`);
@@ -2069,19 +2096,23 @@ async function viewStockUpdate(){
   const bar = () => { q('#sgbar').hidden = !changed.size; q('#sgcnt').textContent = `${changed.size} parça değişecek (${MODES[s.mode][0]})`; };
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
-    const rows = S.items.filter(i => (s.cat === 'all' || i.category === s.cat) && (!s.bom || (inBom[+s.bom] && inBom[+s.bom].has(i.id)))
-      && (!ql || [i.name, i.code, i.mfr_no, i.location].join(' ').toLocaleLowerCase('tr').includes(ql)));
-    q('#sgt').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Parça</th><th class="nosort">Konum</th><th class="nosort num">Mevcut</th><th class="nosort num">${MODES[s.mode][1]}</th><th class="nosort num">Sonra</th></tr></thead><tbody>
+    const rows = I.filter(i => (s.cat === 'all' || i.category === s.cat) && (!s.bom || (inBom[+s.bom] && inBom[+s.bom].has(i.id)))
+      && (!s.only || (s.only === 'crit' ? critical(i) : i.qty == null))
+      && (!ql || [i.name, i.code, i.mfr_no, i.location].join(' ').toLocaleLowerCase('tr').includes(ql)))
+      .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'tr', { numeric:true }));
+    q('#sgt').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Kod</th><th class="nosort">Parça</th><th class="nosort">Konum</th><th class="nosort num">Mevcut</th><th class="nosort num">Min</th><th class="nosort num">${MODES[s.mode][1]}</th><th class="nosort num">Sonra</th></tr></thead><tbody>
       ${rows.slice(0, 500).map(i => { const v = changed.get(i.id);
-        return `<tr data-i="${i.id}" style="cursor:default"><td><b style="font-weight:600">${esc(i.name)}</b>${i.code || i.mfr_no ? ` <span class="sub mono">${esc(i.code || i.mfr_no)}</span>` : ''}</td><td class="sub">${esc(i.location || '')}</td>
-        <td class="num ${lowStock(i) ? 'late-txt' : ''}">${i.qty == null ? '—' : fmtQ(i.qty)} <span class="sub">${esc(i.unit || '')}</span></td>
-        <td class="num"><input type="number" step="any" min="0" class="sgin" value="${v ?? ''}" aria-label="${esc(i.name)}"></td><td class="num sgafter">${afterTxt(i, v)}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Kayıt yok.</div>';
+        return `<tr data-i="${i.id}" style="cursor:default"><td class="mono" style="white-space:nowrap">${esc(i.code || '—')}</td><td><b style="font-weight:600">${esc(i.name)}</b>${i.mfr_no ? ` <span class="sub mono">${esc(i.mfr_no)}</span>` : ''}</td><td class="sub">${esc(i.location || '')}</td>
+        <td class="num ${lowStock(i) ? 'late-txt' : ''}">${i.qty == null ? '—' : fmtQ(i.qty)} <span class="sub">${esc(i.unit || '')}</span></td><td class="num sub">${i.min_qty == null ? '' : fmtQ(i.min_qty)}</td>
+        <td class="num"><input type="number" step="any" min="0" class="sgin" value="${v ?? ''}" aria-label="${esc(i.name)}"></td><td class="num sgafter">${afterTxt(i, v)}</td></tr>`; }).join('')}</tbody>
+      <tfoot><tr class="tfoot"><td colspan="7">${rows.length} kalem</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('.sgin').forEach(inp => inp.oninput = () => { const tr = inp.closest('tr'), id = +tr.dataset.i, v = num0(inp.value);
       if (v == null) changed.delete(id); else changed.set(id, v); q('.sgafter', tr).innerHTML = afterTxt(itemById(id), v); bar(); });
   };
   draw();
   qa('#sgm button').forEach(b => b.onclick = () => { s.mode = b.dataset.m; qa('#sgm button').forEach(x => x.classList.toggle('on', x === b)); draw(); bar(); });
   qa('#sgc button').forEach(b => b.onclick = () => { s.cat = b.dataset.c; qa('#sgc button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  qa('#sgo button').forEach(b => b.onclick = () => { s.only = b.dataset.o; qa('#sgo button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
   q('#sgq').oninput = e => { s.q = e.target.value; draw(); };
   q('#sgb').onchange = e => { s.bom = e.target.value; draw(); };
   q('#sgclr').onclick = () => { changed.clear(); draw(); bar(); };
@@ -2090,7 +2121,7 @@ async function viewStockUpdate(){
     for (const [id, v] of changed) { const args = { p_item:id, p_reason:reason, p_note:note };
       if (s.mode === 'sayim') args.p_new_qty = v; else args.p_delta = s.mode === 'giris' ? v : -v;
       const { error } = await sb.rpc('stock_move', args); if (error) { toast(dbErr(error), true); break; } n++; }
-    toast(`${n} parça güncellendi`); S.stockLoaded = false; viewStockUpdate(); };
+    toast(`${n} parça güncellendi`); S.stockLoaded = false; viewStockUpdate(g); };
 }
 
 // görseli tarayıcıda küçült (en fazla 480 px, webp)
@@ -2127,6 +2158,7 @@ async function viewBomList(sec){
     ${group('pcb', 'PCB dizgi listeleri', '<a href="#/pcb">PCB kart stokları →</a>')}`);
 }
 
+const bomTabs = {};
 async function viewBom(id){
   await loadStock();
   const [br, lr] = await Promise.all([sb.from('boms').select('*').eq('id', id).maybeSingle(), sb.from('v_bom_lines').select('*').eq('bom_id', id).order('section').order('sort')]);
@@ -2137,19 +2169,23 @@ async function viewBom(id){
   const mx = bomBuildable(L);
   const meta = b.meta || {};
   const navActive = b.kind === 'product' ? 'bom-p' + b.id : b.kind === 'project' ? 'bom-proje' : 'bom';
+  const secG = sc => ['elektronik', 'komponent'].includes(sc) ? 'e' : 'm', TABN = { m:'Mekanik', e:'Elektronik' };
+  const cntG = { m:L.filter(l => secG(l.section) === 'm').length, e:L.filter(l => secG(l.section) === 'e').length };
+  let tab = bomTabs[id] && cntG[bomTabs[id]] ? bomTabs[id] : cntG.m ? 'm' : 'e';
   shell(navActive, `<p><a href="#/bom">← BOM listesi</a></p>
   <div class="pagehead"><div><h1>${esc(b.name)}</h1><p class="lede">${BOM_KIND[b.kind]} BOM'u${b.product_code ? ' · ' + esc(prodName(b.product_code)) : ''}${deal ? ` · sipariş <a href="#/kayit/${deal.id}">${esc(refNo(deal))}</a> ${esc(custName(deal))}` : ''}${b.source ? ' · kaynak: ' + esc(b.source) : ''}</p></div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${ed && b.kind !== 'pcb' ? '<a class="btn" href="#/bom-yeni/k' + b.id + '">Kopyasıyla proje BOM\'u aç</a>' : ''}${ed && (b.kind === 'project' || can('admin')) ? '<button class="btn danger" id="bdel">Sil</button>' : ''}</div></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><a class="btn" href="#/alimlar" id="bpur">Alımları</a>${ed && b.kind !== 'pcb' ? '<a class="btn" href="#/bom-yeni/k' + b.id + '">Kopyasıyla proje BOM\'u aç</a>' : ''}${ed && (b.kind === 'project' || can('admin')) ? '<button class="btn danger" id="bdel">Sil</button>' : ''}</div></div>
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
     <div class="kpi ${mx === 0 ? 'alert' : ''}"><div class="v">${mx == null ? '—' : fmtQ(mx)}</div><div class="l">Mevcut stokla üretilebilir</div><div class="d">en az stoklu kalem belirler</div></div>
     <div class="kpi"><div class="l">Hesaplanacak adet</div><div class="v"><input type="number" min="1" step="1" id="bn" value="${N}" class="kpi-in"></div><div class="d">eksikler buna göre</div></div>
     <div class="kpi" id="kmiss"></div><div class="kpi" id="kcost"></div></div>
   ${meta.navlun || meta.paketleme ? `<p class="note">Navlun: Avrupa ${esc(meta.navlun?.avrupa || '—')} · Amerika ${esc(meta.navlun?.amerika || '—')} · Asya ${esc(meta.navlun?.asya || '—')}${meta.paketleme ? ' · Paketleme: ' + esc(meta.paketleme) : ''}${meta.kur ? ' · Kur: ' + esc(meta.kur) : ''} <span class="sub">(BOMLIST maliyet sayfasından)</span></p>` : ''}
   ${meta.hazir_urun_stok != null ? `<p class="note">Excel özetine göre hazır ürün stoğu: <b>${fmtQ(meta.hazir_urun_stok)}</b>${meta.uretilmesi_gereken != null ? ` · üretilmesi gereken: <b>${fmtQ(meta.uretilmesi_gereken)}</b>` : ''}</p>` : ''}
+  ${cntG.m && cntG.e ? `<div class="toolbar"><div class="seg" id="btab">${['m', 'e'].map(k => `<button data-t="${k}" class="${tab === k ? 'on' : ''}">${TABN[k]} <span class="sub">${cntG[k]}</span></button>`).join('')}</div><span class="sub">Mekanik ve elektronik kalemler ayrı listelenir; eksik ve maliyet seçili bölüm için hesaplanır.</span></div>` : ''}
   <div class="tablewrap" id="btbl"></div>
   ${ed ? `<section class="panel mt"><h2>Kalem ekle</h2><form id="blf" class="fs plain" novalidate><div class="row r4">
     <label class="f" style="grid-column:span 2">Parça <span class="hint">stoktan seçin ya da yeni ad yazın</span><input type="text" name="nm" list="itemlist" autocomplete="off"></label>
-    <label class="f">Ürün başına adet<input type="number" step="any" name="qp" value="1"></label><label class="f">Bölüm${stkSel('sec', SECT, b.kind === 'pcb' ? 'komponent' : 'mekanik')}</label></div>
+    <label class="f">Ürün başına adet<input type="number" step="any" name="qp" value="1"></label><label class="f">Bölüm${stkSel('sec', SECT, b.kind === 'pcb' ? 'komponent' : tab === 'e' ? 'elektronik' : 'mekanik')}</label></div>
     <div class="row r2"><label class="f">Birim fiyat <span class="hint">stokta yoksa</span><input type="number" step="any" name="pr"></label><label class="f">Not<input type="text" name="nt"></label></div>
     <p><button class="btn primary">Ekle</button></p></form><datalist id="itemlist">${S.items.map(i => `<option value="${esc(i.name)}">`).join('')}</datalist></section>` : ''}
   <section class="panel mt"><h2>Bilgiler</h2><form id="bmf" class="fs plain" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs"><div class="row r2">
@@ -2162,12 +2198,13 @@ async function viewBom(id){
     <div id="altpick"></div><p><button class="btn">Stoktan düş</button></p></form></section>` : ''}`);
   const groups = [...new Set(L.filter(l => l.alt_group).map(l => l.alt_group))];
   const draw = () => {
-    const rows = L.map(l => { const need = (+l.qty_per || 0) * N, short = l.stock_qty == null ? null : Math.max(0, need - (+l.stock_qty));
+    const LT = L.filter(l => secG(l.section) === tab);
+    const rows = LT.map(l => { const need = (+l.qty_per || 0) * N, short = l.stock_qty == null ? null : Math.max(0, need - (+l.stock_qty));
       return { ...l, need, short: l.alt_group ? (L.filter(x => x.alt_group === l.alt_group).some(x => x.stock_qty != null && +x.stock_qty >= (+x.qty_per || 0) * N) ? 0 : short) : short }; });
-    const missing = rows.filter(r => r.short > 0 && !r.alt_group).length + groups.filter(g => rows.filter(r => r.alt_group === g).every(r => r.short > 0)).length;
+    const missing = rows.filter(r => r.short > 0 && !r.alt_group).length + groups.filter(g => rows.some(r => r.alt_group === g) && rows.filter(r => r.alt_group === g).every(r => r.short > 0)).length;
     const cost = rows.reduce((a, r) => a + (r.alt_group ? 0 : (+r.price || 0) * r.need), 0);
-    q('#kmiss').className = 'kpi' + (missing ? ' alert' : ''); q('#kmiss').innerHTML = `<div class="v">${missing}</div><div class="l">Eksik kalem (${N} adet için)</div><div class="d">${missing ? '<a href="#" id="mkpur">Eksikler için alım talebi aç</a>' : 'Stok yeterli'}</div>`;
-    q('#kcost').innerHTML = `<div class="v">${fmtTRY(cost)}</div><div class="l">Kalem maliyeti (${N} adet)</div><div class="d">seçenekli kalemler hariç</div>`;
+    q('#kmiss').className = 'kpi' + (missing ? ' alert' : ''); q('#kmiss').innerHTML = `<div class="v">${missing}</div><div class="l">Eksik kalem${cntG.m && cntG.e ? ' · ' + TABN[tab] : ''} (${N} adet için)</div><div class="d">${missing ? '<a href="#" id="mkpur">Eksikler için alım talebi aç</a>' : 'Stok yeterli'}</div>`;
+    q('#kcost').innerHTML = `<div class="v">${fmtTRY(cost)}</div><div class="l">${cntG.m && cntG.e ? TABN[tab] + ' maliyeti' : 'Kalem maliyeti'} (${N} adet)</div><div class="d">seçenekli kalemler hariç</div>`;
     const sec = [...new Set(rows.map(r => r.section))];
     q('#btbl').innerHTML = `<table><thead><tr><th class="nosort">Kalem</th><th class="nosort num">Ürün başı</th><th class="nosort num">Gereken</th><th class="nosort num">Stok</th><th class="nosort num">Eksik</th><th class="nosort num">Birim fiyat</th><th class="nosort">Konum / tedarik</th>${ed ? '<th class="nosort"></th>' : ''}</tr></thead><tbody>
       ${sec.map(sname => `<tr class="secrow"><td colspan="${ed ? 8 : 7}">${SECT[sname] || sname}</td></tr>` + rows.filter(r => r.section === sname).map(r => `<tr data-lid="${r.id}">
@@ -2177,7 +2214,7 @@ async function viewBom(id){
         <td class="num">${r.short == null ? '' : r.short > 0 ? `<b class="late-txt">${fmtQ(r.short)}</b>` : '<span class="ok-txt">✓</span>'}</td>
         <td class="num">${fmtMoney(r.price)}</td><td><span class="sub">${esc([r.location, r.supplier_text].filter(Boolean).join(' · '))}</span></td>
         ${ed ? '<td><button class="btn sm ldel" title="Kalemi çıkar" aria-label="Kalemi çıkar">Çıkar</button></td>' : ''}</tr>`).join('')).join('')}</tbody>
-      <tfoot><tr class="tfoot"><td colspan="${ed ? 8 : 7}">${L.length} kalem</td></tr></tfoot></table>`;
+      <tfoot><tr class="tfoot"><td colspan="${ed ? 8 : 7}">${LT.length} kalem${cntG.m && cntG.e ? ' · ' + TABN[tab] : ''}</td></tr></tfoot></table>`;
     qa('.qpin').forEach(inp => inp.onchange = async () => { const lid = +inp.closest('tr').dataset.lid, v = num0(inp.value);
       const { error } = await sb.from('bom_lines').update({ qty_per:v || 1 }).eq('id', lid); if (error) return toast(dbErr(error), true); const l = L.find(x => x.id === lid); l.qty_per = v || 1; toast('Güncellendi'); draw(); });
     qa('.ldel').forEach(btn => btn.onclick = async () => { const lid = +btn.closest('tr').dataset.lid;
@@ -2188,11 +2225,13 @@ async function viewBom(id){
       const pick = miss.filter((r, i, a) => !r.alt_group || a.findIndex(x => x.alt_group === r.alt_group) === i);
       if (!confirmTwice(e.target, `${pick.length} kalem için talep açılacak — tekrar tıkla`)) return;
       const rowsIns = pick.map(r => ({ item_name:r.name, item_id:r.item_id, qty:r.short, unit_price:r.price, unit:r.section === 'mekanik' ? 'Mekanik' : 'Elektronik', area:'Üretim',
-        project:b.name + (deal ? ' · ' + refNo(deal) : ''), deal_id:b.deal_id, status:'talep', requester:S.profile.id, requester_name:S.profile.full_name || S.profile.email, note:`BOM eksiği (${N} adet için)` }));
+        project:b.name + (deal ? ' · ' + refNo(deal) : ''), deal_id:b.deal_id, bom_id:b.id, status:'talep', requester:S.profile.id, requester_name:S.profile.full_name || S.profile.email, note:`BOM eksiği (${N} adet için)` }));
       const { error } = await sb.from('purchases').insert(rowsIns); if (error) return toast(dbErr(error), true);
       toast(`${rowsIns.length} alım talebi açıldı`); location.hash = '#/alimlar'; });
   };
   draw();
+  qa('#btab button').forEach(bt => bt.onclick = () => { tab = bomTabs[id] = bt.dataset.t; qa('#btab button').forEach(x => x.classList.toggle('on', x === bt)); if (q('#blf')) q('#blf').sec.value = b.kind === 'pcb' ? 'komponent' : tab === 'e' ? 'elektronik' : 'mekanik'; draw(); });
+  q('#bpur').onclick = () => { purState.bom = String(id); purState.tab = 'all'; };
   q('#bn').onchange = async e => { N = Math.max(1, Math.round(+e.target.value || 1)); draw(); if (ed) await sb.from('boms').update({ qty_to_build:N }).eq('id', id); };
   q('#bmf').onsubmit = async e => { e.preventDefault(); const f = e.target;
     const o = { name:f.name.value.trim() || b.name, status:f.status.value, notes:f.notes.value.trim() || null }; if (f.deal_id) o.deal_id = f.deal_id.value ? +f.deal_id.value : null;
@@ -2299,7 +2338,7 @@ async function viewMotorTests(){
 }
 
 // ---------------------------------------------------------------- ALIMLAR
-const purState = { tab:'open', q:'', unit:'', year:'', who:'' };
+const purState = { tab:'open', q:'', unit:'', year:'', who:'', bom:'', urg:'' };
 async function viewPurchases(){
   await loadStock();
   const { data, error } = await sb.from('purchases').select('*').order('requested_at', { ascending:false, nullsFirst:false }).order('id', { ascending:false }).range(0, 9999);
@@ -2322,20 +2361,24 @@ async function viewPurchases(){
   <div class="toolbar"><input type="search" id="pq" placeholder="Ara: ürün, proje, tedarikçi, not…" value="${esc(s.q)}">
     <select id="punit"><option value="">Tüm birimler</option>${PUR_UNIT.map(u => `<option ${s.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
     <select id="pyear"><option value="">Tüm yıllar</option>${years.map(y => `<option ${s.year === y ? 'selected' : ''}>${y}</option>`).join('')}</select>
-    <select id="pwho"><option value="">Talep eden: herkes</option>${who.map(w => `<option ${s.who === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></div>
+    <select id="pwho"><option value="">Talep eden: herkes</option>${who.map(w => `<option ${s.who === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select>
+    <select id="pbom"><option value="">Tüm ürün / projeler</option>${bomOpts(+s.bom)}</select>
+    <div class="seg" id="purg">${[['', 'Hepsi'], ['acil', 'Acil'], ['normal', 'Acil değil']].map(([k, v]) => `<button data-u="${k}" class="${s.urg === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
   <div class="tablewrap" id="ptbl"></div>`);
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
-    const rows = P.filter(p => (s.tab === 'all' || tabOf(p) === s.tab) && (!s.unit || p.unit === s.unit) && (!s.year || (p.requested_at || '').startsWith(s.year)) && (!s.who || p.requester_name === s.who)
+    const rows = P.filter(p => (s.tab === 'all' || tabOf(p) === s.tab) && (!s.unit || p.unit === s.unit) && (!s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (!s.year || (p.requested_at || '').startsWith(s.year)) && (!s.who || p.requester_name === s.who)
       && (!ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id), p.note, p.purpose, p.requester_name].join(' ').toLocaleLowerCase('tr').includes(ql)));
     q('#ptbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Talep eden</th><th class="nosort">Tedarikçi</th><th class="nosort">Durum</th></tr></thead><tbody>
-      ${rows.slice(0, 800).map(p => `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
-        <td><b style="font-weight:600">${esc(p.item_name)}</b>${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
+      ${rows.slice(0, 800).map(p => `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
+        <td><b style="font-weight:600">${esc(p.item_name)}</b>${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
         <td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(p.requester_name || '') || '<span class="sub">—</span>'}<div class="sub opt">${esc([p.unit, p.area].filter(Boolean).join(' · '))}</div></td>
         <td>${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.link ? `${supName(p.supplier_id) || p.supplier_text ? '<br>' : ''}<a href="${esc(p.link)}" target="_blank" rel="noopener" class="sub" onclick="event.stopPropagation()">bağlantı ↗</a>` : (supName(p.supplier_id) || p.supplier_text ? '' : '<span class="sub">—</span>')}</td>
         <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}</td></tr>`).join('')}</tbody>
       <tfoot><tr class="tfoot"><td colspan="3">${rows.length} kayıt${rows.length > 800 ? ' (ilk 800)' : ''}</td><td class="num">${fmtTRY(sumT(rows))}</td><td colspan="3"></td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('#ptbl tr[data-pid]').forEach(r => r.onclick = () => location.hash = '#/alimlar/' + r.dataset.pid);
+    qa('#ptbl .urgbtn').forEach(bt => bt.onclick = async e => { e.stopPropagation(); const pr = P.find(x => x.id === +bt.closest('tr').dataset.pid), nu = pr.urgency === 'acil' ? 'normal' : 'acil';
+      const { error } = await sb.from('purchases').update({ urgency:nu }).eq('id', pr.id); if (error) return toast(dbErr(error), true); pr.urgency = nu; toast(nu === 'acil' ? 'Acil olarak işaretlendi' : 'Aciliyet kaldırıldı'); loadPurCount(); draw(); });
   };
   draw();
   qa('#ptab button').forEach(b => b.onclick = () => { s.tab = b.dataset.t; qa('#ptab button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
@@ -2343,7 +2386,12 @@ async function viewPurchases(){
   q('#punit').onchange = e => { s.unit = e.target.value; draw(); };
   q('#pyear').onchange = e => { s.year = e.target.value; draw(); };
   q('#pwho').onchange = e => { s.who = e.target.value; draw(); };
+  q('#pbom').onchange = e => { s.bom = e.target.value; draw(); };
+  qa('#purg button').forEach(b => b.onclick = () => { s.urg = b.dataset.u; qa('#purg button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
 }
+const bomById = id => (S.boms || []).find(b => b.id === id);
+const bomOpts = sel => [['product', 'Ürünler'], ['project', 'Projeler'], ['pcb', 'PCB kartları']].map(([k, l]) => { const bs = (S.boms || []).filter(b => b.kind === k && (k !== 'project' || b.status !== 'iptal' || b.id === sel));
+  return bs.length ? `<optgroup label="${l}">${bs.map(b => `<option value="${b.id}" ${sel === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</optgroup>` : ''; }).join('');
 
 async function viewPurchase(id, preset){
   await loadStock();
@@ -2361,23 +2409,24 @@ async function viewPurchase(id, preset){
     <div class="row">${'<label class="f">Tür' + stkSel('kind', { alim:'Alım', kontrol:'Kontrol / takip' }, p.kind) + '</label>'}<label class="f">Birim${arrSel('unit', PUR_UNIT, p.unit, '—')}</label><label class="f">Kullanım alanı${arrSel('area', PUR_AREA, p.area, '—')}</label></div>
     <div class="row r2">${tx('item_name', 'Ürün / iş adı')}<label class="f">Stoktaki parça <span class="hint">bağlarsanız "Alındı"da stoğa girer</span><input type="text" name="item_link" list="itemlist2" value="${esc(it ? it.name : '')}" autocomplete="off"></label></div>
     <div class="row">${tx('qty', 'Adet', '', 'number')}${tx('unit_price', 'Birim fiyat (KDV dahil)', '', 'number')}<label class="f">Para birimi${stkSel('currency', { TRY:'TRY', USD:'USD', EUR:'EUR' }, p.currency || 'TRY')}</label></div>
-    <div class="row">${tx('project', 'Proje / ürün', 'ör. ACRPO-540, Stewart üretimi')}<label class="f">Aciliyet${stkSel('urgency', { acil:'Acil', normal:'Acil değil' }, p.urgency || 'normal', '—')}</label>${tx('priority', 'Ne zamana', 'ör. 1 hafta içinde')}</div>
+    <div class="row r2"><label class="f">İlgili ürün / proje <span class="hint">raporda bu başlıkta görünür</span><select name="bom_id"><option value="">—</option>${bomOpts(p.bom_id)}</select></label>${tx('project', 'Proje / sipariş notu', 'ör. ACRPO-540, ARGE denemesi')}</div>
+    <div class="row r2"><label class="f">Aciliyet${stkSel('urgency', { acil:'Acil', normal:'Acil değil' }, p.urgency || 'normal', '—')}</label>${tx('priority', 'Ne zamana', 'ör. 1 hafta içinde')}</div>
     <div class="row r2"><label class="f">Tedarikçi<select name="supplier_id"><option value="">—</option>${S.suppliers.map(s => `<option value="${s.id}" ${p.supplier_id === s.id ? 'selected' : ''}>${esc(s.name)}${s.blacklisted ? ' ⚠ kara liste' : ''}</option>`).join('')}</select></label>${tx('supplier_text', 'Tedarikçi notu', 'listede yoksa')}</div>
     ${tx('link', 'Bağlantı', 'ürün sayfası, proforma, Drive')}
     <div class="row r2">${tx('requester_name', 'Talep eden')}${tx('requested_at', 'Talep tarihi', '', 'date')}</div>
-    ${canPurchase() ? `<div class="row r2">${tx('purchased_at', 'Alım tarihi', '', 'date')}<label class="f">Bağlı sipariş<select name="deal_id"><option value="">—</option>${S.deals.filter(d => d.order_no).sort((x, y) => (y.order_no || '').localeCompare(x.order_no || '')).map(d => `<option value="${d.id}" ${p.deal_id === d.id ? 'selected' : ''}>${esc(d.order_no)} · ${esc(custName(d))}</option>`).join('')}</select></label></div>` : ''}
+    ${`<div class="row r2">${canPurchase() ? tx('purchased_at', 'Alım tarihi', '', 'date') : ''}<label class="f">Bağlı sipariş<select name="deal_id"><option value="">—</option>${S.deals.filter(d => d.order_no).sort((x, y) => (y.order_no || '').localeCompare(x.order_no || '')).map(d => `<option value="${d.id}" ${p.deal_id === d.id ? 'selected' : ''}>${esc(d.order_no)} · ${esc(custName(d))}</option>`).join('')}</select></label></div>`}
     <label class="f">Kullanım amacı<input type="text" name="purpose" value="${v('purpose')}"></label>
     <label class="f">Not<textarea name="note" rows="3">${v('note')}</textarea></label>
     ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Talebi aç'}</button></p>` : '<p class="note">Bu kaydı yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ya da Yönetici değiştirebilir.</p>'}
   </fieldset></form><datalist id="itemlist2">${S.items.map(i => `<option value="${esc(i.name)}">`).join('')}</datalist></div>
-  <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Tutar</dt><dd><b>${fmtMoney(p.total, p.currency)}</b></dd><dt>Durum</dt><dd>${purPill(p.status)}</dd>${p.purchased_at ? `<dt>Alındı</dt><dd>${fmtD(p.purchased_at)}</dd>` : ''}${p.received_into_stock ? '<dt>Stok</dt><dd class="ok-txt">Stoğa girdi</dd>' : ''}${p.link ? `<dt>Bağlantı</dt><dd><a href="${esc(p.link)}" target="_blank" rel="noopener">aç ↗</a></dd>` : ''}${it ? `<dt>Parça</dt><dd><a href="#/stok/${it.id}">${esc(it.name)}</a> · stok ${fmtQ(it.qty)}</dd>` : ''}</dl></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Aynı tedarikçiden birden fazla parça istiyorsanız her parçayı ayrı talep olarak açın; böylece her biri ayrı takip edilir ve stoğa ayrı girer.</p></section>`}</aside></div>`);
+  <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Tutar</dt><dd><b>${fmtMoney(p.total, p.currency)}</b></dd><dt>Durum</dt><dd>${purPill(p.status)}</dd>${p.purchased_at ? `<dt>Alındı</dt><dd>${fmtD(p.purchased_at)}</dd>` : ''}${p.received_into_stock ? '<dt>Stok</dt><dd class="ok-txt">Stoğa girdi</dd>' : ''}${p.link ? `<dt>Bağlantı</dt><dd><a href="${esc(p.link)}" target="_blank" rel="noopener">aç ↗</a></dd>` : ''}${p.bom_id && bomById(p.bom_id) ? `<dt>Ürün / proje</dt><dd><a href="#/bom/${p.bom_id}">${esc(bomById(p.bom_id).name)}</a></dd>` : ''}${it ? `<dt>Parça</dt><dd><a href="#/stok/${it.id}">${esc(it.name)}</a> · stok ${fmtQ(it.qty)}</dd>` : ''}</dl></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Aynı tedarikçiden birden fazla parça istiyorsanız her parçayı ayrı talep olarak açın; böylece her biri ayrı takip edilir ve stoğa ayrı girer.</p></section>`}</aside></div>`);
   q('#puf').onsubmit = async e => {
     e.preventDefault(); const f = e.target, g = n => f[n] ? f[n].value.trim() : '';
     if (!g('item_name')) return toast('Ürün / iş adı girin', true);
     const link = g('item_link'), li = link ? S.items.find(i => i.name.toLocaleLowerCase('tr') === link.toLocaleLowerCase('tr')) : null;
     if (link && !li) return toast('Stoktaki parça listede yok; listeden seçin ya da boş bırakın', true);
     const o = { kind:f.kind.value, unit:f.unit.value || null, area:f.area.value || null, item_name:g('item_name'), item_id:li ? li.id : null, qty:num0(g('qty')), unit_price:num0(g('unit_price')),
-      currency:f.currency.value, project:g('project') || null, urgency:f.urgency.value || null, priority:g('priority') || null, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
+      currency:f.currency.value, bom_id:f.bom_id.value ? +f.bom_id.value : null, project:g('project') || null, urgency:f.urgency.value || null, priority:g('priority') || null, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
       supplier_text:g('supplier_text') || null, link:g('link') || null, requester_name:g('requester_name') || null, requested_at:g('requested_at') || null, purpose:g('purpose') || null, note:g('note') || null };
     if (o.qty != null && o.unit_price != null) o.total = Math.round(o.qty * o.unit_price * 100) / 100;
     if (f.purchased_at) o.purchased_at = g('purchased_at') || null;
@@ -2393,40 +2442,147 @@ async function viewPurchase(id, preset){
     const { error } = await sb.from('purchases').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/alimlar'; });
 }
 
-// ---------------------------------------------------------------- TEDARİKÇİLER
+// ---------------------------------------------------------------- TEDARİKÇİLER + SİTE HESAPLARI
+const SUP_KIND = { tedarikci:'Tedarikçi', kargo:'Kargo / lojistik' };
+const ACC_KIND = { tedarikci:'Tedarikçi sitesi', kargo:'Kargo', diger:'Diğer (mail, muhasebe, internet…)' };
+const tdState = { kind:'', acc:'' };
+const copyTxt = async (t, btn) => { try { await navigator.clipboard.writeText(t || ''); toast('Kopyalandı'); } catch { toast('Kopyalanamadı', true); } };
+// tek hesap satırı (şifre gizli, göster / kopyala)
+const accCells = a => `<td><b style="font-weight:600">${esc(a.name)}</b>${a.url ? `<div><a href="${esc(a.url)}" target="_blank" rel="noopener" class="sub" onclick="event.stopPropagation()">${esc(a.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40))} ↗</a></div>` : ''}</td>
+  <td class="mono">${a.username ? `${esc(a.username)} <button type="button" class="linkbtn acopy" data-v="${esc(a.username)}" title="Kullanıcı adını kopyala">kopyala</button>` : '<span class="sub">—</span>'}</td>
+  <td class="mono" style="white-space:nowrap">${a.password ? `<span class="pwv" data-pw="${esc(a.password)}">••••••••</span> <button type="button" class="linkbtn pwshow">göster</button> · <button type="button" class="linkbtn acopy" data-v="${esc(a.password)}">kopyala</button>` : '<span class="sub">—</span>'}</td>`;
+const bindAccCells = root => {
+  qa('.acopy', root).forEach(b => b.onclick = e => { e.stopPropagation(); copyTxt(b.dataset.v); });
+  qa('.pwshow', root).forEach(b => b.onclick = e => { e.stopPropagation(); const s = b.previousElementSibling, on = b.textContent === 'göster';
+    s.textContent = on ? s.dataset.pw : '••••••••'; b.textContent = on ? 'gizle' : 'göster'; });
+};
+const accForm = (a, sups) => `<form id="accf" class="fs plain" novalidate><input type="hidden" name="id" value="${a.id || ''}">
+  <div class="row r4"><label class="f">Site / hesap adı<input type="text" name="name" value="${esc(a.name || '')}"></label><label class="f">Tür${stkSel('kind', ACC_KIND, a.kind || 'tedarikci')}</label>
+    <label class="f" style="grid-column:span 2">Bağlı tedarikçi<select name="supplier_id"><option value="">—</option>${sups.map(s => `<option value="${s.id}" ${a.supplier_id === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label></div>
+  <div class="row r4"><label class="f" style="grid-column:span 2">Adres<input type="text" name="url" value="${esc(a.url || '')}" placeholder="https://"></label><label class="f">Kullanıcı / e-posta<input type="text" name="username" value="${esc(a.username || '')}" autocomplete="off"></label><label class="f">Şifre<input type="text" name="password" value="${esc(a.password || '')}" autocomplete="off"></label></div>
+  <div class="row r2"><label class="f">Telefon<input type="text" name="phone" value="${esc(a.phone || '')}"></label><label class="f">Not<input type="text" name="note" value="${esc(a.note || '')}"></label></div>
+  <p style="display:flex;gap:8px"><button class="btn primary">${a.id ? 'Kaydet' : 'Hesabı ekle'}</button><button type="button" class="btn" id="acccancel">Vazgeç</button>${a.id ? '<button type="button" class="btn danger" id="accdel">Sil</button>' : ''}</p>
+  <p class="note" style="margin:0">Kimlik numarası, kart ya da banka bilgisi buraya yazılmaz.</p></form>`;
+const bindAccForm = (box, a, done) => {
+  const f = q('#accf', box); if (!f) return;
+  q('#acccancel', box).onclick = () => { box.innerHTML = ''; };
+  f.onsubmit = async e => { e.preventDefault(); const g = n => f[n].value.trim() || null; if (!g('name')) return toast('Site adı girin', true);
+    const o = { name:g('name'), kind:f.kind.value, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null, url:g('url'), username:g('username'), password:g('password'), phone:g('phone'), note:g('note'), updated_by:S.profile.id, updated_at:new Date().toISOString() };
+    const r = a.id ? await sb.from('supplier_accounts').update(o).eq('id', a.id) : await sb.from('supplier_accounts').insert(o);
+    if (r.error) return toast(dbErr(r.error), true); toast('Hesap kaydedildi'); done(); };
+  q('#accdel', box) && (q('#accdel', box).onclick = async () => { if (!confirmTwice(q('#accdel', box), 'Emin misin? Tekrar bas')) return;
+    const { error } = await sb.from('supplier_accounts').delete().eq('id', a.id); if (error) return toast(dbErr(error), true); toast('Hesap silindi'); done(); });
+};
+
 async function viewSuppliers(id){
-  const all = (await sb.from('suppliers').select('*').order('name')).data || [], ed = canPurchase();
+  const ed = canPurchase();
+  const [sr, ar] = await Promise.all([sb.from('suppliers').select('*').order('name'), ed ? sb.from('supplier_accounts').select('*').order('name') : Promise.resolve({ data:[] })]);
+  const all = sr.data || [], ACC = ar.error ? [] : (ar.data || []);
+  if (id === 'hesaplar') return viewAccounts(all, ACC);
   if (id) {
-    const s = id === 'yeni' ? { name:'' } : all.find(x => x.id === +id);
+    const s = id === 'yeni' ? { name:'', kind:'tedarikci' } : all.find(x => x.id === +id);
     if (!s) return shell('tedarikciler', '<h1>Tedarikçi bulunamadı</h1>');
     const pu = s.id ? ((await sb.from('purchases').select('id,requested_at,item_name,qty,total,status').or(`supplier_id.eq.${s.id},supplier_text.ilike.%${s.name.split(' ')[0].replace(/[,%()]/g, '')}%`).order('requested_at', { ascending:false }).limit(50)).data || []) : [];
+    const acc = ACC.filter(a => a.supplier_id === s.id);
     const ta = (k, l, r) => `<label class="f">${l}<textarea name="${k}" rows="${r || 2}">${esc(s[k] || '')}</textarea></label>`;
     shell('tedarikciler', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>${s.id ? esc(s.name) : 'Yeni tedarikçi'}</h1>${s.blacklisted ? `<p class="lede late-txt">Kara listede: ${esc(s.blacklist_reason || '')}</p>` : ''}</div>${s.id && can('admin') ? '<button class="btn danger" id="sdel">Sil</button>' : ''}</div>
     <div class="grid sup-grid"><div><form id="suf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
-      <label class="f">Firma adı<input type="text" name="name" value="${esc(s.name || '')}"></label>
+      <div class="row r2"><label class="f">Firma adı<input type="text" name="name" value="${esc(s.name || '')}"></label><label class="f">Tür${stkSel('kind', SUP_KIND, s.kind || 'tedarikci')}</label></div>
       ${ta('contacts', 'İletişim (kişi · telefon)', 3)}<div class="row r2">${ta('emails', 'E-posta')}${ta('websites', 'Web sitesi')}</div>
       <div class="row r2">${ta('parts', 'Alınan parçalar')}${ta('products', 'Hangi ürün')}</div>${ta('notes', 'Not', 3)}
       <div class="row r2"><label class="f">Kara liste${stkSel('blacklisted', { false:'Hayır', true:'Evet' }, String(!!s.blacklisted))}</label><label class="f">Sebep<input type="text" name="blacklist_reason" value="${esc(s.blacklist_reason || '')}"></label></div>
-      ${ed ? '<p><button class="btn primary">Kaydet</button></p>' : ''}</fieldset></form></div>
+      ${ed ? '<p><button class="btn primary">Kaydet</button></p>' : ''}</fieldset></form>
+      ${s.id && ed ? `<section class="panel mt"><div class="board-head"><h2 style="margin:0">Site hesabı <span class="tcount">${acc.length}</span></h2><button class="btn sm" id="accadd">Hesap ekle</button></div>
+        <div id="accbox"></div>${acc.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Site</th><th class="nosort">Kullanıcı</th><th class="nosort">Şifre</th><th class="nosort">Telefon / not</th><th class="nosort"></th></tr></thead><tbody>${acc.map(a => `<tr data-aid="${a.id}" style="cursor:default">${accCells(a)}<td class="sub">${esc([a.phone, a.note].filter(Boolean).join(' · '))}</td><td><button class="btn sm aedit">Düzenle</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu firmaya kayıtlı site hesabı yok.</p>'}
+        <p class="note">Hesapları yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici görür.</p></section>` : ''}</div>
     <aside><section class="panel"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
     q('#suf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null; if (!g('name')) return toast('Firma adı girin', true);
-      const o = { name:g('name'), contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason') };
+      const o = { name:g('name'), kind:f.kind.value, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason') };
       const r = s.id ? await sb.from('suppliers').update(o).eq('id', s.id) : await sb.from('suppliers').insert(o).select('id').single();
       if (r.error) return toast(dbErr(r.error), true); toast('Kaydedildi'); S.stockLoaded = false; location.hash = '#/tedarikciler/' + (s.id || r.data.id); };
     q('#sdel') && (q('#sdel').onclick = async () => { if (!confirmTwice(q('#sdel'), 'Emin misin? Tekrar bas')) return; const { error } = await sb.from('suppliers').delete().eq('id', s.id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/tedarikciler'; });
+    if (q('#accbox')) { const box = q('#accbox'), open = a => { box.innerHTML = accForm(a, all); bindAccForm(box, a, () => viewSuppliers(s.id)); box.scrollIntoView({ block:'nearest' }); };
+      bindAccCells(document); q('#accadd').onclick = () => open({ supplier_id:s.id, kind:s.kind === 'kargo' ? 'kargo' : 'tedarikci', name:s.name, url:(s.websites || '').startsWith('http') ? s.websites : '' });
+      qa('.aedit').forEach(b => b.onclick = () => open(ACC.find(a => a.id === +b.closest('tr').dataset.aid))); }
     return;
   }
-  shell('tedarikciler', `<div class="pagehead"><div><h1>Tedarikçiler</h1><p class="lede">Firma, iletişim ve alınan parçalar. Kara listedekiler kırmızı.</p></div>${ed ? '<a class="btn primary" href="#/tedarikciler/yeni">Yeni tedarikçi</a>' : ''}</div>
-  <div class="toolbar"><input type="search" id="tq" placeholder="Ara: firma, kişi, parça…"></div><div class="tablewrap" id="ttbl"></div>`);
-  const draw = ql => { const r = all.filter(s => !ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql));
-    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th></tr></thead><tbody>${r.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Kayıt yok.</div>';
+  const st = tdState;
+  shell('tedarikciler', `<div class="pagehead"><div><h1>Tedarikçiler</h1><p class="lede">Firma, iletişim ve alınan parçalar. Kara listedekiler kırmızı.${ed ? ' Sitelerin giriş bilgileri "Site hesapları"nda.' : ''}</p></div><div style="display:flex;gap:8px">${ed ? '<a class="btn" href="#/tedarikciler/hesaplar">Site hesapları</a><a class="btn primary" href="#/tedarikciler/yeni">Yeni tedarikçi</a>' : ''}</div></div>
+  <div class="toolbar"><div class="seg" id="tkind">${[['', 'Hepsi'], ['tedarikci', 'Tedarikçi'], ['kargo', 'Kargo / lojistik']].map(([k, v]) => `<button data-k="${k}" class="${st.kind === k ? 'on' : ''}">${v} <span class="sub">${k ? all.filter(s => (s.kind || 'tedarikci') === k).length : all.length}</span></button>`).join('')}</div>
+    <input type="search" id="tq" placeholder="Ara: firma, kişi, parça, site…"></div><div class="tablewrap" id="ttbl"></div>`);
+  const nAcc = sid => ACC.filter(a => a.supplier_id === sid).length;
+  const draw = () => { const ql = (q('#tq').value || '').trim().toLocaleLowerCase('tr');
+    const r = all.filter(s => (!st.kind || (s.kind || 'tedarikci') === st.kind) && (!ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.websites, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql)));
+    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${r.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('#ttbl tr[data-sid]').forEach(t => t.onclick = () => location.hash = '#/tedarikciler/' + t.dataset.sid); };
-  draw(''); q('#tq').oninput = e => draw(e.target.value.trim().toLocaleLowerCase('tr'));
+  draw(); q('#tq').oninput = draw;
+  qa('#tkind button').forEach(b => b.onclick = () => { st.kind = b.dataset.k; qa('#tkind button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+}
+
+function viewAccounts(sups, ACC){
+  if (!canPurchase()) return shell('tedarikciler-hesap', '<h1>Erişim yok</h1><p class="lede">Site hesaplarını Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici rolleri görür.</p>');
+  const st = tdState, supN = id => (sups.find(s => s.id === id) || {}).name || '';
+  shell('tedarikciler-hesap', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>Site hesapları</h1><p class="lede">Alışveriş yapılan sitelerin, kargo ve diğer hizmetlerin giriş bilgileri. Şifreler gizli gelir; "göster" ya da "kopyala" ile kullanın. Yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici görür.</p></div><button class="btn primary" id="accadd">Yeni hesap</button></div>
+  <div id="accbox"></div>
+  <div class="toolbar"><div class="seg" id="akind">${[['', 'Hepsi'], ...Object.entries(ACC_KIND).map(([k, v]) => [k, v.split(' (')[0]])].map(([k, v]) => `<button data-k="${k}" class="${st.acc === k ? 'on' : ''}">${v} <span class="sub">${k ? ACC.filter(a => a.kind === k).length : ACC.length}</span></button>`).join('')}</div>
+    <input type="search" id="aq" placeholder="Ara: site, kullanıcı, not…"></div><div class="tablewrap" id="atbl"></div>`);
+  const box = q('#accbox'), open = a => { box.innerHTML = accForm(a, sups); bindAccForm(box, a, () => viewSuppliers('hesaplar')); box.scrollIntoView({ block:'nearest' }); };
+  const draw = () => { const ql = (q('#aq').value || '').trim().toLocaleLowerCase('tr');
+    const r = ACC.filter(a => (!st.acc || a.kind === st.acc) && (!ql || [a.name, a.url, a.username, a.note, a.phone, supN(a.supplier_id)].join(' ').toLocaleLowerCase('tr').includes(ql)));
+    q('#atbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Site</th><th class="nosort">Kullanıcı</th><th class="nosort">Şifre</th><th class="nosort">Firma</th><th class="nosort">Telefon / not</th><th class="nosort"></th></tr></thead><tbody>${r.map(a => `<tr data-aid="${a.id}" style="cursor:default">${accCells(a)}<td>${a.supplier_id ? `<a href="#/tedarikciler/${a.supplier_id}">${esc(supN(a.supplier_id))}</a>` : `<span class="sub">${ACC_KIND[a.kind] ? ACC_KIND[a.kind].split(' (')[0] : ''}</span>`}</td><td class="sub">${esc([a.phone, a.note].filter(Boolean).join(' · '))}</td><td><button class="btn sm aedit">Düzenle</button></td></tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="6">${r.length} hesap</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+    bindAccCells(q('#atbl')); qa('#atbl .aedit').forEach(b => b.onclick = () => open(ACC.find(a => a.id === +b.closest('tr').dataset.aid))); };
+  draw(); q('#aq').oninput = draw;
+  q('#accadd').onclick = () => open({ kind:'tedarikci' });
+  qa('#akind button').forEach(b => b.onclick = () => { st.acc = b.dataset.k; qa('#akind button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+}
+
+// ---------------------------------------------------------------- AYLIK ALIM RAPORU
+const prState = { year:'', month:'' };
+async function viewPurchaseReport(){
+  await loadStock();
+  const { data, error } = await sb.from('purchases').select('id,kind,unit,status,item_name,qty,total,currency,purchased_at,requested_at,supplier_id,supplier_text,bom_id,project,urgency').eq('status', 'alindi').range(0, 9999);
+  const P = (error ? [] : data || []).filter(p => p.kind !== 'kontrol').map(p => ({ ...p, d:p.purchased_at || p.requested_at || '' })).filter(p => p.d);
+  const years = [...new Set(P.map(p => p.d.slice(0, 4)))].sort().reverse(), st = prState;
+  if (!st.year || !years.includes(st.year)) st.year = years.includes(String(new Date().getFullYear())) ? String(new Date().getFullYear()) : years[0] || String(new Date().getFullYear());
+  const Y = P.filter(p => p.d.startsWith(st.year)), sumT = a => a.reduce((x, p) => x + (+p.total || 0), 0);
+  const byM = MONTHS.map((_, i) => Y.filter(p => +p.d.slice(5, 7) === i + 1)), mVal = byM.map(sumT), mMax = Math.max(1, ...mVal);
+  const units = [...PUR_UNIT, 'Diğer'], unitOf = p => PUR_UNIT.includes(p.unit) ? p.unit : 'Diğer';
+  const nowY = String(new Date().getFullYear()), nM = st.year === nowY ? new Date().getMonth() + 1 : 12;
+  const prev = P.filter(p => p.d.startsWith(String(+st.year - 1)) && +p.d.slice(5, 7) <= nM);
+  const R = st.month ? byM[+st.month - 1] : Y, per = st.month ? MONTHS_LONG[+st.month - 1] + ' ' + st.year : st.year;
+  const bomName = id => (S.boms.find(b => b.id === id) || {}).name;
+  const grp = (a, key) => { const m = new Map(); a.forEach(p => { const k = key(p) || '—'; const o = m.get(k) || { n:0, t:0 }; o.n++; o.t += +p.total || 0; m.set(k, o); }); return [...m].sort((x, y) => y[1].t - x[1].t); };
+  const tbl = (head, rows, tot) => rows.length ? `<table><thead><tr>${head.map((h, i) => `<th class="nosort${i ? ' num' : ''}">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr style="cursor:default">${r.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('')}</tr>`).join('')}</tbody>${tot ? `<tfoot><tr class="tfoot">${tot.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('')}</tr></tfoot>` : ''}</table>` : '<div class="empty">Kayıt yok.</div>';
+  const top = Math.max(...mVal), topI = mVal.indexOf(top);
+  shell('alim-rapor', `<div class="pagehead"><div><h1>Aylık alım raporu</h1><p class="lede">"Alındı" durumundaki alımlar, alım tarihine göre (yoksa talep tarihine göre). Tutarlar KDV dahil, TL.</p></div><button class="btn" id="pcsv">CSV indir</button></div>
+  <div class="toolbar"><label class="f" style="width:120px">Yıl<select id="pry">${years.map(y => `<option ${y === st.year ? 'selected' : ''}>${y}</option>`).join('')}</select></label>
+    <label class="f" style="width:150px">Ay<select id="prm"><option value="">Tüm yıl</option>${MONTHS_LONG.map((m, i) => `<option value="${i + 1}" ${+st.month === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}</select></label></div>
+  <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="kpi"><div class="l">${st.year} toplam alım</div><div class="v">${fmtTRY(sumT(Y))}</div><div class="d">${Y.length} kalem</div></div>
+    <div class="kpi"><div class="l">Aylık ortalama</div><div class="v">${fmtTRY(sumT(Y) / nM)}</div><div class="d">${nM} ay üzerinden</div></div>
+    <div class="kpi"><div class="l">En yüksek ay</div><div class="v">${top ? fmtTRY(top) : '—'}</div><div class="d">${top ? MONTHS_LONG[topI] : ''}</div></div>
+    <div class="kpi"><div class="l">Geçen yılın aynı dönemi</div><div class="v">${fmtTRY(sumT(prev))}</div><div class="d">${+st.year - 1} · ${nM < 12 ? 'Oca–' + MONTHS[nM - 1] : 'tüm yıl'}${sumT(prev) ? ` · ${sumT(Y) >= sumT(prev) ? '+' : ''}${Math.round((sumT(Y) / sumT(prev) - 1) * 100)}%` : ''}</div></div></div>
+  <section class="panel"><h2>${st.year} aylık alım tutarı</h2><p class="note" style="margin-top:-6px">Bir aya tıklayınca aşağıdaki dağılımlar o aya göre gösterilir.</p>
+    <div class="bars" style="height:200px">${mVal.map((v, i) => `<button class="m" data-m="${i + 1}" style="border:0;background:${+st.month === i + 1 ? 'var(--brand-soft)' : 'none'};cursor:pointer;border-radius:4px;padding:2px 0" title="${MONTHS_LONG[i]}: ${byM[i].length} kalem, ${fmtTRY(v)}" aria-label="${MONTHS_LONG[i]}: ${fmtTRY(v)}"><span style="font-size:11px;color:var(--muted)">${v ? Math.round(v / 1000) + 'K' : ''}</span><div class="pair"><div class="b" style="height:${v / mMax * 100}%;width:60%;max-width:28px"></div></div><div class="lbl">${MONTHS[i]}</div></button>`).join('')}</div></section>
+  <section class="mt"><h2>Aylara ve birime göre — ${st.year}</h2><div class="tablewrap">${tbl(['Ay', ...units, 'Toplam', 'Kalem'],
+    byM.map((a, i) => [`<a href="#" data-m2="${i + 1}">${MONTHS_LONG[i]}</a>`, ...units.map(u => { const t = sumT(a.filter(p => unitOf(p) === u)); return t ? fmtTRY(t) : ''; }), `<b>${sumT(a) ? fmtTRY(sumT(a)) : ''}</b>`, a.length || '']),
+    ['Toplam', ...units.map(u => fmtTRY(sumT(Y.filter(p => unitOf(p) === u)))), `<b>${fmtTRY(sumT(Y))}</b>`, Y.length])}</div></section>
+  <div class="grid g2 mt"><section class="panel"><h2>Ürün / projeye göre — ${per}</h2><div class="tablewrap">${tbl(['Ürün / proje', 'Kalem', 'Tutar'], grp(R, p => bomName(p.bom_id) || (p.project ? 'Diğer: ' + p.project.slice(0, 40) : 'Belirtilmemiş')).slice(0, 25).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div>
+      <p class="note">Ürün / proje, alım talebindeki "İlgili ürün / proje" seçiminden gelir. Eski kayıtlarda proje yazısından otomatik eşleştirildi.</p></section>
+    <section class="panel"><h2>Tedarikçiye göre — ${per}</h2><div class="tablewrap">${tbl(['Tedarikçi', 'Kalem', 'Tutar'], grp(R, p => supName(p.supplier_id) || p.supplier_text).slice(0, 25).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div></section></div>
+  <section class="mt"><h2>En yüksek tutarlı alımlar — ${per}</h2><div class="tablewrap">${tbl(['Ürün / iş', 'Tarih', 'Adet', 'Tutar'], [...R].sort((a, b) => (+b.total || 0) - (+a.total || 0)).slice(0, 20).map(p => [`<a href="#/alimlar/${p.id}">${esc(p.item_name)}</a>${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}`, fmtD(p.d), p.qty == null ? '—' : fmtQ(p.qty), fmtTRY(p.total)]))}</div></section>`);
+  q('#pry').onchange = e => { st.year = e.target.value; st.month = ''; viewPurchaseReport(); };
+  q('#prm').onchange = e => { st.month = e.target.value; viewPurchaseReport(); };
+  qa('.bars [data-m], [data-m2]').forEach(b => b.onclick = e => { e.preventDefault(); const m = b.dataset.m || b.dataset.m2; st.month = +st.month === +m ? '' : m; viewPurchaseReport(); });
+  q('#pcsv').onclick = () => { const head = ['Tarih', 'Ürün / iş', 'Birim', 'Ürün / proje', 'Proje notu', 'Tedarikçi', 'Adet', 'Tutar (TL)'];
+    const lines = [head, ...R.map(p => [p.d, p.item_name, p.unit || '', bomName(p.bom_id) || '', p.project || '', supName(p.supplier_id) || p.supplier_text || '', p.qty ?? '', p.total ?? ''])]
+      .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `alimlar-${st.year}${st.month ? '-' + String(st.month).padStart(2, '0') : ''}.csv`; a.click(); };
 }
 
 // ---------------------------------------------------------------- İÇE AKTARMA (yönetici, tek sefer)
 function viewStockImport(){
-  if (!can('admin')) return viewStock();
+  if (!can('admin')) return viewStock('m');
   const empty = !(S.items || []).length;
   shell('stok-aktar', `<h1>${empty ? 'Stok ve alım verisini içe aktar' : 'Stok görsellerini yükle'}</h1>
   <p class="lede">Claude'un Excel'lerden hazırladığı dosyaları seçin. Dosyalar yalnızca tarayıcınızdan veritabanına gönderilir.</p>
