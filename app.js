@@ -29,6 +29,13 @@ function setTheme(t){
 const themeSwitch = () => `<div class="theme" role="group" aria-label="Görünüm">${Object.entries(THEMES).map(([k,v]) => `<button type="button" data-th="${k}" aria-pressed="${getTheme()===k}">${v}</button>`).join('')}</div>`;
 document.addEventListener('click', e => { const b = e.target.closest('.theme button'); if (b) setTheme(b.dataset.th); });
 setTheme(getTheme());
+// yoğunluk: Rahat / Kompakt (kompakt: sıkı satırlar, ikincil ayrıntılar gizli, gerekli bilgi kalır)
+function getDensity(){ try { return localStorage.getItem('density') || 'comfy'; } catch { return 'comfy'; } }
+function setDensity(v){ document.documentElement.classList.toggle('compact', v === 'compact'); try { localStorage.setItem('density', v); } catch {}
+  qa('.dens button').forEach(b => b.setAttribute('aria-pressed', b.dataset.dn === v)); }
+const densSwitch = () => `<div class="theme dens" role="group" aria-label="Tablo yoğunluğu">${[['comfy','Rahat'],['compact','Kompakt']].map(([k,v]) => `<button type="button" data-dn="${k}" aria-pressed="${getDensity()===k}">${v}</button>`).join('')}</div>`;
+document.addEventListener('click', e => { const b = e.target.closest('.dens button'); if (b) setDensity(b.dataset.dn); });
+setDensity(getDensity());
 
 // ---------------------------------------------------------------- durum
 const S = { session:null, profile:null, deals:[], customers:[], products:[], countries:[], issues:[], loaded:false };
@@ -103,7 +110,7 @@ async function start(){
 function renderAuth(mode='in'){
   const up = mode === 'up', reset = mode === 'reset';
   $app.innerHTML = `<div class="auth"><div class="box">
-    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Satış · Support · RMA</small></div></div>
+    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></div>
     <h1 style="margin-top:18px">${reset?'Şifre sıfırla':up?'Hesap oluştur':'Giriş yap'}</h1>
     <p class="note">${up?'@acrome.net adresinle hesap açınca raporları ve kayıtları hemen görebilirsin. Veri girişi için yöneticiden Satış veya Üretim rolü iste.':reset?'E-posta adresine sıfırlama bağlantısı gönderilir.':'Acrome ekip hesabınla giriş yap.'}</p>
     <form id="af" novalidate>
@@ -139,7 +146,9 @@ function renderPending(){
     <p><button class="btn" id="rl">Yenile</button> <button class="btn" id="lo">Çıkış yap</button></p></div></div>`;
   q('#rl').onclick = start; q('#lo').onclick = () => sb.auth.signOut();
 }
-const logo = () => `<svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="var(--brand)"/><path d="M8 23 16 8l8 15" stroke="var(--brand-ink)" stroke-width="3" fill="none"/></svg>`;
+// Acrome logosu (gizli kopyada gradyan kaybolmasın diye her çizimde ayrı kimlik)
+let logoN = 0;
+const logo = () => { const g = 'lg' + (++logoN); return `<svg width="32" height="32" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E41F2B"/><stop offset="1" stop-color="#A3141F"/></linearGradient></defs><circle cx="32" cy="32" r="31.5" fill="#C41E2A"/><circle cx="32" cy="32" r="31.5" fill="url(#${g})"/><path fill="#fff" d="M14.8 42.5h5.8l13.2-33.1h-5.7zM32.9 12.6l1.3-3 11.1 32.9h-3.8zM14 46h33.8v3.3H14z"/></svg>`; };
 
 // ---------------------------------------------------------------- iskelet
 // menü grubu ikonları (16px, çizgi)
@@ -150,6 +159,9 @@ const ICON = {
   wrench: svgI('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/>'),
   cart: svgI('<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M3 4h2l2.4 11h11.2L21 8H6.2"/>'),
   box: svgI('<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>'),
+  home: svgI('<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>'),
+  gear: svgI('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
+  report: svgI('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 17v-3M12 17v-6M16 17v-2"/>'),
   db: svgI('<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
   chev: '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
 };
@@ -157,14 +169,14 @@ const navClosed = () => { try { return JSON.parse(localStorage.getItem('navClose
 function shell(active, html){
   const cnt = st => S.deals.filter(d => d.status === st).length;
   const openIssues = S.issues.filter(i => !i.resolved).length;
-  // menü: ana başlıklar ve alt başlıklar
+  // menü: Bugün + ana başlıklar (üretim üstte, rapor en altta veriden önce)
   const nav = [
-    ['Satış', 'chart', [
-      ['rapor','Rapor'],
-      ['gonderim','Aylık gönderim raporu'],
+    ['Üretim', 'gear', [
       ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
-      ['kayitlar/pipeline','Açık fırsatlar', cnt('pipeline')],
       ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
+    ]],
+    ['Satış', 'chart', [
+      ['kayitlar/pipeline','Açık fırsatlar', cnt('pipeline')],
       ['kayitlar/all','Tüm kayıtlar', S.deals.length],
       ...(can('sales','support','admin') ? [['yeni','Yeni kayıt']] : []),
     ]],
@@ -172,14 +184,16 @@ function shell(active, html){
       ['support','Konular', supOpenCount() || '', 'hot'],
       ['bildirimler','Bildirimler', S.unread || '', 'hot'],
       ...(can('support','admin') ? [['support-yeni','Yeni konu']] : []),
-    ]],
-    ['RMA', 'wrench', [
       ['rma','RMA kayıtları', (S.rmas||[]).filter(rmaOpen).length || ''],
-      ['rma-rapor','3 aylık rapor'],
       ...(can('support','admin') ? [['rma-yeni','Yeni RMA']] : []),
     ]],
     ['Alımlar', 'cart', [[null,'Yakında']]],
     ['Stok', 'box', [[null,'Yakında']]],
+    ['Rapor', 'report', [
+      ['rapor','Üretim ve satış raporu'],
+      ['gonderim','Aylık gönderim raporu'],
+      ['rma-rapor','RMA 3 aylık rapor'],
+    ]],
     ['Veri', 'db', [
       ['kaynaklar','Kaynak tablolar'],
       ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || '', 'hot'],
@@ -189,12 +203,13 @@ function shell(active, html){
       ...(can('admin') && S.deals.length ? [['excel','Excel\'den güncelle']] : []),
     ]],
   ];
+  const todayHot = todayCount();
   $app.innerHTML = `<div class="topbar"><div class="brand" style="padding:0">${logo()} Acrome</div><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side">
-    <div class="brand">${logo()}<div>Acrome<small>Satış · Support · RMA</small></div></div>
-    <nav class="nav">${nav.map(([g, ic, items]) => { const cur = items.some(n => n[0] === active), closed = !cur && navClosed().includes(g), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
+    <div class="brand">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></div>
+    <nav class="nav"><a href="#/bugun" class="ntop ${active==='bugun'?'on':''}">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>${nav.map(([g, ic, items]) => { const cur = items.some(n => n[0] === active), closed = !cur && navClosed().includes(g), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
       return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===n[0]?'on':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
-    <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${ROLES[S.profile.role]} · <button class="linkbtn" id="lo">Çıkış</button><br>${themeSwitch()}</div>
+    <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${ROLES[S.profile.role]} · <button class="linkbtn" id="lo">Çıkış</button><div class="prefs">${themeSwitch()}${densSwitch()}</div></div>
   </aside><main class="main" id="main">${html}</main></div>`;
   q('#lo').onclick = () => sb.auth.signOut();
   qa('.nhead').forEach(h => h.onclick = () => { const g = h.parentNode, k = g.dataset.g, set = new Set(navClosed());
@@ -226,8 +241,69 @@ function route(){
     case 'rma': return a ? viewRmaForm(+a) : viewRma();
     case 'rma-rapor': return viewRmaReport(a);
     case 'rma-yeni': { if (!canRma()) return viewRma(); const m = /^([td])(\d+)$/.exec(a||''); return viewRmaForm(null, m ? (m[1]==='t' ? { ticket_id:+m[2] } : { deal_id:+m[2] }) : {}); }
-    default: return viewReport();
+      case 'bugun': return viewToday();
+    case 'rapor': return viewReport();
+    default: return viewToday();
   }
+}
+
+// ---------------------------------------------------------------- BUGÜN (role göre)
+// Her rol kendi işini görür: support → kendi konuları + RMA, üretim → sevk takvimi + ürün bizde RMA'lar,
+// satış → fırsatlar + yaklaşan sevkler, yönetici → hepsi.
+function todaySections(){
+  const me = S.profile.id, role = S.profile.role, T = today(), in14 = new Date(Date.now() + 14*864e5).toISOString().slice(0,10);
+  const isAdmin = role === 'admin';
+  const tk = (S.tickets || []).filter(t => t.category !== 'other');
+  const mine = t => isAdmin || t.assignee === me || (t.watchers || []).includes(me);
+  const prod = S.deals.filter(d => d.status === 'production' && !d.is_internal);
+  const due = d => d.planned_ship_date || d.requested_ship_date;
+  const R = (S.rmas || []).filter(r => !r.is_draft);
+  const tRow = t => { const w = supWait(t); return { href:'#/support/' + t.id, main:`<span class="mono">#${t.id}</span> ${esc(t.subject)}`, sub:esc(t.organization || t.customer_name || ''), meta: w ? `<span class="${w.cls}">${w.txt.replace(' · takip et','')}</span>` : `<span class="sub">${ago(t.last_activity_at)}</span>`, hot: !!w && (t.status === 'new' || t.status === 'ours') }; };
+  const dRow = (d, late) => ({ href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub:esc(d.description || ''), meta: due(d) ? `<span class="${late ? 'late-txt' : ''}">${late ? Math.floor((Date.now() - new Date(due(d))) / 864e5) + ' gün gecikti' : fmtD(due(d))}</span>` : '<span class="sub">tarih yok</span>', hot: late });
+  const rRow = r => ({ href:'#/rma/' + r.id, main:`<span class="mono">${esc(r.code)}</span> ${esc(r.customer || r.customer_name || '')}`, sub:[r.product ? prodName(r.product) : '', r.failed_component].filter(Boolean).map(esc).join(' · '), meta: rmaLate(r) ? '<span class="late-txt">süre aşıldı</span>' : rmaPill(r.status), hot: rmaLate(r) });
+  const S_ = [];
+  const sup = can('support','admin'), prodR = can('production','support','admin'), sales = can('sales','admin'), view = role === 'viewer';
+  if (sup) {
+    const ours = tk.filter(t => mine(t) && (t.status === 'new' || t.status === 'ours')).sort((a,b) => (a.last_inbound_at||a.opened_at||'').localeCompare(b.last_inbound_at||b.opened_at||''));
+    S_.push({ id:'sup', title: isAdmin ? 'Cevap bekleyen support konuları' : 'Bana atanmış, cevap bekleyen konular', link:'#/support', rows: ours.map(tRow), empty:'Cevap bekleyen konu yok.', alert:true });
+    const fol = tk.filter(t => mine(t) && t.status === 'customer' && supWait(t));
+    S_.push({ id:'fol', title:'Müşteride 7+ gün · takip maili atılmalı', link:'#/support', rows: fol.map(tRow), empty:'Takip bekleyen yok.' });
+  }
+  if (S.unread) S_.push({ id:'not', title:'Okunmamış bildirimler', link:'#/bildirimler', rows:[{ href:'#/bildirimler', main:`${S.unread} yeni support maili bildirimi`, sub:'', meta:'', hot:true }], alert:true });
+  if (prodR || view) {
+    const late = prod.filter(d => due(d) && due(d) < T).sort((a,b) => due(a).localeCompare(due(b)));
+    S_.push({ id:'late', title:'Geciken siparişler', link:'#/kayitlar/production', rows: late.map(d => dRow(d, true)), empty:'Geciken sipariş yok.', alert:true });
+    const soon = prod.filter(d => due(d) && due(d) >= T && due(d) <= in14).sort((a,b) => due(a).localeCompare(due(b)));
+    S_.push({ id:'soon', title:'14 gün içinde sevk edilecekler', link:'#/kayitlar/production', rows: soon.map(d => dRow(d, false)), empty:'Önümüzdeki 14 günde sevk yok.' });
+    if (can('production','admin')) { const np = prod.filter(d => !d.planned_ship_date);
+      if (np.length) S_.push({ id:'np', title:'Planlanan sevk tarihi girilmemiş', link:'#/kayitlar/production', rows: np.map(d => ({ ...dRow(d, false), meta:'<span class="amber-txt">tarih girilmeli</span>' })) }); }
+  }
+  if (sup || can('production')) {
+    const rr = R.filter(r => rmaOpen(r) && (sup || rmaAtUs(r))).sort((a,b) => (rmaLate(b) - rmaLate(a)) || (a.requested_at||'').localeCompare(b.requested_at||''));
+    S_.push({ id:'rma', title: sup ? 'Açık RMA\'lar' : 'Tamir bekleyen ürünler (RMA)', link:'#/rma', rows: rr.map(rRow), empty:'Açık RMA yok.' });
+  }
+  if (sales || view) {
+    const pipe = S.deals.filter(d => d.status === 'pipeline');
+    const po = pipe.filter(d => d.expected_po_date && d.expected_po_date <= in14).sort((a,b) => a.expected_po_date.localeCompare(b.expected_po_date));
+    S_.push({ id:'pipe', title:'Sipariş beklenen fırsatlar (14 gün)', link:'#/kayitlar/pipeline', rows: po.map(d => ({ href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub:`${STAGES[d.stage]||''}${d.amount_usd ? ' · ' + fmtK(+d.amount_usd) : ''}`, meta: d.expected_po_date < T ? `<span class="late-txt">${fmtD(d.expected_po_date)} geçti</span>` : fmtD(d.expected_po_date), hot: d.expected_po_date < T })), empty:'Yakında sipariş beklenen fırsat yok.' });
+  }
+  if (isAdmin) { const n = S.issues.filter(i => !i.resolved).length + liveProblemCount();
+    if (n) S_.push({ id:'data', title:'Veri kontrolü', link:'#/uyarilar', rows:[{ href:'#/uyarilar', main:`${n} kayıtta eksik veya hatalı bilgi`, sub:'', meta:'', hot:false }] }); }
+  return S_;
+}
+const todayCount = () => { try { return todaySections().reduce((n, x) => n + (x.alert ? x.rows.filter(r => r.hot).length : 0), 0); } catch { return 0; } };
+function viewToday(){
+  const secs = todaySections(), name = (S.profile.full_name || S.profile.email || '').split(' ')[0];
+  const h = new Date().getHours(), hi = h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : 'İyi akşamlar';
+  const dstr = new Date().toLocaleDateString('tr-TR', { weekday:'long', day:'numeric', month:'long' });
+  const hotN = secs.reduce((n, x) => n + x.rows.filter(r => r.hot).length, 0);
+  const MAX = 8;
+  const panel = x => { const hot = x.rows.filter(r => r.hot).length;
+    return `<section class="panel tday${hot ? ' is-hot' : ''}${x.rows.length ? '' : ' is-empty'}"><header><h2>${x.title}</h2><span class="tcount${hot ? ' hot' : ''}">${x.rows.length}</span><a class="more" href="${x.link}">Tümü →</a></header>
+      ${x.rows.length ? `<ul class="tlist">${x.rows.slice(0, MAX).map(r => `<li><a href="${r.href}"><span class="tm">${r.main}${r.sub ? `<span class="sub">${r.sub}</span>` : ''}</span><span class="tmeta">${r.meta}</span></a></li>`).join('')}</ul>${x.rows.length > MAX ? `<a class="tmore" href="${x.link}">+${x.rows.length - MAX} tane daha</a>` : ''}` : `<p class="tok">✓ ${x.empty}</p>`}</section>`; };
+  shell('bugun', `<div class="pagehead"><div><h1>${hi}, ${esc(name)}</h1><p class="lede">${dstr} · ${ROLES[S.profile.role]} görünümü · ${hotN ? `<b class="late-txt">${hotN} iş dikkat istiyor</b>` : 'Acil bekleyen iş yok'}</p></div></div>
+    <div class="tgrid">${secs.filter(x => x.rows.length).map(panel).join('')}</div>
+    ${secs.some(x => !x.rows.length) ? `<div class="tclear">${secs.filter(x => !x.rows.length).map(x => `<span>✓ ${x.empty}</span>`).join('')}</div>` : ''}`);
 }
 
 // ---------------------------------------------------------------- RAPOR
@@ -1075,7 +1151,7 @@ const SUP_CAT = { support:'Teknik destek', sales:'Satış', admin:'İdari / öde
 const SUP_PRIO = { low:'Düşük', normal:'Normal', high:'Yüksek' };
 const SUP_SRC = { gmail:'E-posta', basecamp:'Basecamp', note:'Not', call:'Telefon', meet:'Meet' };
 const supPill = st => `<span class="pill sp-${st}" title="${SUP_STATUS_HINT[st]||''}">${SUP_STATUS[st]||st}</span>`;
-const supState = { tab:'open', cat:'support', product:'', who:'', q:'', hits:null, sort:'act' };
+const supState = { tab:'ours', cat:'support', product:'', who:'', q:'', hits:null, sort:'act' };
 let supPeople = null;
 
 async function loadSupport(){
@@ -1138,7 +1214,7 @@ async function viewSupport(){
   if (!S.tickets) await loadSupport();
   await people();
   const s = supState;
-  const tabs = { open:'Açık', ours:'Bizde', customer:'Müşteride', closed:'Kapanan', all:'Tümü' };
+  const tabs = { ours:'Yeni + Bizde', customer:'Müşteride', open:'Tüm açık', closed:'Kapanan', all:'Tümü' };
   const T = S.tickets || [];
   const sup = T.filter(t => t.category === 'support');
   const mon = new Date().toISOString().slice(0,7);
@@ -1164,9 +1240,9 @@ async function viewSupport(){
       ${rows.map(t => { const w = supWait(t), h = hitMap.get(t.id);
         return `<tr data-tid="${t.id}"><td class="mono">#${t.id}</td>
         <td><b style="font-weight:600">${esc(t.subject)}</b>${t.priority==='high'?' <span class="pill sp-high">Acil</span>':''}
-          ${t.summary?`<div class="sub clamp">${esc(t.summary)}</div>`:''}
+          ${t.summary?`<div class="sub clamp opt">${esc(t.summary)}</div>`:''}
           ${h && h.snippet ? `<div class="sub hit">… ${esc(h.snippet).replace(/&lt;&lt;/g,'<mark>').replace(/&gt;&gt;/g,'</mark>')} …</div>`:''}
-          ${(t.tags||[]).length?`<div class="items">${t.tags.map(x=>`<span>${esc(x)}</span>`).join('')}</div>`:''}</td>
+          ${(t.tags||[]).length?`<div class="items opt">${t.tags.map(x=>`<span>${esc(x)}</span>`).join('')}</div>`:''}</td>
         <td>${esc(t.organization || t.customer_name || '—')}<div class="sub">${esc([t.organization?t.customer_name:'', t.country].filter(Boolean).join(' · '))}</div></td>
         <td>${t.product?esc(prodName(t.product)):'<span class="sub">—</span>'}</td>
         <td>${supPill(t.status)}${s.cat==='all'&&t.category!=='support'?`<div class="sub">${SUP_CAT[t.category]}</div>`:''}</td>
