@@ -90,3 +90,8 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - `#/calisma-raporu` (yönetici): aylık kişi bazında sayılar, katılım oranı, gün gün tablo, CSV.
 - `#/calisma-kisiler` (yönetici): satırlar ve e-postalar. Hesabı olmayanlar için yeni rol **Personel**: yalnızca yoklamayı görür.
 - Hatırlatma: iş günü 16:00 (`att_remind`, pg_cron) bugünkü hücresi boş olanlara e-posta (`mail_outbox` → `notify-mail`). Herkes için T girilen gün (tatil) e-posta gitmez.
+
+### Daily notları (7 Kasım 2026)
+- `#/daily`: günlük toplantı notları; kişi başına gün kartı (Yapılanlar / Yapılacaklar), haftalık hedef, önceki günün yapılacakları, notlarda arama. `#/daily/k<id>`: kişinin haftalık geçmişi (Excel düzeni).
+- Tablolar `daily_notes(person_id, day)`, `daily_goals(person_id, week)`; kişiler `att_people` (ayrılanlar pasif). Yazma: kendi kartı + yönetici.
+- `#/daily-aktar` (yönetici): DailyMeetings Excel'inden üretilen JSON'u `daily_admin_import()` ile aktarır (var olan notların üzerine yazmaz).

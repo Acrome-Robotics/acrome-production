@@ -463,3 +463,28 @@ table.attm th.c,table.attm td.c{min-width:30px;padding-left:2px!important;paddin
 .attpop .clr{margin-top:4px;border-top:1px solid var(--line);border-radius:0 0 8px 8px;color:var(--muted);justify-content:center}
 @media (max-width:820px){.attpop{min-width:220px}.attcell{min-width:76px}.attcell span{display:none}.attcell.empty span{display:inline}}
 .atthol{color:var(--muted)!important;font-weight:500}
+/* kendi satırın / kartın */
+table.att tr.mine td{background:color-mix(in srgb,var(--link) 9%,var(--surface))}
+table.att tr.mine td.today{background:color-mix(in srgb,var(--link) 15%,var(--surface))}
+table.att tr.mine td:first-child b{color:var(--link)}
+/* daily notları */
+.dgrid{display:block;columns:2 460px;column-gap:14px}
+.dcard{break-inside:avoid;margin-bottom:14px;display:block}
+.dcard header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.dcard header h2{margin:0;font-size:16px}
+.dcard header .more{margin-left:auto;font-size:13px}
+.dcard.mine{box-shadow:inset 3px 0 0 var(--link);background:color-mix(in srgb,var(--link) 5%,var(--surface))}
+.dgoal{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);margin:0 0 8px}
+.dgoal input{font-size:13px}
+.dprev{font-size:13px;margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--paper)}
+.dprev summary{cursor:pointer;color:var(--muted)}
+.dprev div{margin-top:6px}
+.dfields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dfields label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+.dfields textarea{min-height:76px;font-size:14px;resize:vertical}
+.dlab{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px}
+.dsave{min-height:16px;margin-top:4px;text-align:right}
+table.dhist td{vertical-align:top;min-width:170px;font-size:13px}
+table.dhist td:first-child{min-width:130px}
+mark{background:color-mix(in srgb,var(--amber) 30%,transparent);color:inherit;border-radius:2px}
+@media (max-width:820px){.dfields{grid-template-columns:1fr}}

@@ -199,6 +199,7 @@ function shell(active, html){
   // menü: Bugün + ana başlıklar (üretim üstte, rapor en altta veriden önce)
   const ekip = ['Ekip', 'users', [
       ['calisma-plani','Haftalık çalışma planı', attTodayEmpty() ? 1 : '', 'hot'],
+      ['daily','Daily notları'],
       ...(can('admin') ? [['calisma-raporu','Aylık çalışma raporu'], ['calisma-kisiler','Çalışma planı kişileri']] : []),
     ]];
   const nav = staffOnly() ? [ekip] : [
@@ -213,7 +214,6 @@ function shell(active, html){
     ]],
     ['Support', 'help', [
       ['support','Konular', supOpenCount() || '', 'hot'],
-      ['bildirimler','Bildirimler', S.unread || '', 'hot'],
       ...(can('support','admin') ? [['support-yeni','Yeni konu']] : []),
       ['rma','RMA kayıtları', (S.rmas||[]).filter(rmaOpen).length || ''],
       ...(can('support','admin') ? [['rma-yeni','Yeni RMA']] : []),
@@ -246,6 +246,7 @@ function shell(active, html){
       ['alim-rapor','Aylık alım raporu'],
     ]],
     ['Veri', 'db', [
+      ['bildirimler','Bildirimler', S.unread || '', 'hot'],
       ['kaynaklar','Kaynak tablolar'],
       ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || '', 'hot'],
       ['gecmis','Değişiklik geçmişi'],
@@ -275,9 +276,11 @@ function shell(active, html){
 function route(){
   const [p, a] = location.hash.replace(/^#\/?/,'').split('?')[0].split('/');
   window.scrollTo(0,0); if (typeof closeAttPop === 'function') closeAttPop();
-  if (staffOnly()) return p === 'sifre' ? viewNewPassword() : viewAttendance(a);
+  if (staffOnly()) return p === 'sifre' ? viewNewPassword() : p === 'daily' ? viewDaily(a) : viewAttendance(a);
   switch(p){
     case 'calisma-plani': case 'yoklama': return viewAttendance(a);
+    case 'daily': return viewDaily(a);
+    case 'daily-aktar': return viewDailyImport();
     case 'calisma-raporu': case 'yoklama-rapor': return viewAttReport();
     case 'calisma-kisiler': case 'yoklama-kisiler': return viewAttPeople();
     case 'kayitlar': return viewList(a || 'all');
@@ -2826,6 +2829,104 @@ async function viewAttPeople(){
   q('#apn-add').onclick = async () => { const name = q('#apn-name').value.trim(); if (!name) return toast('Ad girin', true);
     const { error } = await sb.from('att_people').insert({ name, email:q('#apn-mail').value.trim().toLowerCase() || null, sort:+q('#apn-sort').value || 100 });
     if (error) return toast(dbErr(error), true); toast('Eklendi'); await loadAttToday(); viewAttPeople(); };
+}
+
+// ---------------------------------------------------------------- DAILY NOTLARI (her gün kısa toplantı notu: yapılanlar / yapılacaklar)
+const isWorkday = d => { const g = new Date(d + 'T00:00:00').getDay(); return g >= 1 && g <= 5; };
+const workdayStep = (d, n) => { let x = d; do { x = addDays(x, n); } while (!isWorkday(x)); return x; };
+const dailyState = { day:'', q:'' };
+const dlyTxt = t => esc(t || '').replace(/\n/g, '<br>');
+async function viewDaily(arg){
+  if (arg && /^k\d+$/.test(arg)) return viewDailyPerson(+arg.slice(1));
+  const s = dailyState, td = today();
+  if (arg && /^\d{4}-\d{2}-\d{2}$/.test(arg)) s.day = arg;
+  if (!s.day) s.day = isWorkday(td) ? td : workdayStep(td, -1);
+  const day = s.day, prev = workdayStep(day, -1), week = mondayOf(day);
+  const [pr, nr, pn, gr, ar] = await Promise.all([sb.from('att_people').select('*').order('sort').order('name'),
+    sb.from('daily_notes').select('*').eq('day', day), sb.from('daily_notes').select('person_id,todo').eq('day', prev),
+    sb.from('daily_goals').select('person_id,goal').eq('week', week), sb.from('att_days').select('person_id,code').eq('day', day)]);
+  if (pr.error) return shell('daily', `<h1>Daily notları</h1><div class="empty">${esc(dbErr(pr.error))}</div>`);
+  const all = pr.data || [], N = nr.data || [], PN = pn.data || [], G = gr.data || [], A = ar.data || [];
+  const people = all.filter(p => p.active || N.some(n => n.person_id === p.id));
+  const me = attMine(all), adm = can('admin'), canEd = pid => adm || pid === me;
+  const note = pid => N.find(n => n.person_id === pid) || {}, prevTodo = pid => (PN.find(n => n.person_id === pid) || {}).todo || '';
+  const goal = pid => (G.find(g => g.person_id === pid) || {}).goal || '', planC = pid => (A.find(a => a.person_id === pid) || {}).code || '';
+  const dname = new Date(day + 'T00:00:00').toLocaleDateString('tr-TR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  const nFilled = people.filter(p => note(p.id).done || note(p.id).todo).length;
+  shell('daily', `<div class="pagehead"><div><h1>Daily notları</h1><p class="lede">Günlük toplantının kısa notları: herkes kendi kartına dünü (yapılanlar) ve bugünü (yapılacaklar) yazar. Önceki günün "yapılacakları" kartta referans olarak görünür.</p></div>
+    ${adm ? '<a class="btn" href="#/daily-aktar">Excel geçmişini aktar</a>' : ''}</div>
+  <div class="toolbar"><div class="seg"><button type="button" id="dlp">← Önceki</button><button type="button" id="dlt" class="${day === td ? 'on' : ''}">Bugün</button><button type="button" id="dln">Sonraki →</button></div>
+    <input type="date" id="dld" value="${day}" style="max-width:170px"><b style="text-transform:capitalize">${esc(dname)}</b><span class="sub">${nFilled}/${people.length} kişi yazdı</span>
+    <form id="dlsf" style="margin-left:auto;display:flex;gap:6px"><input type="search" id="dlq" placeholder="Notlarda ara…" value="${esc(s.q)}" style="min-width:220px"><button class="btn">Ara</button></form></div>
+  <div id="dlres"></div>
+  <div class="dgrid">${people.map(p => { const n = note(p.id), ed = canEd(p.id), pc = planC(p.id);
+    return `<section class="panel dcard${p.id === me ? ' mine' : ''}" data-p="${p.id}"><header><h2>${esc(p.name)}${p.id === me ? ' <span class="sub">(sen)</span>' : ''}</h2>${pc ? attBadge(pc) + `<span class="sub">${ATT[pc][2]}</span>` : ''}<a class="more" href="#/daily/k${p.id}">Geçmiş →</a></header>
+      ${ed ? `<label class="dgoal">Haftalık hedef<input type="text" class="dl-goal" value="${esc(goal(p.id))}" placeholder="Bu haftanın hedefi"></label>` : goal(p.id) ? `<p class="dgoal sub"><b>Haftalık hedef:</b> ${esc(goal(p.id))}</p>` : ''}
+      ${prevTodo(p.id) ? `<details class="dprev"${ed && !n.done ? ' open' : ''}><summary>Önceki günün yapılacakları (${fmtDM(prev)})</summary><div>${dlyTxt(prevTodo(p.id))}</div></details>` : ''}
+      <div class="dfields">${ed ? `<label>Yapılanlar<textarea class="dl-done" rows="3" placeholder="Dün / bugün ne yapıldı">${esc(n.done || '')}</textarea></label>
+        <label>Yapılacaklar<textarea class="dl-todo" rows="3" placeholder="Bugün / sıradaki işler">${esc(n.todo || '')}</textarea></label>`
+        : `<div><div class="dlab">Yapılanlar</div>${n.done ? `<div>${dlyTxt(n.done)}</div>` : '<div class="sub">—</div>'}</div><div><div class="dlab">Yapılacaklar</div>${n.todo ? `<div>${dlyTxt(n.todo)}</div>` : '<div class="sub">—</div>'}</div>`}</div>
+      <div class="dsave sub" aria-live="polite"></div></section>`; }).join('')}</div>`);
+  const go = d => { s.day = d; viewDaily(); };
+  q('#dlp').onclick = () => go(workdayStep(day, -1)); q('#dln').onclick = () => go(workdayStep(day, 1)); q('#dlt').onclick = () => go(isWorkday(td) ? td : workdayStep(td, -1));
+  q('#dld').onchange = e => e.target.value && go(e.target.value);
+  const saved = (card, ok) => { const el = q('.dsave', card); el.textContent = ok ? 'Kaydedildi ✓' : ''; if (ok) setTimeout(() => { if (el.isConnected) el.textContent = ''; }, 2500); };
+  qa('.dcard').forEach(card => { const pid = +card.dataset.p;
+    const saveNote = async () => { const done = q('.dl-done', card).value.trim() || null, todo = q('.dl-todo', card).value.trim() || null;
+      const r = done || todo ? await sb.from('daily_notes').upsert({ person_id:pid, day, done, todo, updated_by:S.profile.id, updated_at:new Date().toISOString() }) : await sb.from('daily_notes').delete().eq('person_id', pid).eq('day', day);
+      if (r.error) return toast(dbErr(r.error), true); saved(card, true); };
+    if (q('.dl-done', card)) { q('.dl-done', card).onchange = saveNote; q('.dl-todo', card).onchange = saveNote; }
+    if (q('.dl-goal', card)) q('.dl-goal', card).onchange = async e => { const v = e.target.value.trim();
+      const r = v ? await sb.from('daily_goals').upsert({ person_id:pid, week, goal:v, updated_by:S.profile.id, updated_at:new Date().toISOString() }) : await sb.from('daily_goals').delete().eq('person_id', pid).eq('week', week);
+      if (r.error) return toast(dbErr(r.error), true); saved(card, true); }; });
+  const search = async () => { const term = q('#dlq').value.trim(); s.q = term; const box = q('#dlres');
+    if (term.length < 2) { box.innerHTML = ''; return; }
+    const t = term.replace(/[,()%*\\]/g, ' ').trim();
+    const { data, error } = await sb.from('daily_notes').select('person_id,day,done,todo').or(`done.ilike.%${t}%,todo.ilike.%${t}%`).order('day', { ascending:false }).limit(80);
+    if (error) { box.innerHTML = `<div class="empty">${esc(dbErr(error))}</div>`; return; }
+    const nm = id => (all.find(p => p.id === id) || {}).name || '?', rx = new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    const snip = x => { const i = (x || '').toLocaleLowerCase('tr').indexOf(t.toLocaleLowerCase('tr')); if (i < 0) return ''; const a = Math.max(0, i - 60);
+      return (a ? '…' : '') + esc(x.slice(a, i + t.length + 80)).replace(rx, m => `<mark>${m}</mark>`) + '…'; };
+    box.innerHTML = `<section class="panel" style="margin-bottom:16px"><div class="board-head"><h2 style="margin:0">"${esc(term)}" için ${data.length}${data.length === 80 ? '+' : ''} sonuç</h2><button type="button" class="linkbtn" id="dlrc">Kapat</button></div>
+      ${data.length ? `<ul class="tlist">${data.map(r => `<li><a href="#/daily/${r.day}"><span class="tm"><b>${esc(nm(r.person_id))}</b> <span class="sub">${fmtD(r.day)}</span><span class="sub">${snip(r.done) || snip(r.todo)}</span></span></a></li>`).join('')}</ul>` : '<p class="note">Bulunamadı.</p>'}</section>`;
+    q('#dlrc').onclick = () => { s.q = ''; q('#dlq').value = ''; box.innerHTML = ''; }; };
+  q('#dlsf').onsubmit = e => { e.preventDefault(); search(); };
+  if (s.q) search();
+}
+
+// bir kişinin haftalık geçmişi (Excel'deki düzen)
+async function viewDailyPerson(pid, weeks = 12){
+  const { data:pp } = await sb.from('att_people').select('*').eq('id', pid).maybeSingle();
+  if (!pp) return shell('daily', '<h1>Kişi bulunamadı</h1><p><a href="#/daily">Daily notları</a></p>');
+  const from = addDays(mondayOf(today()), -7 * (weeks - 1));
+  const [nr, gr, cnt] = await Promise.all([fetchAll(() => sb.from('daily_notes').select('day,done,todo').eq('person_id', pid).gte('day', from).order('day', { ascending:false })),
+    sb.from('daily_goals').select('week,goal').eq('person_id', pid).gte('week', from), sb.from('daily_notes').select('day', { count:'exact', head:true }).eq('person_id', pid)]);
+  const N = nr.data || [], G = gr.data || [], total = cnt.count || 0;
+  const wks = []; for (let w = mondayOf(today()); w >= from; w = addDays(w, -7)) wks.push(w);
+  const nOf = d => N.find(n => n.day === d) || {}, gOf = w => (G.find(g => g.week === w) || {}).goal || '';
+  const shown = wks.filter(w => gOf(w) || [0, 1, 2, 3, 4].some(i => { const n = nOf(addDays(w, i)); return n.done || n.todo; }));
+  shell('daily', `<p><a href="#/daily">← Daily notları</a></p><div class="pagehead"><div><h1>${esc(pp.name)} · daily geçmişi</h1><p class="lede">Son ${weeks} hafta · toplam ${total} günlük not${pp.active ? '' : ' · ayrılmış / pasif'}</p></div></div>
+  ${shown.length ? `<div class="tablewrap"><table class="dhist"><thead><tr><th class="nosort">Hafta</th>${ATT_DN.map(d => `<th class="nosort">${d}</th>`).join('')}</tr></thead><tbody>
+    ${shown.map(w => `<tr style="cursor:default"><td><b>${fmtDM(w)}–${fmtDM(addDays(w, 4))}</b>${gOf(w) ? `<div class="sub">${esc(gOf(w))}</div>` : ''}</td>${[0, 1, 2, 3, 4].map(i => { const d = addDays(w, i), n = nOf(d);
+      return `<td>${n.done ? `<div class="dlab">Yapılanlar</div><div>${dlyTxt(n.done)}</div>` : ''}${n.todo ? `<div class="dlab">Yapılacaklar</div><div>${dlyTxt(n.todo)}</div>` : ''}${!n.done && !n.todo ? '<span class="sub">·</span>' : ''}</td>`; }).join('')}</tr>`).join('')}
+  </tbody></table></div>` : '<div class="empty">Bu dönemde not yok.</div>'}
+  ${total > N.length ? `<p><button class="btn" id="dlmore">Daha eski haftalar</button></p>` : ''}`);
+  q('#dlmore') && (q('#dlmore').onclick = () => viewDailyPerson(pid, weeks + 26));
+}
+
+// Excel geçmişini aktarma (yönetici)
+function viewDailyImport(){
+  if (!can('admin')) return viewDaily();
+  shell('daily-aktar', `<p><a href="#/daily">← Daily notları</a></p><div class="pagehead"><div><h1>Daily geçmişini aktar</h1><p class="lede">DailyMeetings Excel'inden hazırlanan <b>acrome-daily-aktarim.json</b> dosyasını seçin. Sitede zaten yazılmış notların üzerine yazılmaz; ayrılmış kişiler pasif olarak eklenir. Tekrar çalıştırmak güvenlidir.</p></div></div>
+  <section class="panel"><input type="file" id="dif" accept=".json,application/json"> <button class="btn primary" id="dib" disabled>Aktar</button><p class="note" id="dis"></p></section>`);
+  let J = null;
+  q('#dif').onchange = async e => { try { J = JSON.parse(await e.target.files[0].text()); q('#dis').textContent = `${(J.rows || []).length} kayıt, ${(J.people || []).length} yeni kişi okundu.`; q('#dib').disabled = false; } catch (err) { q('#dis').textContent = 'Dosya okunamadı: ' + err.message; } };
+  q('#dib').onclick = async () => { const b = q('#dib'); b.disabled = true; let tot = { people:0, notes:0, goals:0 };
+    for (let i = 0; i < J.rows.length; i += 400) { b.textContent = `Aktarılıyor… ${Math.min(i + 400, J.rows.length)}/${J.rows.length}`;
+      const { data, error } = await sb.rpc('daily_admin_import', { j:{ people:i ? [] : J.people, rows:J.rows.slice(i, i + 400) } });
+      if (error) { toast(dbErr(error), true); b.disabled = false; b.textContent = 'Aktar'; return; }
+      tot = { people:tot.people + data.people, notes:tot.notes + data.notes, goals:tot.goals + data.goals }; }
+    b.textContent = 'Bitti'; q('#dis').textContent = `${tot.notes} günlük not, ${tot.goals} haftalık hedef, ${tot.people} yeni kişi aktarıldı.`; toast('Aktarım tamamlandı'); };
 }
 
 boot();
