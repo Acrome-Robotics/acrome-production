@@ -392,3 +392,6 @@ tr:hover .urgbtn,.urgbtn:focus-visible{opacity:1}
 .chip.bomchip{font-size:11px;padding:1px 8px;vertical-align:1px}
 .pwv{letter-spacing:.04em}
 .banner.countday{border-color:var(--amber);background:var(--amber-soft)}
+.seg.wrap{flex-wrap:wrap;gap:6px;border:0;background:none;overflow:visible}
+.seg.wrap button{border:1px solid var(--line)!important;border-radius:999px;background:var(--surface)}
+.seg.wrap button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)!important}

@@ -1919,7 +1919,7 @@ async function loadStock(force){
   const [it, bm, su, pb] = await Promise.all([
     sb.from('stock_items').select('*').order('name').range(0, 9999),
     sb.from('boms').select('*').order('kind').order('name'),
-    sb.from('suppliers').select('id,name,blacklisted,blacklist_reason').order('name'),
+    sb.from('suppliers').select('id,name,kind,grp,blacklisted,blacklist_reason').order('name'),
     sb.from('pcb_boards').select('*').order('pcb').order('version'),
   ]);
   S.items = it.data || []; S.boms = bm.data || []; S.suppliers = su.data || []; S.pcbs = pb.data || [];
@@ -2455,7 +2455,10 @@ async function viewPurchase(id, preset){
 // ---------------------------------------------------------------- TEDARİKÇİLER + SİTE HESAPLARI
 const SUP_KIND = { tedarikci:'Tedarikçi', kargo:'Kargo / lojistik' };
 const ACC_KIND = { tedarikci:'Tedarikçi sitesi', kargo:'Kargo', diger:'Diğer (mail, muhasebe, internet…)' };
-const tdState = { kind:'', acc:'' };
+const tdState = { kind:'', acc:'', grp:'' };
+const SUP_GRP = { elektronik:'Elektronik & komponent', robotik:'Robotik & hobi siteleri', elektrik:'Elektrik & otomasyon', motor:'Motor, sürücü & yurt dışı üretici',
+  imalat:'Talaşlı imalat, lazer & yüzey işlem', baglanti:'Bağlantı elemanı, rulman & hammadde', baski:'3D baskı & filament', ambalaj:'Ambalaj & sandık',
+  pazar:'Pazar yeri & genel alışveriş', kargo:'Kargo & gümrük', hizmet:'Hizmet & diğer' };
 const copyTxt = async (t, btn) => { try { await navigator.clipboard.writeText(t || ''); toast('Kopyalandı'); } catch { toast('Kopyalanamadı', true); } };
 // tek hesap satırı (şifre gizli, göster / kopyala)
 const accCells = a => `<td><b style="font-weight:600">${esc(a.name)}</b>${a.url ? `<div><a href="${esc(a.url)}" target="_blank" rel="noopener" class="sub" onclick="event.stopPropagation()">${esc(a.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40))} ↗</a></div>` : ''}</td>
@@ -2495,9 +2498,10 @@ async function viewSuppliers(id){
     const pu = s.id ? ((await sb.from('purchases').select('id,requested_at,item_name,qty,total,status').or(`supplier_id.eq.${s.id},supplier_text.ilike.%${s.name.split(' ')[0].replace(/[,%()]/g, '')}%`).order('requested_at', { ascending:false }).limit(50)).data || []) : [];
     const acc = ACC.filter(a => a.supplier_id === s.id);
     const ta = (k, l, r) => `<label class="f">${l}<textarea name="${k}" rows="${r || 2}">${esc(s[k] || '')}</textarea></label>`;
-    shell('tedarikciler', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>${s.id ? esc(s.name) : 'Yeni tedarikçi'}</h1>${s.blacklisted ? `<p class="lede late-txt">Kara listede: ${esc(s.blacklist_reason || '')}</p>` : ''}</div>${s.id && can('admin') ? '<button class="btn danger" id="sdel">Sil</button>' : ''}</div>
+    shell('tedarikciler', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>${s.id ? esc(s.name) : 'Yeni tedarikçi'}</h1>${s.grp ? `<p class="lede">${esc(SUP_GRP[s.grp] || s.grp)}</p>` : ''}${s.blacklisted ? `<p class="lede late-txt">Kara listede: ${esc(s.blacklist_reason || '')}</p>` : ''}</div>${s.id && can('admin') ? '<button class="btn danger" id="sdel">Sil</button>' : ''}</div>
     <div class="grid sup-grid"><div><form id="suf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
       <div class="row r2"><label class="f">Firma adı<input type="text" name="name" value="${esc(s.name || '')}"></label><label class="f">Tür${stkSel('kind', SUP_KIND, s.kind || 'tedarikci')}</label></div>
+      <label class="f">Grup${stkSel('grp', SUP_GRP, s.grp || '', '—')}</label>
       ${ta('contacts', 'İletişim (kişi · telefon)', 3)}<div class="row r2">${ta('emails', 'E-posta')}${ta('websites', 'Web sitesi')}</div>
       <div class="row r2">${ta('parts', 'Alınan parçalar')}${ta('products', 'Hangi ürün')}</div>${ta('notes', 'Not', 3)}
       <div class="row r2"><label class="f">Kara liste${stkSel('blacklisted', { false:'Hayır', true:'Evet' }, String(!!s.blacklisted))}</label><label class="f">Sebep<input type="text" name="blacklist_reason" value="${esc(s.blacklist_reason || '')}"></label></div>
@@ -2509,7 +2513,7 @@ async function viewSuppliers(id){
         <div class="row r2"><label class="f">Bu firmaya katılacak kayıt<select id="smerge"><option value="">—</option>${all.filter(x => x.id !== s.id).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label><div style="align-self:end"><button class="btn" id="smergeb">Birleştir</button></div></div></section>` : ''}</div>
     <aside><section class="panel"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
     q('#suf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null; if (!g('name')) return toast('Firma adı girin', true);
-      const o = { name:g('name'), kind:f.kind.value, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason') };
+      const o = { name:g('name'), kind:f.kind.value, grp:f.grp.value || null, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason') };
       const r = s.id ? await sb.from('suppliers').update(o).eq('id', s.id) : await sb.from('suppliers').insert(o).select('id').single();
       if (r.error) return toast(dbErr(r.error), true); toast('Kaydedildi'); S.stockLoaded = false; location.hash = '#/tedarikciler/' + (s.id || r.data.id); };
     q('#sdel') && (q('#sdel').onclick = async () => { if (!confirmTwice(q('#sdel'), 'Emin misin? Tekrar bas')) return; const { error } = await sb.from('suppliers').delete().eq('id', s.id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/tedarikciler'; });
@@ -2523,15 +2527,15 @@ async function viewSuppliers(id){
   }
   const st = tdState;
   shell('tedarikciler', `<div class="pagehead"><div><h1>Tedarikçiler</h1><p class="lede">Firma, iletişim ve alınan parçalar. Kara listedekiler kırmızı.${ed ? ' Sitelerin giriş bilgileri "Site hesapları"nda.' : ''}</p></div><div style="display:flex;gap:8px">${ed ? '<a class="btn" href="#/tedarikciler/hesaplar">Site hesapları</a><a class="btn primary" href="#/tedarikciler/yeni">Yeni tedarikçi</a>' : ''}</div></div>
-  <div class="toolbar"><div class="seg" id="tkind">${[['', 'Hepsi'], ['tedarikci', 'Tedarikçi'], ['kargo', 'Kargo / lojistik']].map(([k, v]) => `<button data-k="${k}" class="${st.kind === k ? 'on' : ''}">${v} <span class="sub">${k ? all.filter(s => (s.kind || 'tedarikci') === k).length : all.length}</span></button>`).join('')}</div>
-    <input type="search" id="tq" placeholder="Ara: firma, kişi, parça, site…"></div><div class="tablewrap" id="ttbl"></div>`);
+  <div class="toolbar"><div class="seg wrap" id="tgrp">${[['', 'Hepsi'], ...Object.entries(SUP_GRP), ['_', 'Grupsuz']].filter(([k]) => k !== '_' || all.some(s => !s.grp)).map(([k, v]) => `<button data-g="${k}" class="${st.grp === k ? 'on' : ''}">${v} <span class="sub">${k === '' ? all.length : all.filter(s => (s.grp || '_') === k).length}</span></button>`).join('')}</div></div>
+  <div class="toolbar"><input type="search" id="tq" placeholder="Ara: firma, kişi, parça, site…"></div><div class="tablewrap" id="ttbl"></div>`);
   const nAcc = sid => ACC.filter(a => a.supplier_id === sid).length;
   const draw = () => { const ql = (q('#tq').value || '').trim().toLocaleLowerCase('tr');
-    const r = all.filter(s => (!st.kind || (s.kind || 'tedarikci') === st.kind) && (!ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.websites, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql)));
-    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${r.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+    const r = all.filter(s => (!st.grp || (s.grp || '_') === st.grp) && (!ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.websites, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql)));
+    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${[...Object.keys(SUP_GRP), '_'].map(gk => { const rs = r.filter(s => (s.grp || '_') === gk); return rs.length ? `<tr class="secrow"><td colspan="${ed ? 5 : 4}">${gk === '_' ? 'Grupsuz' : SUP_GRP[gk]} <span class="sub">${rs.length}</span></td></tr>` + rs.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('') : ''; }).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('#ttbl tr[data-sid]').forEach(t => t.onclick = () => location.hash = '#/tedarikciler/' + t.dataset.sid); };
   draw(); q('#tq').oninput = draw;
-  qa('#tkind button').forEach(b => b.onclick = () => { st.kind = b.dataset.k; qa('#tkind button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  qa('#tgrp button').forEach(b => b.onclick = () => { st.grp = b.dataset.g; qa('#tgrp button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
 }
 
 function viewAccounts(sups, ACC){
@@ -2584,7 +2588,8 @@ async function viewPurchaseReport(){
     ['Toplam', ...units.map(u => fmtTRY(sumT(Y.filter(p => unitOf(p) === u)))), `<b>${fmtTRY(sumT(Y))}</b>`, Y.length])}</div></section>
   <div class="grid g2 mt"><section class="panel"><h2>Ürün / projeye göre — ${per}</h2><div class="tablewrap">${tbl(['Ürün / proje', 'Kalem', 'Tutar'], grp(R, p => bomName(p.bom_id) || (p.project ? 'Diğer: ' + p.project.slice(0, 40) : 'Belirtilmemiş')).slice(0, 25).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div>
       <p class="note">Ürün / proje, alım talebindeki "İlgili ürün / proje" seçiminden gelir. Eski kayıtlarda proje yazısından otomatik eşleştirildi.</p></section>
-    <section class="panel"><h2>Tedarikçiye göre — ${per}</h2><div class="tablewrap">${tbl(['Tedarikçi', 'Kalem', 'Tutar'], grp(R, p => supName(p.supplier_id) || p.supplier_text).slice(0, 25).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div></section></div>
+    <section class="panel"><h2>Tedarikçi grubuna göre — ${per}</h2><div class="tablewrap">${tbl(['Grup', 'Kalem', 'Tutar'], grp(R, p => { const s = (S.suppliers || []).find(x => x.id === p.supplier_id); return s ? SUP_GRP[s.grp] || 'Grupsuz' : 'Tedarikçi seçilmemiş'; }).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div>
+      <h2 class="mt">Tedarikçiye göre — ${per}</h2><div class="tablewrap">${tbl(['Tedarikçi', 'Kalem', 'Tutar'], grp(R, p => supName(p.supplier_id) || p.supplier_text).slice(0, 25).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div></section></div>
   <section class="mt"><h2>En yüksek tutarlı alımlar — ${per}</h2><div class="tablewrap">${tbl(['Ürün / iş', 'Tarih', 'Adet', 'Tutar'], [...R].sort((a, b) => (+b.total || 0) - (+a.total || 0)).slice(0, 20).map(p => [`<a href="#/alimlar/${p.id}">${esc(p.item_name)}</a>${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}`, fmtD(p.d), p.qty == null ? '—' : fmtQ(p.qty), fmtTRY(p.total)]))}</div></section>`);
   q('#pry').onchange = e => { st.year = e.target.value; st.month = ''; viewPurchaseReport(); };
   q('#prm').onchange = e => { st.month = e.target.value; viewPurchaseReport(); };
