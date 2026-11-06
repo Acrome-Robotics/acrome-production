@@ -264,3 +264,9 @@ mark{background:var(--amber-soft);color:inherit;padding:0 2px;border-radius:2px}
 ul.sugg{margin:0;padding-left:18px;font-size:14px}
 ul.sugg li{margin:4px 0}
 tr.unread td{font-weight:600}
+/* ---------- RMA ---------- */
+.fs.plain{border:0;padding:0;background:none;box-shadow:none;max-width:none}
+.rp-out{background:var(--violet-soft);color:var(--violet)}
+.rp-in{background:var(--amber-soft);color:var(--amber)}
+.rp-done{background:var(--green-soft);color:var(--green)}
+td.num{text-align:right;white-space:nowrap}

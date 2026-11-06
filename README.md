@@ -57,3 +57,15 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Arama: `support_search(q)` konu alanlarında ve mesaj gövdelerinde önek eşleşmeli arar.
 - Support konularını tüm roller görür; yalnızca **Sipariş + Support** ve **Yönetici** düzenler. Mail kayıtlarını yalnızca yönetici değiştirebilir, notu yazan kişi kendi notunu silebilir.
 - `support_merge(keep, drops[])`: aynı müşterinin aynı ürün için açılmış konularını tek konuda toplar; eski konuların özeti ve çözümü not olarak kalır. Konu sayfasında "Bu müşterinin destek geçmişi" listesi ve "Buraya birleştir" düğmesi var.
+
+## RMA modülü
+
+| Tablo | İçerik |
+|---|---|
+| `rma` | RMA kaydı: kod (`<sipariş no>-RMA#<sıra>`), durum, support konusu, sipariş, ürün/seri no, arıza/teşhis, tüm tarihler, kargo, gelen/giden fatura (elle), gümrük rejimi ve beyannameler |
+| `rma_costs` | Masraf satırları: gümrük vergisi, KDV, müşavir, navlun, kargo, sigorta, parça, işçilik; para birimi + kur → TL karşılığı |
+| `rma_events` | Durum geçmişi |
+| `v_rma` | Garanti hesabı (sevk tarihinden yurt içi 2 yıl, yurt dışı 1 yıl), toplam maliyet |
+
+- Durum ilerledikçe ilgili tarih boşsa o günün tarihiyle dolar; tahmini hazır tarihi = ürün geliş + tahmini tamir süresi.
+- Düzenleme: Sipariş + Support ve Yönetici; diğer roller görür. Support konusundan ve sipariş sayfasından "RMA aç".
