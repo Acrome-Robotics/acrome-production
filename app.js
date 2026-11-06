@@ -283,8 +283,8 @@ function route(){
     case 'elektronik-stok': return viewStock('e');
     case 'stok-yeni': return canStock() ? viewStockItem(null, a) : viewStock(a);
     case 'stok-aktar': return viewStockImport();
-    case 'stok-guncelle': case 'mekanik-sayim': return viewStockUpdate('m');
-    case 'elektronik-sayim': return viewStockUpdate('e');
+    case 'stok-guncelle': case 'mekanik-sayim': return viewStockUpdate('m', a);
+    case 'elektronik-sayim': return viewStockUpdate('e', a);
     case 'alim-rapor': return viewPurchaseReport();
     case 'bom': return a === 'proje' ? viewBomList('proje') : a ? viewBom(+a) : viewBomList();
     case 'bom-yeni': return viewBomNew(a);
@@ -1603,7 +1603,7 @@ async function viewNotifications(){
       <p class="note" style="margin-top:0">${here ? 'Bu cihazda bildirimler açık.' : 'Bu cihazda bildirim almak için aç. Telefon ve bilgisayarda ayrı ayrı açılır.'} Kayıtlı cihaz sayın: ${subs.length}.</p>
       <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}${ns.some(n=>n.read_at)?'<button class="btn" id="pdelr">Okunanları sil</button>':''}${ns.length?'<button class="btn danger" id="pdelall">Tümünü sil</button>':''}</p>
     </section>
-    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" data-nl="${esc(n.link||'')}" data-nid2="${n.id}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : n.title ? `${n.kind === 'sayim' ? '<b>Stok sayımı</b> · ' : ''}${esc(n.title)}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
+    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" data-nl="${esc(n.link||'')}" data-nid2="${n.id}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : n.title ? `${/^sayim/.test(n.kind || '') ? '<b>Stok sayımı</b> · ' : ''}${esc(n.title)}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
   q('#pon') && (q('#pon').onclick = e => enablePush(e.target));
   q('#ptest').onclick = async e => { e.target.disabled = true; const { data, error } = await sb.rpc('support_push_test'); e.target.disabled = false; if (error) return toast(dbErr(error), true); toast('Test gönderildi'); await loadSupport(); viewNotifications(); };
   q('#pread') && (q('#pread').onclick = async () => { await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); await loadSupport(); viewNotifications(); });
@@ -2081,24 +2081,28 @@ async function viewStockItem(id, g){
 
 // ---------------------------------------------------------------- STOK GÜNCELLEME (mekanik / elektronik ayrı; sayım / giriş / çıkış)
 const sgStates = { m:{ cat:'all', q:'', bom:'', mode:'sayim', only:'' }, e:{ cat:'all', q:'', bom:'', mode:'sayim', only:'' } };
-async function viewStockUpdate(g){
+async function viewStockUpdate(g, arg){
   g = g === 'e' ? 'e' : 'm';
   if (!canStock()) return viewStock(g);
   const G = STK_GRP[g], s = sgStates[g];
+  if (arg === 'eksik') s.only = 'uncounted';
   await loadStock(true);
+  const m0 = new Date(); m0.setDate(1); m0.setHours(0, 0, 0, 0);
+  const counted = new Set(((await sb.from('stock_moves').select('item_id').eq('reason', 'sayim').gte('at', m0.toISOString()).range(0, 9999)).data || []).map(x => x.item_id));
   const lines = (await sb.from('bom_lines').select('bom_id,item_id').not('item_id', 'is', null).range(0, 9999)).data || [];
   const inBom = {}; lines.forEach(l => (inBom[l.bom_id] = inBom[l.bom_id] || new Set()).add(l.item_id));
   const I = S.items.filter(i => G.cats.includes(i.category)), changed = new Map();
   const cats = Object.fromEntries(G.cats.map(c => [c, STK_CAT[c]]));
   const MODES = { sayim:['Sayım', 'Sayılan gerçek adet'], giris:['Giriş', 'Gelen adet'], cikis:['Çıkış', 'Çıkan adet'] };
-  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}; depo sorumlularına (Depo / Stok rolü) o sabah 09:00'da bildirim gider.</p></div></div>
+  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}. Depo sorumlularına (Depo / Stok rolü) bir gün önce 14:00'te hatırlatma, sayım günü 09:00'da bildirim, 18:00'de sayılmayan parça özeti gider.</p></div></div>
   ${countBanner()}
   <div class="toolbar"><div class="seg" id="sgm">${Object.entries(MODES).map(([k, v]) => `<button data-m="${k}" class="${s.mode === k ? 'on' : ''}">${v[0]}</button>`).join('')}</div>
     ${G.cats.length > 1 ? `<div class="seg" id="sgc">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
-    <div class="seg" id="sgo">${[['', 'Hepsi'], ['crit', 'Kritik'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
+    <div class="seg" id="sgo">${[['', 'Hepsi'], ['uncounted', 'Bu ay sayılmadı'], ['crit', 'Kritik'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
   <div class="toolbar"><input type="search" id="sgq" placeholder="Ara: kod, ad, konum…" value="${esc(s.q)}">
     <select id="sgb"><option value="">Tüm parçalar</option>${S.boms.filter(b => b.kind !== 'pcb' || g === 'e').map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
     <input type="text" id="sgn" placeholder="Not (ör. Kasım 2026 sayımı, ACRPO-540 girişi)" style="max-width:340px"></div>
+  <p class="note" id="sgprog"></p>
   <div class="tablewrap" id="sgt"></div>
   <div class="savebar" id="sgbar" hidden><span id="sgcnt"></span><button class="btn" id="sgclr">Temizle</button><button class="btn primary" id="sgsave">Kaydet</button></div>`);
   const afterTxt = (i, v) => { if (v == null) return ''; const cur = +i.qty || 0, n = s.mode === 'sayim' ? v : s.mode === 'giris' ? cur + v : cur - v, d = n - cur;
@@ -2107,12 +2111,14 @@ async function viewStockUpdate(g){
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
     const rows = I.filter(i => (s.cat === 'all' || i.category === s.cat) && (!s.bom || (inBom[+s.bom] && inBom[+s.bom].has(i.id)))
-      && (!s.only || (s.only === 'crit' ? critical(i) : i.qty == null))
+      && (!s.only || (s.only === 'crit' ? critical(i) : s.only === 'uncounted' ? !counted.has(i.id) : i.qty == null))
       && (!ql || [i.name, i.code, i.mfr_no, i.location].join(' ').toLocaleLowerCase('tr').includes(ql)))
       .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'tr', { numeric:true }));
+    const nc = I.filter(i => counted.has(i.id)).length;
+    q('#sgprog').innerHTML = `${MONTHS_LONG[new Date().getMonth()]} sayımı: <b>${nc} / ${I.length}</b> parça sayıldı${nc < I.length ? ` · ${I.length - nc} kaldı` : ' · tamam ✓'}`;
     q('#sgt').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Kod</th><th class="nosort">Parça</th><th class="nosort">Konum</th><th class="nosort num">Mevcut</th><th class="nosort num">Min</th><th class="nosort num">${MODES[s.mode][1]}</th><th class="nosort num">Sonra</th></tr></thead><tbody>
       ${rows.slice(0, 500).map(i => { const v = changed.get(i.id);
-        return `<tr data-i="${i.id}" style="cursor:default"><td class="mono" style="white-space:nowrap">${esc(i.code || '—')}</td><td><b style="font-weight:600">${esc(i.name)}</b>${i.mfr_no ? ` <span class="sub mono">${esc(i.mfr_no)}</span>` : ''}</td><td class="sub">${esc(i.location || '')}</td>
+        return `<tr data-i="${i.id}" style="cursor:default"><td class="mono" style="white-space:nowrap">${esc(i.code || '—')}</td><td><b style="font-weight:600">${esc(i.name)}</b>${i.mfr_no ? ` <span class="sub mono">${esc(i.mfr_no)}</span>` : ''}${counted.has(i.id) ? ' <span class="sub ok-txt" title="Bu ay sayıldı">✓ sayıldı</span>' : ''}</td><td class="sub">${esc(i.location || '')}</td>
         <td class="num ${lowStock(i) ? 'late-txt' : ''}">${i.qty == null ? '—' : fmtQ(i.qty)} <span class="sub">${esc(i.unit || '')}</span></td><td class="num sub">${i.min_qty == null ? '' : fmtQ(i.min_qty)}</td>
         <td class="num"><input type="number" step="any" min="0" class="sgin" value="${v ?? ''}" aria-label="${esc(i.name)}"></td><td class="num sgafter">${afterTxt(i, v)}</td></tr>`; }).join('')}</tbody>
       <tfoot><tr class="tfoot"><td colspan="7">${rows.length} kalem</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
@@ -2132,6 +2138,7 @@ async function viewStockUpdate(g){
       if (s.mode === 'sayim') args.p_new_qty = v; else args.p_delta = s.mode === 'giris' ? v : -v;
       const { error } = await sb.rpc('stock_move', args); if (error) { toast(dbErr(error), true); break; } n++; }
     toast(`${n} parça güncellendi`); S.stockLoaded = false; viewStockUpdate(g); };
+  if (arg === 'eksik') history.replaceState(null, '', '#/' + G.upd);
 }
 
 // görseli tarayıcıda küçült (en fazla 480 px, webp)
