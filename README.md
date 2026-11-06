@@ -69,3 +69,5 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 
 - Durum ilerledikçe ilgili tarih boşsa o günün tarihiyle dolar; tahmini hazır tarihi = ürün geliş + tahmini tamir süresi.
 - Düzenleme: Sipariş + Support ve Yönetici; diğer roller görür. Support konusundan ve sipariş sayfasından "RMA aç".
+
+> Yayın notu: `app.js` / `style.css` değiştiğinde `index.html` içindeki `?v=` etiketini artırın; aksi halde tarayıcılar eski dosyayı önbellekten kullanabilir.
