@@ -86,7 +86,7 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Tedarikçi site hesapları `supplier_accounts` tablosunda; RLS `can_purchase()` (Satın alma, Depo / Stok, Üretim, Sipariş, Yönetici). Kimlik no / kart bilgisi tutulmaz.
 
 ### Haftalık yoklama (6 Kasım 2026)
-- `#/yoklama`: ortak haftalık tablo (Pzt–Cum). Herkes tabloyu görür; kişi yalnızca kendi satırını (e-posta eşleşmesiyle, `att_me()`), yöneticiler tüm satırları düzenler. Kodlar: x geldi, G geç geldi, - gelmedi, İ izinli, R raporlu, U uzaktan, / yarım gün, Ç çalışma günü değil.
+- `#/yoklama`: ortak haftalık tablo (Pzt–Cum). Herkes tabloyu görür; kişi yalnızca kendi satırını (e-posta eşleşmesiyle, `att_me()`), yöneticiler tüm satırları düzenler. Kodlar: x geldi, G geç geldi, - gelmedi, İ izinli, R raporlu, U uzaktan, / yarım gün, T tatil / çalışma günü değil.
 - `#/yoklama-rapor` (yönetici): aylık kişi bazında sayılar, katılım oranı, gün gün tablo, CSV.
 - `#/yoklama-kisiler` (yönetici): satırlar ve e-postalar. Hesabı olmayanlar için yeni rol **Personel**: yalnızca yoklamayı görür.
-- Hatırlatma: iş günü 12:00 (`att_remind`, pg_cron) bugünkü hücresi boş olanlara e-posta (`mail_outbox` → `notify-mail`). Herkes için Ç girilen gün (tatil) e-posta gitmez.
+- Hatırlatma: iş günü 16:00 (`att_remind`, pg_cron) bugünkü hücresi boş olanlara e-posta (`mail_outbox` → `notify-mail`). Herkes için T girilen gün (tatil) e-posta gitmez.

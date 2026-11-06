@@ -2673,7 +2673,7 @@ function viewStockImport(){
 }
 
 // ---------------------------------------------------------------- YOKLAMA (ortak haftalık tablo)
-const ATT = { x:['Geldi','att-x'], G:['Geç geldi','att-g'], '-':['Gelmedi','att-no'], 'İ':['İzinli','att-i'], R:['Raporlu','att-r'], U:['Uzaktan','att-u'], '/':['Yarım gün','att-h'], 'Ç':['Çalışma günü değil','att-c'] };
+const ATT = { x:['Geldi','att-x'], G:['Geç geldi','att-g'], '-':['Gelmedi','att-no'], 'İ':['İzinli','att-i'], R:['Raporlu','att-r'], U:['Uzaktan','att-u'], '/':['Yarım gün','att-h'], T:['Tatil / çalışma günü değil','att-c'] };
 const ATT_DN = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum'];
 const mondayOf = d => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x); };
 const fmtDM = d => d.slice(8, 10) + '.' + d.slice(5, 7);
@@ -2715,13 +2715,13 @@ async function viewAttendance(arg){
   const note = pid => (N.find(x => x.person_id === pid) || {}).note || '';
   const inWeek = days.includes(td), thisWeek = s.week === mondayOf(td);
   const filled = d => people.filter(p => code(p.id, d)).length;
-  shell('yoklama', `<div class="pagehead"><div><h1>Haftalık yoklama</h1><p class="lede">Ortak tablo: herkes kendi satırını doldurur, herkes tabloyu görür. Hücresi boş kalanlara iş günü 12:00'de e-posta hatırlatması gider.</p></div>
+  shell('yoklama', `<div class="pagehead"><div><h1>Haftalık yoklama</h1><p class="lede">Ortak tablo: herkes kendi satırını doldurur, herkes tabloyu görür. Hücresi boş kalanlara iş günü 16:00'da e-posta hatırlatması gider.</p></div>
     ${adm ? '<div style="display:flex;gap:8px"><a class="btn" href="#/yoklama-rapor">Aylık rapor</a><a class="btn" href="#/yoklama-kisiler">Kişiler</a></div>' : ''}</div>
   ${me == null && !adm ? `<div class="banner">E-posta adresin (${esc(S.profile.email || '')}) yoklama listesinde yok; yöneticiden eklemesini iste.</div>` : ''}
   ${me != null && inWeek && new Date().getDay() >= 1 && new Date().getDay() <= 5 && !code(me, td) ? '<div class="banner countday"><b>Bugünkü hücren boş.</b> Kendi satırında bugünün hücresinden durumunu seç.</div>' : ''}
   <div class="toolbar"><div class="seg"><button id="awp" type="button">← Önceki</button><button id="awt" type="button" class="${thisWeek ? 'on' : ''}">Bu hafta</button><button id="awn" type="button">Sonraki →</button></div>
     <b>${fmtD(days[0])} – ${fmtD(days[4])}</b></div>
-  <div class="tablewrap"><table class="att"><thead><tr><th class="nosort">Ad</th>${days.map((d, i) => `<th class="nosort c${d === td ? ' today' : ''}">${ATT_DN[i]} <span class="sub">${fmtDM(d)}</span><div class="sub">${filled(d)}/${people.length}${adm && filled(d) < people.length ? ` · <button type="button" class="linkbtn atthol" data-d="${d}" title="Boş hücrelere Ç (çalışma günü değil) yaz: resmi tatil vb.">tatil</button>` : ''}</div></th>`).join('')}<th class="nosort">Açıklama</th></tr></thead><tbody>
+  <div class="tablewrap"><table class="att"><thead><tr><th class="nosort">Ad</th>${days.map((d, i) => `<th class="nosort c${d === td ? ' today' : ''}">${ATT_DN[i]} <span class="sub">${fmtDM(d)}</span><div class="sub">${filled(d)}/${people.length}${adm && filled(d) < people.length ? ` · <button type="button" class="linkbtn atthol" data-d="${d}" title="Boş hücrelere T (tatil) yaz: resmi tatil vb.">tatil</button>` : ''}</div></th>`).join('')}<th class="nosort">Açıklama</th></tr></thead><tbody>
     ${people.map(p => `<tr data-p="${p.id}" class="${p.id === me ? 'mine' : ''}" style="cursor:default"><td><b style="font-weight:600">${esc(p.name)}</b>${p.id === me ? ' <span class="sub">(sen)</span>' : ''}</td>
       ${days.map(d => { const c = code(p.id, d); return `<td class="c${d === td ? ' today' : ''}">${canEd(p.id)
         ? `<select class="attsel ${c ? ATT[c][1] : ''}" data-d="${d}" aria-label="${esc(p.name)} ${fmtD(d)}"><option value=""></option>${Object.entries(ATT).map(([k, v]) => `<option value="${k}" ${c === k ? 'selected' : ''}>${k} · ${v[0]}</option>`).join('')}</select>`
@@ -2741,8 +2741,8 @@ async function viewAttendance(arg){
     const r = v ? await sb.from('att_week_notes').upsert({ person_id:pid, week:s.week, note:v, updated_by:S.profile.id, updated_at:new Date().toISOString() }) : await sb.from('att_week_notes').delete().eq('person_id', pid).eq('week', s.week);
     if (r.error) return toast(dbErr(r.error), true); toast('Not kaydedildi'); });
   qa('.atthol').forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'tekrar bas')) return; const d = b.dataset.d;
-    const rows = people.filter(p => !code(p.id, d)).map(p => ({ person_id:p.id, day:d, code:'Ç', updated_by:S.profile.id }));
-    const { error } = await sb.from('att_days').upsert(rows); if (error) return toast(dbErr(error), true); toast(`${rows.length} kişiye Ç yazıldı`); if (d === td) await loadAttToday(); viewAttendance(); });
+    const rows = people.filter(p => !code(p.id, d)).map(p => ({ person_id:p.id, day:d, code:'T', updated_by:S.profile.id }));
+    const { error } = await sb.from('att_days').upsert(rows); if (error) return toast(dbErr(error), true); toast(`${rows.length} kişiye T (tatil) yazıldı`); if (d === td) await loadAttToday(); viewAttendance(); });
 }
 
 // aylık rapor (yöneticiler)
@@ -2758,12 +2758,12 @@ async function viewAttReport(){
   const code = (pid, d) => (D.find(x => x.person_id === pid && x.day === d) || {}).code || '';
   const rows = P.filter(p => p.active || D.some(x => x.person_id === p.id)).map(p => {
     const c = k => wd.filter(d => code(p.id, d) === k).length;
-    const o = { p, x:c('x'), G:c('G'), U:c('U'), h:c('/'), I:c('İ'), R:c('R'), no:c('-'), C:c('Ç'), bos:upto.filter(d => !code(p.id, d)).length };
-    const base = upto.filter(d => !['Ç', 'İ', 'R'].includes(code(p.id, d))).length;
+    const o = { p, x:c('x'), G:c('G'), U:c('U'), h:c('/'), I:c('İ'), R:c('R'), no:c('-'), C:c('T'), bos:upto.filter(d => !code(p.id, d)).length };
+    const base = upto.filter(d => !['T', 'İ', 'R'].includes(code(p.id, d))).length;
     o.work = wd.length - o.C; o.rate = base ? Math.round(((o.x + o.G + o.U + o.h * 0.5) / base) * 100) : null; return o; });
   const tot = k => rows.reduce((a, r) => a + r[k], 0);
   const mName = MONTHS_LONG[m - 1] + ' ' + y;
-  shell('yoklama-rapor', `<p><a href="#/yoklama">← Haftalık yoklama</a></p><div class="pagehead"><div><h1>Aylık yoklama raporu</h1><p class="lede">${esc(mName)} · ${wd.length} iş günü (bugüne kadar ${upto.length}). Katılım = (geldi + geç + uzaktan + yarım gün × ½) ÷ (geçen iş günü − izin − rapor − çalışma günü değil).</p></div>
+  shell('yoklama-rapor', `<p><a href="#/yoklama">← Haftalık yoklama</a></p><div class="pagehead"><div><h1>Aylık yoklama raporu</h1><p class="lede">${esc(mName)} · ${wd.length} iş günü (bugüne kadar ${upto.length}). Katılım = (geldi + geç + uzaktan + yarım gün × ½) ÷ (geçen iş günü − izin − rapor − tatil).</p></div>
     <button class="btn" id="arcsv">CSV indir</button></div>
   <div class="toolbar"><label class="f" style="width:180px">Ay<input type="month" id="arm" value="${s.month}"></label></div>
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
