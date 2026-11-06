@@ -85,8 +85,8 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Alımlarda "İlgili ürün / proje" (`purchases.bom_id`), listede hızlı "Acil" işareti ve filtreler; `#/alim-rapor` aylık alım raporu.
 - Tedarikçi site hesapları `supplier_accounts` tablosunda; RLS `can_purchase()` (Satın alma, Depo / Stok, Üretim, Sipariş, Yönetici). Kimlik no / kart bilgisi tutulmaz.
 
-### Haftalık yoklama (6 Kasım 2026)
-- `#/yoklama`: ortak haftalık tablo (Pzt–Cum). Herkes tabloyu görür; kişi yalnızca kendi satırını (e-posta eşleşmesiyle, `att_me()`), yöneticiler tüm satırları düzenler. Kodlar: x geldi, G geç geldi, - gelmedi, İ izinli, R raporlu, U uzaktan, / yarım gün, T tatil / çalışma günü değil.
-- `#/yoklama-rapor` (yönetici): aylık kişi bazında sayılar, katılım oranı, gün gün tablo, CSV.
-- `#/yoklama-kisiler` (yönetici): satırlar ve e-postalar. Hesabı olmayanlar için yeni rol **Personel**: yalnızca yoklamayı görür.
+### Haftalık çalışma planı (6 Kasım 2026; kodda att_*, eski #/yoklama adresleri de açılır)
+- `#/calisma-plani`: ortak haftalık tablo (Pzt–Cum). Herkes tabloyu görür; kişi yalnızca kendi satırını (e-posta eşleşmesiyle, `att_me()`), yöneticiler tüm satırları düzenler. Kodlar: x geldi, G geç geldi, - gelmedi, İ izinli, R raporlu, U uzaktan, / yarım gün, T tatil / çalışma günü değil.
+- `#/calisma-raporu` (yönetici): aylık kişi bazında sayılar, katılım oranı, gün gün tablo, CSV.
+- `#/calisma-kisiler` (yönetici): satırlar ve e-postalar. Hesabı olmayanlar için yeni rol **Personel**: yalnızca yoklamayı görür.
 - Hatırlatma: iş günü 16:00 (`att_remind`, pg_cron) bugünkü hücresi boş olanlara e-posta (`mail_outbox` → `notify-mail`). Herkes için T girilen gün (tatil) e-posta gitmez.

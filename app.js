@@ -13,7 +13,7 @@ const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sale
   support:'Support konuları ve RMA kayıtlarını düzenler: durum, sorumlu, not, kapatma, birleştirme.',
   purchasing:'Alım taleplerinin durumunu, fiyatını ve tedarikçisini yönetir; tedarikçi ekler.',
   stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller. Her ayın ilk cuması sayım e-postası alır.',
-  personel:'Yalnızca haftalık yoklama tablosunu görür ve kendi satırını doldurur (atölye, stajyer vb.).',
+  personel:'Yalnızca haftalık çalışma planını görür ve kendi satırını doldurur (atölye, stajyer vb.).',
   admin:'Her şey + silme, ürün yönetimi, rol verme.' };
 const staffOnly = () => !!S.profile && userRoles(S.profile).length > 0 && userRoles(S.profile).every(r => r === 'personel');
 const userRoles = p => !p ? [] : Array.isArray(p.roles) ? p.roles : p.role === 'pending' ? [] : p.role === 'support' ? ['orders','support'] : [p.role];
@@ -198,8 +198,8 @@ function shell(active, html){
   const openIssues = S.issues.filter(i => !i.resolved).length;
   // menü: Bugün + ana başlıklar (üretim üstte, rapor en altta veriden önce)
   const ekip = ['Ekip', 'users', [
-      ['yoklama','Haftalık yoklama', attTodayEmpty() ? 1 : '', 'hot'],
-      ...(can('admin') ? [['yoklama-rapor','Aylık yoklama raporu'], ['yoklama-kisiler','Yoklama kişileri']] : []),
+      ['calisma-plani','Haftalık çalışma planı', attTodayEmpty() ? 1 : '', 'hot'],
+      ...(can('admin') ? [['calisma-raporu','Aylık çalışma raporu'], ['calisma-kisiler','Çalışma planı kişileri']] : []),
     ]];
   const nav = staffOnly() ? [ekip] : [
     ['Üretim', 'gear', [
@@ -274,12 +274,12 @@ function shell(active, html){
 
 function route(){
   const [p, a] = location.hash.replace(/^#\/?/,'').split('?')[0].split('/');
-  window.scrollTo(0,0);
+  window.scrollTo(0,0); if (typeof closeAttPop === 'function') closeAttPop();
   if (staffOnly()) return p === 'sifre' ? viewNewPassword() : viewAttendance(a);
   switch(p){
-    case 'yoklama': return viewAttendance(a);
-    case 'yoklama-rapor': return viewAttReport();
-    case 'yoklama-kisiler': return viewAttPeople();
+    case 'calisma-plani': case 'yoklama': return viewAttendance(a);
+    case 'calisma-raporu': case 'yoklama-rapor': return viewAttReport();
+    case 'calisma-kisiler': case 'yoklama-kisiler': return viewAttPeople();
     case 'kayitlar': return viewList(a || 'all');
     case 'gonderim': return viewShipments();
     case 'yeni': return can('sales','orders','admin') ? viewForm(null) : viewReport();
@@ -2672,8 +2672,31 @@ function viewStockImport(){
     b.textContent = 'Görselleri yükle'; toast(`${n} görsel yüklendi`); q('#gii').textContent = `${n} görsel yüklendi.`; };
 }
 
-// ---------------------------------------------------------------- YOKLAMA (ortak haftalık tablo)
-const ATT = { x:['Geldi','att-x'], G:['Geç geldi','att-g'], '-':['Gelmedi','att-no'], 'İ':['İzinli','att-i'], R:['Raporlu','att-r'], U:['Uzaktan','att-u'], '/':['Yarım gün','att-h'], T:['Tatil / çalışma günü değil','att-c'] };
+// ---------------------------------------------------------------- ÇALIŞMA PLANI (ortak haftalık tablo; kodda 'att')
+const ATT = { x:['Geldi','att-x','Geldi'], G:['Geç geldi','att-g','Geç'], '-':['Gelmedi','att-no','Gelmedi'], 'İ':['İzinli','att-i','İzinli'], R:['Raporlu','att-r','Raporlu'], U:['Uzaktan çalıştı','att-u','Uzaktan'], '/':['Yarım gün','att-h','Yarım'], T:['Tatil / çalışma günü değil','att-c','Tatil'] };
+// hücre seçici (açılır kutu yerine renkli liste)
+let attPop = null;
+const closeAttPop = () => { if (!attPop) return; attPop.remove(); attPop = null; document.removeEventListener('mousedown', attOutside, true); window.removeEventListener('scroll', closeAttPop, true); };
+function attOutside(e){ if (attPop && !attPop.contains(e.target) && !e.target.closest('.attcell')) closeAttPop(); }
+function openAttPop(btn, cur, onPick){
+  closeAttPop();
+  const el = document.createElement('div'); el.className = 'attpop'; el.setAttribute('role', 'menu');
+  el.innerHTML = Object.entries(ATT).map(([k, v]) => `<button type="button" role="menuitem" data-k="${esc(k)}" class="${cur === k ? 'on' : ''}">${attBadge(k)}<span>${v[0]}</span>${cur === k ? '<span class="ck">✓</span>' : ''}</button>`).join('')
+    + (cur ? '<button type="button" role="menuitem" data-k="" class="clr">Hücreyi temizle</button>' : '');
+  document.body.appendChild(el); attPop = el;
+  const r = btn.getBoundingClientRect(), h = el.offsetHeight, w = el.offsetWidth;
+  el.style.top = (r.bottom + 6 + h > innerHeight && r.top - h - 6 > 0 ? r.top - h - 6 : r.bottom + 6) + 'px';
+  el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8)) + 'px';
+  const items = [...el.querySelectorAll('button')];
+  items.forEach(b => b.onclick = () => { closeAttPop(); onPick(b.dataset.k); btn.focus(); });
+  el.onkeydown = e => { const i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') { closeAttPop(); btn.focus(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus(); }
+    else { const b = items.find(x => x.dataset.k && x.dataset.k.toLocaleLowerCase('tr') === e.key.toLocaleLowerCase('tr')); if (b) { e.preventDefault(); b.click(); } } };
+  (el.querySelector('button.on') || items[0]).focus();
+  setTimeout(() => { document.addEventListener('mousedown', attOutside, true); window.addEventListener('scroll', closeAttPop, true); });
+}
+const attCell = c => c && ATT[c] ? `<b>${esc(c)}</b><span>${ATT[c][2]}</span>` : '<span>Seç</span>';
 const ATT_DN = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum'];
 const mondayOf = d => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x); };
 const fmtDM = d => d.slice(8, 10) + '.' + d.slice(5, 7);
@@ -2692,12 +2715,12 @@ const attTodaySection = () => {
   const cOf = id => (S.att.days.find(x => x.person_id === id) || {}).code || '';
   const grp = (codes) => S.att.people.filter(p => codes.includes(cOf(p.id))).map(p => esc(p.name));
   const rows = [];
-  if (attTodayEmpty()) rows.push({ href:'#/yoklama', main:'<b>Bugünkü yoklama hücren boş</b>', sub:'Kendi satırından bugünü seç', meta:'<span class="late-txt">doldur</span>', hot:true });
-  const add = (label, codes) => { const n = grp(codes); if (n.length) rows.push({ href:'#/yoklama', main:label + ` <span class="sub">${n.length}</span>`, sub:n.join(', '), meta:'', hot:false }); };
+  if (attTodayEmpty()) rows.push({ href:'#/calisma-plani', main:'<b>Bugünkü çalışma planı hücren boş</b>', sub:'Kendi satırından bugünü seç', meta:'<span class="late-txt">doldur</span>', hot:true });
+  const add = (label, codes) => { const n = grp(codes); if (n.length) rows.push({ href:'#/calisma-plani', main:label + ` <span class="sub">${n.length}</span>`, sub:n.join(', '), meta:'', hot:false }); };
   add('İşte', ['x', 'G', '/']); add('Uzaktan', ['U']); add('İzinli / raporlu', ['İ', 'R']); add('Gelmedi', ['-']);
   const empty = S.att.people.filter(p => !cOf(p.id)).map(p => esc(p.name));
-  if (empty.length) rows.push({ href:'#/yoklama', main:`Henüz doldurmayan <span class="sub">${empty.length}</span>`, sub:empty.join(', '), meta:'', hot:false });
-  return { id:'att', title:'Bugün ekip', link:'#/yoklama', rows, empty:'Kayıt yok.', alert:attTodayEmpty(), count:S.att.people.filter(p => cOf(p.id)).length, max:6 };
+  if (empty.length) rows.push({ href:'#/calisma-plani', main:`Henüz doldurmayan <span class="sub">${empty.length}</span>`, sub:empty.join(', '), meta:'', hot:false });
+  return { id:'att', title:'Bugün ekip', link:'#/calisma-plani', rows, empty:'Kayıt yok.', alert:attTodayEmpty(), count:S.att.people.filter(p => cOf(p.id)).length, max:6 };
 };
 
 const attState = { week:'' };
@@ -2708,35 +2731,36 @@ async function viewAttendance(arg){
   const days = [0, 1, 2, 3, 4].map(i => addDays(s.week, i));
   const [pr, dr, nr] = await Promise.all([sb.from('att_people').select('*').order('sort').order('name'),
     sb.from('att_days').select('person_id,day,code').gte('day', days[0]).lte('day', days[4]), sb.from('att_week_notes').select('person_id,note').eq('week', s.week)]);
-  if (pr.error) return shell('yoklama', `<h1>Haftalık yoklama</h1><div class="empty">${esc(dbErr(pr.error))}</div>`);
+  if (pr.error) return shell('calisma-plani', `<h1>Haftalık çalışma planı</h1><div class="empty">${esc(dbErr(pr.error))}</div>`);
   const all = pr.data || [], people = all.filter(p => p.active), D = dr.data || [], N = nr.data || [];
   const me = attMine(all), adm = can('admin'), canEd = pid => adm || pid === me;
   const code = (pid, d) => (D.find(x => x.person_id === pid && x.day === d) || {}).code || '';
   const note = pid => (N.find(x => x.person_id === pid) || {}).note || '';
   const inWeek = days.includes(td), thisWeek = s.week === mondayOf(td);
   const filled = d => people.filter(p => code(p.id, d)).length;
-  shell('yoklama', `<div class="pagehead"><div><h1>Haftalık yoklama</h1><p class="lede">Ortak tablo: herkes kendi satırını doldurur, herkes tabloyu görür. Hücresi boş kalanlara iş günü 16:00'da e-posta hatırlatması gider.</p></div>
-    ${adm ? '<div style="display:flex;gap:8px"><a class="btn" href="#/yoklama-rapor">Aylık rapor</a><a class="btn" href="#/yoklama-kisiler">Kişiler</a></div>' : ''}</div>
-  ${me == null && !adm ? `<div class="banner">E-posta adresin (${esc(S.profile.email || '')}) yoklama listesinde yok; yöneticiden eklemesini iste.</div>` : ''}
+  shell('calisma-plani', `<div class="pagehead"><div><h1>Haftalık çalışma planı</h1><p class="lede">Ortak tablo: herkes kendi satırını doldurur, herkes tabloyu görür. Hücresi boş kalanlara iş günü 16:00'da e-posta hatırlatması gider.</p></div>
+    ${adm ? '<div style="display:flex;gap:8px"><a class="btn" href="#/calisma-raporu">Aylık rapor</a><a class="btn" href="#/calisma-kisiler">Kişiler</a></div>' : ''}</div>
+  ${me == null && !adm ? `<div class="banner">E-posta adresin (${esc(S.profile.email || '')}) çalışma planı listesinde yok; yöneticiden eklemesini iste.</div>` : ''}
   ${me != null && inWeek && new Date().getDay() >= 1 && new Date().getDay() <= 5 && !code(me, td) ? '<div class="banner countday"><b>Bugünkü hücren boş.</b> Kendi satırında bugünün hücresinden durumunu seç.</div>' : ''}
   <div class="toolbar"><div class="seg"><button id="awp" type="button">← Önceki</button><button id="awt" type="button" class="${thisWeek ? 'on' : ''}">Bu hafta</button><button id="awn" type="button">Sonraki →</button></div>
     <b>${fmtD(days[0])} – ${fmtD(days[4])}</b></div>
   <div class="tablewrap"><table class="att"><thead><tr><th class="nosort">Ad</th>${days.map((d, i) => `<th class="nosort c${d === td ? ' today' : ''}">${ATT_DN[i]} <span class="sub">${fmtDM(d)}</span><div class="sub">${filled(d)}/${people.length}${adm && filled(d) < people.length ? ` · <button type="button" class="linkbtn atthol" data-d="${d}" title="Boş hücrelere T (tatil) yaz: resmi tatil vb.">tatil</button>` : ''}</div></th>`).join('')}<th class="nosort">Açıklama</th></tr></thead><tbody>
     ${people.map(p => `<tr data-p="${p.id}" class="${p.id === me ? 'mine' : ''}" style="cursor:default"><td><b style="font-weight:600">${esc(p.name)}</b>${p.id === me ? ' <span class="sub">(sen)</span>' : ''}</td>
       ${days.map(d => { const c = code(p.id, d); return `<td class="c${d === td ? ' today' : ''}">${canEd(p.id)
-        ? `<select class="attsel ${c ? ATT[c][1] : ''}" data-d="${d}" aria-label="${esc(p.name)} ${fmtD(d)}"><option value=""></option>${Object.entries(ATT).map(([k, v]) => `<option value="${k}" ${c === k ? 'selected' : ''}>${k} · ${v[0]}</option>`).join('')}</select>`
+        ? `<button type="button" class="attcell ${c ? ATT[c][1] : 'empty'}" data-d="${d}" aria-haspopup="menu" aria-label="${esc(p.name)} ${fmtD(d)}: ${c ? ATT[c][0] : 'boş'}">${attCell(c)}</button>`
         : attBadge(c) || '<span class="sub">·</span>'}</td>`; }).join('')}
       <td>${canEd(p.id) ? `<input type="text" class="attnote" value="${esc(note(p.id))}" placeholder="Part-time günleri, açıklama…">` : `<span class="sub">${esc(note(p.id))}</span>`}</td></tr>`).join('')}
   </tbody></table></div>
   <p class="note">Kodlar: ${Object.entries(ATT).map(([k, v]) => `${attBadge(k)} ${v[0]}`).join(' · ')} · Boş hücre: henüz girilmedi.</p>`);
   const go = w => { s.week = w; viewAttendance(); };
   q('#awp').onclick = () => go(addDays(s.week, -7)); q('#awn').onclick = () => go(addDays(s.week, 7)); q('#awt').onclick = () => go(mondayOf(td));
-  qa('.attsel').forEach(sel => sel.onchange = async () => { const pid = +sel.closest('tr').dataset.p, d = sel.dataset.d, v = sel.value;
+  qa('.attcell').forEach(btn => btn.onclick = () => { const pid = +btn.closest('tr').dataset.p, d = btn.dataset.d;
+    openAttPop(btn, code(pid, d), async v => { if (v === code(pid, d)) return;
     const r = v ? await sb.from('att_days').upsert({ person_id:pid, day:d, code:v, updated_by:S.profile.id, updated_at:new Date().toISOString() }) : await sb.from('att_days').delete().eq('person_id', pid).eq('day', d);
     if (r.error) { toast(dbErr(r.error), true); return viewAttendance(); }
-    sel.className = 'attsel ' + (v ? ATT[v][1] : ''); const x = D.find(y => y.person_id === pid && y.day === d);
+    btn.className = 'attcell ' + (v ? ATT[v][1] : 'empty'); btn.innerHTML = attCell(v); const x = D.find(y => y.person_id === pid && y.day === d);
     if (v) { if (x) x.code = v; else D.push({ person_id:pid, day:d, code:v }); } else if (x) D.splice(D.indexOf(x), 1);
-    if (d === td) { await loadAttToday(); } toast('Kaydedildi'); });
+    if (d === td) { await loadAttToday(); } toast('Kaydedildi'); }); });
   qa('.attnote').forEach(inp => inp.onchange = async () => { const pid = +inp.closest('tr').dataset.p, v = inp.value.trim();
     const r = v ? await sb.from('att_week_notes').upsert({ person_id:pid, week:s.week, note:v, updated_by:S.profile.id, updated_at:new Date().toISOString() }) : await sb.from('att_week_notes').delete().eq('person_id', pid).eq('week', s.week);
     if (r.error) return toast(dbErr(r.error), true); toast('Not kaydedildi'); });
@@ -2763,7 +2787,7 @@ async function viewAttReport(){
     o.work = wd.length - o.C; o.rate = base ? Math.round(((o.x + o.G + o.U + o.h * 0.5) / base) * 100) : null; return o; });
   const tot = k => rows.reduce((a, r) => a + r[k], 0);
   const mName = MONTHS_LONG[m - 1] + ' ' + y;
-  shell('yoklama-rapor', `<p><a href="#/yoklama">← Haftalık yoklama</a></p><div class="pagehead"><div><h1>Aylık yoklama raporu</h1><p class="lede">${esc(mName)} · ${wd.length} iş günü (bugüne kadar ${upto.length}). Katılım = (geldi + geç + uzaktan + yarım gün × ½) ÷ (geçen iş günü − izin − rapor − tatil).</p></div>
+  shell('calisma-raporu', `<p><a href="#/calisma-plani">← Haftalık çalışma planı</a></p><div class="pagehead"><div><h1>Aylık çalışma raporu</h1><p class="lede">${esc(mName)} · ${wd.length} iş günü (bugüne kadar ${upto.length}). Katılım = (geldi + geç + uzaktan + yarım gün × ½) ÷ (geçen iş günü − izin − rapor − tatil).</p></div>
     <button class="btn" id="arcsv">CSV indir</button></div>
   <div class="toolbar"><label class="f" style="width:180px">Ay<input type="month" id="arm" value="${s.month}"></label></div>
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
@@ -2780,7 +2804,7 @@ async function viewAttReport(){
   q('#arm').onchange = e => { if (e.target.value) { s.month = e.target.value; viewAttReport(); } };
   q('#arcsv').onclick = () => { const head = ['Ad', ...wd, 'Geldi', 'Geç', 'Uzaktan', 'Yarım', 'İzinli', 'Raporlu', 'Gelmedi', 'Boş', 'Katılım %'];
     const lines = [head, ...rows.map(r => [r.p.name, ...wd.map(d => code(r.p.id, d)), r.x, r.G, r.U, r.h, r.I, r.R, r.no, r.bos, r.rate ?? ''])].map(x => x.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `yoklama-${s.month}.csv`; a.click(); };
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `calisma-raporu-${s.month}.csv`; a.click(); };
 }
 
 // kişiler (yöneticiler)
@@ -2789,7 +2813,7 @@ async function viewAttPeople(){
   const [pr, ur] = await Promise.all([sb.from('att_people').select('*').order('sort').order('name'), sb.from('profiles').select('email,roles')]);
   const P = pr.data || [], acc = new Map((ur.data || []).map(u => [(u.email || '').toLowerCase(), u]));
   const st = p => { const u = p.email && acc.get(p.email.toLowerCase()); return !p.email ? '<span class="warn-txt">e-posta yok · hatırlatma gitmez</span>' : !u ? '<span class="sub">hesabı yok · tabloyu dolduramaz, hatırlatma gider</span>' : (u.roles || []).length ? '<span class="ok-txt">hesabı var</span>' : '<span class="warn-txt">hesabı var, rolü yok</span>'; };
-  shell('yoklama-kisiler', `<p><a href="#/yoklama">← Haftalık yoklama</a></p><div class="pagehead"><div><h1>Yoklama kişileri</h1><p class="lede">Tablodaki satırlar. Kişi kendi satırını doldurabilmek için bu e-postayla sitede hesap açmalı; hesabına Kullanıcılar sayfasından en az <b>Personel</b> rolü verilmeli (Personel yalnızca yoklamayı görür). Hatırlatma e-postası bu adrese gider.</p></div></div>
+  shell('calisma-kisiler', `<p><a href="#/calisma-plani">← Haftalık çalışma planı</a></p><div class="pagehead"><div><h1>Çalışma planı kişileri</h1><p class="lede">Tablodaki satırlar. Kişi kendi satırını doldurabilmek için bu e-postayla sitede hesap açmalı; hesabına Kullanıcılar sayfasından en az <b>Personel</b> rolü verilmeli (Personel yalnızca çalışma planını görür). Hatırlatma e-postası bu adrese gider.</p></div></div>
   <div class="tablewrap"><table><thead><tr><th class="nosort">Sıra</th><th class="nosort">Ad</th><th class="nosort">E-posta</th><th class="nosort">Durum</th><th class="nosort">Aktif</th><th class="nosort"></th></tr></thead><tbody>
     ${P.map(p => `<tr data-p="${p.id}" style="cursor:default"><td><input type="number" class="ap-sort" value="${p.sort}" style="width:64px"></td><td><input type="text" class="ap-name" value="${esc(p.name)}"></td><td><input type="email" class="ap-mail" value="${esc(p.email || '')}" placeholder="ad@acrome.net"></td><td>${st(p)}</td>
       <td><input type="checkbox" class="ap-act" ${p.active ? 'checked' : ''}></td><td><button class="btn sm ap-save">Kaydet</button></td></tr>`).join('')}
