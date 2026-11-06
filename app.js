@@ -142,12 +142,24 @@ function renderPending(){
 const logo = () => `<svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="var(--brand)"/><path d="M8 23 16 8l8 15" stroke="var(--brand-ink)" stroke-width="3" fill="none"/></svg>`;
 
 // ---------------------------------------------------------------- iskelet
+// menü grubu ikonları (16px, çizgi)
+const svgI = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  chart: svgI('<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>'),
+  help: svgI('<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7"/><path d="M12 17h.01"/>'),
+  wrench: svgI('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/>'),
+  cart: svgI('<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M3 4h2l2.4 11h11.2L21 8H6.2"/>'),
+  box: svgI('<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>'),
+  db: svgI('<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
+  chev: '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+};
+const navClosed = () => { try { return JSON.parse(localStorage.getItem('navClosed') || '[]'); } catch { return []; } };
 function shell(active, html){
   const cnt = st => S.deals.filter(d => d.status === st).length;
   const openIssues = S.issues.filter(i => !i.resolved).length;
   // menü: ana başlıklar ve alt başlıklar
   const nav = [
-    ['Satış', [
+    ['Satış', 'chart', [
       ['rapor','Rapor'],
       ['gonderim','Aylık gönderim raporu'],
       ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
@@ -156,21 +168,21 @@ function shell(active, html){
       ['kayitlar/all','Tüm kayıtlar', S.deals.length],
       ...(can('sales','support','admin') ? [['yeni','Yeni kayıt']] : []),
     ]],
-    ['Support', [
-      ['support','Konular', supOpenCount() || ''],
-      ['bildirimler','Bildirimler', S.unread || ''],
+    ['Support', 'help', [
+      ['support','Konular', supOpenCount() || '', 'hot'],
+      ['bildirimler','Bildirimler', S.unread || '', 'hot'],
       ...(can('support','admin') ? [['support-yeni','Yeni konu']] : []),
     ]],
-    ['RMA', [
+    ['RMA', 'wrench', [
       ['rma','RMA kayıtları', (S.rmas||[]).filter(rmaOpen).length || ''],
       ['rma-rapor','3 aylık rapor'],
       ...(can('support','admin') ? [['rma-yeni','Yeni RMA']] : []),
     ]],
-    ['Alımlar', [[null,'Yakında']]],
-    ['Stok', [[null,'Yakında']]],
-    ['Veri', [
+    ['Alımlar', 'cart', [[null,'Yakında']]],
+    ['Stok', 'box', [[null,'Yakında']]],
+    ['Veri', 'db', [
       ['kaynaklar','Kaynak tablolar'],
-      ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || ''],
+      ['uyarilar','Veri kontrolü', (openIssues + liveProblemCount()) || '', 'hot'],
       ['gecmis','Değişiklik geçmişi'],
       ...(can('admin') ? [['kullanicilar','Kullanıcılar']] : []),
       ...(can('admin') && !S.deals.length ? [['ice-aktar','Excel verisini içe aktar']] : []),
@@ -180,10 +192,14 @@ function shell(active, html){
   $app.innerHTML = `<div class="topbar"><div class="brand" style="padding:0">${logo()} Acrome</div><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side">
     <div class="brand">${logo()}<div>Acrome<small>Satış · Support · RMA</small></div></div>
-    <nav class="nav">${nav.map(([g, items]) => `<div class="ngroup"><div class="nhead">${g}</div>${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===n[0]?'on':''}">${n[1]}<span class="count">${n[2]??''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div>`).join('')}</nav>
+    <nav class="nav">${nav.map(([g, ic, items]) => { const cur = items.some(n => n[0] === active), closed = !cur && navClosed().includes(g), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
+      return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===n[0]?'on':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
     <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${ROLES[S.profile.role]} · <button class="linkbtn" id="lo">Çıkış</button><br>${themeSwitch()}</div>
   </aside><main class="main" id="main">${html}</main></div>`;
   q('#lo').onclick = () => sb.auth.signOut();
+  qa('.nhead').forEach(h => h.onclick = () => { const g = h.parentNode, k = g.dataset.g, set = new Set(navClosed());
+    g.classList.toggle('closed'); const c = g.classList.contains('closed'); h.setAttribute('aria-expanded', !c); c ? set.add(k) : set.delete(k);
+    try { localStorage.setItem('navClosed', JSON.stringify([...set])); } catch {} });
   q('#menu').onclick = e => { const s = q('#side'); s.classList.toggle('open'); e.target.setAttribute('aria-expanded', s.classList.contains('open')); };
   qa('#side a').forEach(a => a.onclick = () => q('#side').classList.remove('open'));
 }
@@ -1078,8 +1094,8 @@ async function loadSupport(){
 // son senkron satırı: 14 saatten eskiyse uyarı (günde 2 çalışma: 09:30 / 16:30)
 function syncLine(){
   const z = S.syncAt || {}, old = t => !t || (Date.now() - new Date(t)) > 14 * 36e5;
-  const one = (k, label, hint) => `${label}: ${z[k] ? fmtDT(z[k]) : '—'}${old(z[k]) ? ` <b class="warn-t">· gecikti${hint ? ' (' + hint + ')' : ''}</b>` : ''}`;
-  return `<p class="note syncline">Son senkron · ${one('gmail','Mail')} · ${one('basecamp_cards','Basecamp','bilgisayar kapalı olabilir; açılınca kaldığı yerden devam eder')}</p>`;
+  const one = (k, label, hint) => `<span class="chip${old(z[k]) ? ' warn' : ''}" title="${old(z[k]) ? 'Gecikti' + (hint ? ': ' + hint : '') : 'Güncel'}"><i></i>${label} · ${z[k] ? fmtDT(z[k]) : '—'}${old(z[k]) ? ' · gecikti' : ''}</span>`;
+  return `<div class="syncline">${one('gmail','Mail senkronu')}${one('basecamp_cards','Basecamp senkronu','bilgisayar kapalı olabilir; açılınca kaldığı yerden devam eder')}</div>`;
 }
 async function people(){
   if (supPeople) return supPeople;
