@@ -8,7 +8,7 @@ const STATUSES = { pipeline:'Fırsat', production:'Üretimde', shipped:'Gönderi
 const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', orders:'Sipariş', support:'Support', purchasing:'Satın alma', stock:'Depo / Stok', personel:'Personel', admin:'Yönetici' };
 // rol ayrıntıları (Kullanıcılar sayfası)
 const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sales:'Fırsat ve sipariş girer, düzenler; müşteri ekler.',
-  production:'Üretim alanlarını (planlanan sevk, sevk tarihi, durum, gecikme) değiştirir; stok, BOM ve alım taleplerini yönetir.',
+  production:'Üretim alanlarını (planlanan sevk, sevk tarihi, durum, gecikme) değiştirir; sipariş aşamalarını günceller (bölüm seçildiyse yalnız o aşamaları); stok, BOM ve alım taleplerini yönetir.',
   orders:'Fırsat ve siparişlerin tümünü düzenler, müşteri ekler; stok, BOM ve alım taleplerini yönetir.',
   support:'Support konuları ve RMA kayıtlarını düzenler: durum, sorumlu, not, kapatma, birleştirme.',
   purchasing:'Alım taleplerinin durumunu, fiyatını ve tedarikçisini yönetir; tedarikçi ekler.',
@@ -101,7 +101,7 @@ async function loadAll(){
   S.deals = d.data; S.customers = c.data; S.products = p.data; S.countries = k.data; S.issues = i.data; S.loaded = true;
   await loadSupport();
   await loadRma();
-  await Promise.all([loadStock(true), loadPurCount(), loadAttToday().catch(() => {})]);
+  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadAttToday().catch(() => {})]);
   if (isCountDay() && can('stock')) sb.rpc('stock_count_notify_me').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
 // aylık stok sayımı: her ayın ilk cuması
@@ -204,6 +204,7 @@ function shell(active, html){
     ]];
   const nav = staffOnly() ? [ekip] : [
     ['Üretim', 'gear', [
+      ['uretim-pano','Üretim panosu', myDeps().length ? S.deals.filter(d => d.status === 'production' && myDeps().includes((curStage(d.id) || [])[0])).length || '' : ''],
       ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
       ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
     ]],
@@ -285,6 +286,7 @@ function route(){
     case 'calisma-kisiler': case 'yoklama-kisiler': return viewAttPeople();
     case 'kayitlar': return viewList(a || 'all');
     case 'gonderim': return viewShipments();
+    case 'uretim-pano': case 'pano': return viewBoard();
     case 'yeni': return can('sales','orders','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
     case 'duzenle': return viewForm(+a);
@@ -347,6 +349,13 @@ function todaySections(){
     S_.push({ id:'fol', title:'Müşteride 7+ gün · takip maili atılmalı', link:'#/support', rows: fol.map(tRow), empty:'Takip bekleyen yok.' });
   }
   if (S.unread) S_.push({ id:'not', title:'Okunmamış bildirimler', link:'#/bildirimler', count:S.unread, rows:[{ href:'#/bildirimler', main:`${S.unread} okunmamış bildirim`, sub:'', meta:'', hot:true }], alert:true });
+  if (can('production','orders','admin') && prod.length) {
+    const deps = myDeps(), ks = deps.length ? deps : can('production','admin') ? STG.map(x => x[0]) : ['gonderim'];
+    const sq = prod.filter(d => ks.includes((curStage(d.id) || [])[0])).sort((a,b) => (due(a)||'9999').localeCompare(due(b)||'9999'));
+    S_.push({ id:'stg', title: deps.length ? `Bölümümde sıradaki siparişler · ${deps.map(stgName).join(', ')}` : ks.length === 1 ? 'Gönderime hazır siparişler' : 'Üretim aşamaları', link:'#/uretim-pano',
+      rows: sq.map(d => { const late = due(d) && due(d) < T; return { href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub:esc(stgNow(d.id)) + (late ? ' · <span class="late-txt">gecikti</span>' : ''), meta:stgDots(d.id), hot: late && deps.length > 0 }; }),
+      empty:'Sırada bekleyen sipariş yok.', alert: deps.length > 0 });
+  }
   if (prodR || view) {
     const late = prod.filter(d => due(d) && due(d) < T).sort((a,b) => due(a).localeCompare(due(b)));
     S_.push({ id:'late', title:'Geciken siparişler', link:'#/kayitlar/production', rows: late.map(d => dRow(d, true)), empty:'Geciken sipariş yok.', alert:true });
@@ -527,7 +536,7 @@ function viewList(tab){
       <th data-s="ref">No ${ar('ref')}</th><th data-s="cust">Müşteri ${ar('cust')}</th><th class="nosort">Açıklama / ürünler</th>
       ${tab==='all'?'<th class="nosort">Durum</th>':''}
       <th data-s="date">${tab==='pipeline'?'Giriş':'Sipariş'} ${ar('date')}</th><th data-s="due">İstenen sevk ${ar('due')}</th>
-      ${tab==='shipped'?'<th class="nosort">Sevk</th>':''}${tab==='pipeline'?'<th class="nosort">Aşama</th>':''}
+      ${tab==='shipped'?'<th class="nosort">Sevk</th>':''}${tab==='pipeline'||tab==='production'?'<th class="nosort">Aşama</th>':''}
       <th data-s="amt" class="num">Tutar ${ar('amt')}</th></tr></thead><tbody>
       ${rows.map(d => { const lt = d.status==='production' && d.requested_ship_date && d.requested_ship_date < T;
         return `<tr data-id="${d.id}"><td class="mono">${esc(refNo(d))}${d.order_no&&d.opp_no?`<div class="sub">${esc(d.opp_no)}</div>`:''}</td>
@@ -535,9 +544,9 @@ function viewList(tab){
         <td>${esc(d.description)}<div class="items">${Object.entries(d.items||{}).map(([c,q])=>`<span>${fmtN(q)}× ${esc(prodName(c))}</span>`).join('')}</div></td>
         ${tab==='all'?`<td>${pill(d.status)}</td>`:''}
         <td>${fmtD(d.order_date || d.lead_date)}</td><td class="${lt?'late-txt':''}">${fmtD(d.requested_ship_date)}${lt?`<div class="sub late-txt">${days(d.requested_ship_date,T)} gün gecikti</div>`:''}</td>
-        ${tab==='shipped'?`<td>${fmtShip(d)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}
+        ${tab==='shipped'?`<td>${fmtShip(d)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}${tab==='production'?`<td style="white-space:nowrap">${stgDots(d.id)}<div class="sub">${esc(stgNow(d.id))}</div></td>`:''}
         <td class="num">${fmtUSD(d.amount_usd)}${d.currency!=='USD'&&d.amount_orig?`<div class="sub">${fmtN(d.amount_orig)} ${d.currency}</div>`:''}</td></tr>`; }).join('')}
-      <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
+      <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'||tab==='production'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
       </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${can('sales','orders','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
     qa('#tbl th[data-s]').forEach(th => th.onclick = () => { const k = th.dataset.s; if (s.sort===k) s.dir*=-1; else { s.sort=k; s.dir = k==='cust'||k==='ref'||k==='due' ? 1 : -1; } draw(); });
     qa('#tbl tr[data-id]').forEach(tr => tr.onclick = () => location.hash = '#/kayit/' + tr.dataset.id);
@@ -686,9 +695,11 @@ function viewDetail(id){
     ${Object.keys(d.items||{}).length ? `<table class="mt"><tbody>${Object.entries(d.items).map(([c,q])=>`<tr style="cursor:default"><td>${esc(prodName(c))}</td><td class="num">${fmtN(q)}</td></tr>`).join('')}</tbody></table>`:'<p class="note">Ürün kalemi yok.</p>'}
     </section>
   </div>
+  ${stagePanel(d)}
   ${rmaBox({ deal_id:d.id }, (S.rmas||[]).filter(x => x.deal_id === d.id), 'mt')}
   ${(S.tickets||[]).some(x => x.deal_id === d.id) ? `<section class="panel mt"><h2>Support konuları</h2><ul class="sugg">${S.tickets.filter(x => x.deal_id === d.id).map(x => `<li><a href="#/support/${x.id}"><span class="mono">#${x.id}</span> ${esc(x.subject)}</a> ${supPill(x.status)} <span class="sub">${fmtD(x.opened_at.slice(0,10))}</span></li>`).join('')}</ul></section>` : ''}
   <section class="panel mt"><h2>Açıklama ve notlar</h2><dl class="kv">${kv('Detay', esc(d.details))}${kv('Not', esc(d.notes))}${kv('Kaynak', esc(d.source))}${kv('Son güncelleme', new Date(d.updated_at).toLocaleString('tr-TR'))}</dl></section>`);
+  bindStagePanel(d);
   const del = q('#del');
   if (del) del.onclick = async () => {
     if (del.dataset.c !== '1') { del.dataset.c = '1'; del.textContent = 'Silmeyi onayla'; return; }
@@ -696,6 +707,97 @@ function viewDetail(id){
     if (error) return toast(dbErr(error), true);
     S.deals = S.deals.filter(x => x.id !== id); toast('Kayıt silindi'); location.hash = '#/kayitlar/' + d.status;
   };
+}
+
+// ---------------------------------------------------------------- ÜRETİM AŞAMALARI (sipariş başına)
+// Mekanik montaj → Elektronik → Yazılım / test → Paketleme → Gönderim. Her bölüm kendi aşamasını günceller
+// (Kullanıcılar sayfasında kişiye bölüm atanır; bölümü boş olan Üretim rolü tüm aşamaları günceller).
+const STG = [['mekanik','Mekanik montaj','Mekanik'], ['elektronik','Elektronik','Elektronik'], ['yazilim','Yazılım / test','Yazılım'], ['paketleme','Paketleme','Paketleme'], ['gonderim','Gönderim','Gönderim']];
+const STG_ST = { bekliyor:'Bekliyor', devam:'Devam ediyor', bitti:'Bitti', gerekmiyor:'Gerekmiyor' };
+const stgName = k => (STG.find(s => s[0] === k) || [k, k])[1];
+const stOf = (id, k) => (S.stages || []).find(s => s.deal_id === id && s.stage === k) || { deal_id:id, stage:k, status:'bekliyor' };
+const stgDone = s => s.status === 'bitti' || s.status === 'gerekmiyor';
+const curStage = id => STG.find(([k]) => !stgDone(stOf(id, k)));
+const myDeps = () => (S.profile && S.profile.departments) || [];
+const canStg = k => can('admin') || (k === 'gonderim' && can('orders')) || (can('production') && (!myDeps().length || myDeps().includes(k)));
+const stgPill = st => `<span class="pill sg-${st}">${STG_ST[st]}</span>`;
+const stgDots = id => `<span class="sgdots" title="${STG.map(([k, n]) => n + ': ' + STG_ST[stOf(id, k).status]).join(' · ')}">${STG.map(([k]) => `<i class="sg-${stOf(id, k).status}"></i>`).join('')}</span>`;
+const stgNow = id => { const c = curStage(id); if (!c) return 'Tamamlandı'; const s = stOf(id, c[0]); return c[1] + (s.status === 'devam' ? ' · devam ediyor' : ''); };
+async function loadStages(){ const { data, error } = await sb.from('deal_stages').select('*'); S.stages = error ? [] : data || []; }
+async function setStage(d, k, status, note, ship){
+  const { data, error } = await sb.rpc('deal_stage_set', { p_deal:d.id, p_stage:k, p_status:status, p_note:note ?? null, p_ship_date:ship || null });
+  if (error) { toast(dbErr(error), true); return false; }
+  S.stages = (S.stages || []).filter(s => !(s.deal_id === d.id && s.stage === k)).concat(data ? [data] : []);
+  if (k === 'gonderim' && status === 'bitti') { d.status = 'shipped'; d.ship_date = ship; toast(`${refNo(d)} gönderildi olarak kaydedildi`); }
+  else toast(`${refNo(d)} · ${stgName(k)}: ${STG_ST[status]}`);
+  return true;
+}
+// aşama satırındaki butonlar (detay sayfası ve pano kartı ortak)
+function stgActions(d, k, compact){
+  if (d.status !== 'production' || !canStg(k)) return '';
+  const s = stOf(d.id, k), b = (st, t, cls = '') => `<button class="btn sm ${cls}" data-sg="${k}" data-to="${st}" type="button">${t}</button>`;
+  if (k === 'gonderim' && s.status !== 'bitti') return `<span class="sgship"><input type="date" data-sd="${k}" value="${today()}" max="${today()}" min="${d.order_date || MIN_DATE}" aria-label="Sevk tarihi"> ${b('bitti', 'Gönderildi', 'primary')}</span>`;
+  if (s.status === 'bekliyor') return b('devam', 'Başladı') + b('bitti', 'Bitti', 'primary') + (compact ? '' : b('gerekmiyor', 'Gerekmiyor'));
+  if (s.status === 'devam') return b('bitti', 'Bitti', 'primary') + (compact ? '' : b('bekliyor', 'Bekliyor\'a al'));
+  return compact ? '' : b(s.status === 'bitti' ? 'devam' : 'bekliyor', 'Geri al');
+}
+function bindStgActions(root, d, after){
+  qa('[data-sg]', root).forEach(btn => btn.onclick = async e => {
+    e.preventDefault(); e.stopPropagation();
+    const k = btn.dataset.sg, to = btn.dataset.to, wrap = btn.closest('[data-stgrow]') || root;
+    const noteEl = q(`[data-sn="${k}"]`, wrap), ship = (q(`[data-sd="${k}"]`, wrap) || {}).value;
+    if (k === 'gonderim' && to === 'bitti' && !ship) return toast('Sevk tarihini seç', true);
+    btn.disabled = true;
+    if (await setStage(d, k, to, noteEl ? noteEl.value : null, ship)) after(); else btn.disabled = false;
+  });
+  qa('[data-sns]', root).forEach(btn => btn.onclick = async () => { const k = btn.dataset.sns, s = stOf(d.id, k), el = q(`[data-sn="${k}"]`, root);
+    if (await setStage(d, k, s.status, el.value)) after(); });
+}
+const ago2 = t => t ? new Date(t).toLocaleString('tr-TR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
+function stagePanel(d){
+  if (d.status !== 'production' && !(S.stages || []).some(s => s.deal_id === d.id)) return '';
+  const c = curStage(d.id);
+  return `<section class="panel mt" id="stgp"><h2>Üretim aşamaları <span class="sub" style="font-weight:400">· ${d.status === 'production' ? 'şu an: <b>' + esc(stgNow(d.id)) + '</b>' : esc(STATUSES[d.status])}</span></h2>
+    <ol class="stglist">${STG.map(([k, n], i) => { const s = stOf(d.id, k), edit = d.status === 'production' && canStg(k);
+      return `<li class="stgrow${c && c[0] === k ? ' cur' : ''}" data-stgrow="${k}"><span class="sgn sg-${s.status}">${stgDone(s) ? '✓' : i + 1}</span>
+        <div class="stgmain"><div class="stghead"><b>${n}</b> ${stgPill(s.status)} ${s.updated_by_name ? `<span class="sub">${esc(s.updated_by_name)} · ${ago2(s.updated_at)}</span>` : ''}</div>
+          ${edit && (!stgDone(s) || s.note) ? `<div class="stgnote"><input type="text" data-sn="${k}" value="${esc(s.note || '')}" placeholder="Not (isteğe bağlı): eksik parça, bekleyen iş…" maxlength="300" aria-label="${n} notu"><button class="btn sm" data-sns="${k}" type="button" title="Yalnız notu kaydet">Notu kaydet</button></div>`
+            : s.note ? `<div class="sub">${esc(s.note)}</div>` : ''}</div>
+        <div class="stgact">${stgActions(d, k, false)}</div></li>`; }).join('')}</ol>
+    ${d.status === 'production' && !STG.some(([k]) => canStg(k)) ? '<p class="note">Aşamaları her bölüm kendisi günceller; sizin rolünüzde aşama güncelleme yetkisi yok.</p>' : ''}
+    <details class="mt" id="stgh"><summary>Aşama geçmişi</summary><div class="sub" id="stghb">Yükleniyor…</div></details></section>`;
+}
+function bindStagePanel(d){
+  const p = q('#stgp'); if (!p) return;
+  bindStgActions(p, d, () => viewDetail(d.id));
+  q('#stgh').addEventListener('toggle', async e => { if (!e.target.open || e.target.dataset.l) return; e.target.dataset.l = 1;
+    const { data } = await sb.from('deal_stage_events').select('*').eq('deal_id', d.id).order('at', { ascending:false }).limit(50);
+    q('#stghb').innerHTML = (data || []).length ? `<ul class="stgev">${data.map(x => `<li><span class="sub">${ago2(x.at)}</span> <b>${esc(x.actor_name || '')}</b> · ${esc(stgName(x.stage))}: ${esc(STG_ST[x.old_status] || x.old_status || '')} → <b>${esc(STG_ST[x.new_status] || x.new_status)}</b>${x.note ? ` · <i>${esc(x.note)}</i>` : ''}</li>`).join('')}</ul>` : 'Henüz değişiklik yok.'; });
+}
+
+// Üretim panosu: üretimdeki siparişler, şu an bulundukları aşamaya göre sütunlarda
+const boardState = { mine:false };
+async function viewBoard(){
+  await loadStages();
+  const T = today(), due = d => d.planned_ship_date || d.requested_ship_date;
+  const deps = myDeps(), st = boardState;
+  const prod = S.deals.filter(d => d.status === 'production').sort((a, b) => (due(a) || '9999').localeCompare(due(b) || '9999'));
+  const cols = STG.map(([k, n]) => [k, n, prod.filter(d => (curStage(d.id) || [])[0] === k)]);
+  const show = cols.filter(([k]) => !st.mine || !deps.length || deps.includes(k));
+  const card = (d, k) => { const s = stOf(d.id, k), late = due(d) && due(d) < T;
+    return `<article class="bcard${late ? ' late' : ''}" data-stgrow="${k}" data-bid="${d.id}"><a href="#/kayit/${d.id}" class="bc-top"><span class="mono">${esc(refNo(d))}</span> ${stgDots(d.id)}</a>
+      <div class="bc-cust">${esc(custName(d))}</div>
+      <div class="items">${Object.entries(d.items || {}).map(([c, qn]) => `<span>${fmtN(qn)}× ${esc(prodName(c))}</span>`).join('') || `<span>${esc(d.description || '')}</span>`}</div>
+      <div class="bc-meta">${due(d) ? `<span class="${late ? 'late-txt' : ''}">${late ? days(due(d), T) + ' gün gecikti' : 'Sevk ' + fmtD(due(d))}</span>` : '<span class="sub">sevk tarihi yok</span>'}
+        ${s.status === 'devam' ? `<span class="amber-txt">● devam · ${esc((s.updated_by_name || '').split(' ')[0])}</span>` : ''}</div>
+      ${s.note ? `<div class="bc-note">${esc(s.note)}</div>` : ''}
+      <div class="bc-act">${stgActions(d, k, true)}</div></article>`; };
+  shell('uretim-pano', `<div class="pagehead"><div><h1>Üretim panosu</h1><p class="lede">Üretimdeki ${prod.length} sipariş, şu an bulundukları aşamaya göre. Her bölüm kendi sütunundaki siparişi ilerletir; "Bitti" deyince sipariş bir sonraki bölüme geçer. Sıralama: sevk tarihi en yakın üstte.</p></div></div>
+    ${deps.length ? `<div class="toolbar"><div class="seg"><button data-bm="0" class="${st.mine ? '' : 'on'}">Tüm aşamalar</button><button data-bm="1" class="${st.mine ? 'on' : ''}">Benim bölümüm (${deps.map(stgName).join(', ')})</button></div></div>` : ''}
+    <div class="pboard" style="--bcols:${show.length}">${show.map(([k, n, ds]) => `<section class="bcol${deps.includes(k) ? ' mine' : ''}"><header><h2>${n}</h2><span class="tcount">${ds.length}</span></header>
+      ${ds.length ? ds.map(d => card(d, k)).join('') : '<p class="tok">✓ Bu aşamada bekleyen sipariş yok.</p>'}</section>`).join('')}</div>`);
+  qa('[data-bm]').forEach(b => b.onclick = () => { st.mine = b.dataset.bm === '1'; viewBoard(); });
+  qa('.bcard').forEach(el => { const d = S.deals.find(x => x.id === +el.dataset.bid); bindStgActions(el, d, () => viewBoard()); });
 }
 
 // ---------------------------------------------------------------- FORM
@@ -995,13 +1097,19 @@ async function viewUsers(){
   q('#us').innerHTML = `<table><thead><tr><th class="nosort">Ad</th><th class="nosort">E-posta</th><th class="nosort">Kayıt</th><th class="nosort">Roller</th></tr></thead><tbody>${data.map(u => {
     const mine = u.id === S.profile.id, ur = userRoles(u);
     return `<tr style="cursor:default" data-u="${u.id}"><td>${esc(u.full_name||'')}</td><td>${esc(u.email)}</td><td style="white-space:nowrap">${fmtD(u.created_at.slice(0,10))}</td>
-    <td>${multi ? `<div class="rolechk">${R.map(k => `<label class="chk"><input type="checkbox" value="${k}" ${ur.includes(k)?'checked':''} ${mine?'disabled':''}> ${ROLES[k]}</label>`).join('')}</div>${mine ? '<div class="sub">Kendi rollerini değiştiremezsin</div>' : ''}`
+    <td>${multi ? `<div class="rolechk">${R.map(k => `<label class="chk"><input type="checkbox" value="${k}" ${ur.includes(k)?'checked':''} ${mine?'disabled':''}> ${ROLES[k]}</label>`).join('')}</div>${mine ? '<div class="sub">Kendi rollerini değiştiremezsin</div>' : ''}
+      ${Array.isArray(u.departments) ? `<div class="depchk"><span class="sub">Üretim bölümü:</span>${STG.map(([k, n]) => `<label class="chk"><input type="checkbox" data-dep="${k}" ${u.departments.includes(k)?'checked':''}> ${n}</label>`).join('')}<span class="sub">(boş = tüm aşamalar)</span></div>` : ''}`
       : `<select ${mine?'disabled':''} aria-label="${esc(u.email)} rolü">${Object.entries({ pending:ROLES.pending, viewer:ROLES.viewer, sales:ROLES.sales, production:ROLES.production, support:'Sipariş + Support', admin:ROLES.admin }).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select>`}</td></tr>`; }).join('')}</tbody></table>
     ${multi ? '' : '<p class="note" style="padding:10px 12px;margin:0">Çoklu rol veritabanında henüz açılmadı; şimdilik tek rol seçilebiliyor.</p>'}`;
   qa('#us tr[data-u]').forEach(tr => {
     const id = tr.dataset.u;
-    qa('input[type=checkbox]', tr).forEach(cb => cb.onchange = async () => {
-      const roles = qa('input[type=checkbox]:checked', tr).map(x => x.value);
+    qa('input[data-dep]', tr).forEach(cb => cb.onchange = async () => {
+      const departments = qa('input[data-dep]:checked', tr).map(x => x.dataset.dep);
+      const { error } = await sb.from('profiles').update({ departments }).eq('id', id); if (error) return toast(dbErr(error), true);
+      if (id === S.profile.id) S.profile.departments = departments;
+      toast(departments.length ? 'Bölüm: ' + departments.map(stgName).join(', ') : 'Bölüm kaldırıldı (tüm aşamalar)'); });
+    qa('input[type=checkbox]:not([data-dep])', tr).forEach(cb => cb.onchange = async () => {
+      const roles = qa('input[type=checkbox]:checked:not([data-dep])', tr).map(x => x.value);
       const { error } = await sb.from('profiles').update({ roles }).eq('id', id); if (error) return toast(dbErr(error), true);
       toast(roles.length ? 'Roller: ' + roles.map(r => ROLES[r]).join(' + ') : 'Erişim kapatıldı'); });
     const sel = q('select', tr);

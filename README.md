@@ -96,6 +96,19 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Tablolar `daily_notes(person_id, day)`, `daily_goals(person_id, week)`; kişiler `att_people` (ayrılanlar pasif). Yazma: kendi kartı + yönetici.
 - `#/daily-aktar` (yönetici): DailyMeetings Excel'inden üretilen JSON'u `daily_admin_import()` ile aktarır (var olan notların üzerine yazmaz).
 
+### Sipariş üretim aşamaları (7 Kasım 2026)
+- Sipariş başına 5 aşama: Mekanik montaj → Elektronik → Yazılım / test → Paketleme → Gönderim. Durumlar: Bekliyor, Devam ediyor, Bitti, Gerekmiyor; her aşamada not.
+- `#/uretim-pano`: üretimdeki siparişler bulundukları aşamaya göre sütunlarda (sevk tarihi yakın olan üstte); "Bitti" deyince sipariş sonraki bölüme geçer. Sipariş sayfasında "Üretim aşamaları" paneli ve aşama geçmişi; Üretimdeki siparişler listesinde "Aşama" sütunu; Bugün'de "Bölümümde sıradaki siparişler".
+- Yetki: her bölüm kendi aşamasını günceller. Kullanıcılar sayfasında kişiye **Üretim bölümü** seçilir (`profiles.departments`); bölümü boş olan Üretim rolü tüm aşamaları, Sipariş rolü Gönderim'i, Yönetici hepsini günceller (`can_stage`).
+- Tablolar `deal_stages(deal_id, stage)`, `deal_stage_events`; yazma yalnız `deal_stage_set()` ile. Gönderim "Bitti" → sevk tarihi zorunlu, sipariş "Gönderildi"ye geçer.
+
+## Yedekleme ve senkronlar (7 Kasım 2026)
+Sistem kullanıcının bilgisayarına bağlı değildir.
+- **Yedek:** Google Apps Script (Serhan'ın hesabında, proje "AcromeERPYedek") her pazar 03:00 `backup-export`'u çağırır, Drive'da "Acrome Site Yedekleri" klasörüne `json.gz` kaydeder (son 12). Her ayın 1'i 04:00 `backup-restore-test` son yedeği ayrı `restore_test` şemasına yükleyip canlıyla satır satır karşılaştırır ve şemayı siler (sonuç `backup_checks`). Kimlik: Vault `backup_token` (Apps Script'te `BACKUP_TOKEN`).
+- **Support mailleri:** aynı Apps Script her gün ≈09:00 ve ≈16:00 support@acrome.net maillerini okur (Gmail'de hiçbir şey değiştirmez) ve `support-mail-ingest`'e gönderir. Yeni konular `needs_triage = true` açılır.
+- **Basecamp:** `basecamp-sync` edge function'ı resmi Basecamp API'siyle (salt okuma) Supports panosunu okur; pg_cron `basecamp-support-senkronu` 09:36 ve 16:36. OAuth bilgileri Vault'ta (`basecamp_*`); bağlamak için SQL Editor'da `select public.basecamp_connect_url('<client id>', '<client secret>');` ve dönen linki açmak yeterli.
+- **Yapay zekâ:** Claude zamanlanmış görevi ("Support yapay zekâ özeti", 09:45 ve 16:45) yalnız Supabase'i okur/yazar: yeni konuları sınıflandırır/birleştirir, özet, sonraki adım ve cevap taslağı yazar, siparişle eşleştirir. Görev çalışmasa da mailler ve bildirimler gelmeye devam eder.
+
 ## Milestone 1 — 7 Kasım 2026 (`milestone-1-2026-11-07`)
 Geri dönülebilir sabit nokta. Kapsam: satış/sipariş, support + RMA, stok (mekanik/elektronik, sayım), BOM, alımlar + aylık alım raporu, tedarikçiler (gruplar, site hesapları), PCB, motor testleri, çalışma planı + aylık rapor, daily notları, Bugün sayfası, çoklu rol (Personel dahil), e-posta bildirimleri (notify-mail).
 - **Kod:** `git checkout milestone-1-2026-11-07` (GitHub'da `milestone-1-2026-11-07` dalı; etiket gönderimi kapalı olduğu için dal olarak saklandı).
