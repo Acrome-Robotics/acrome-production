@@ -1,5 +1,5 @@
 -- Çoklu rol: Sipariş / Support ayrımı, Satın alma, Depo / Stok
--- Onay bekliyor (yönetici onayıyla uygulanacak). Uygulanınca mevcut "Sipariş + Support" kullanıcıları Sipariş + Support rollerini birlikte alır.
+-- Supabase → SQL Editor'e yapıştırıp Run ile çalıştırın. Uygulanınca mevcut "Sipariş + Support" kullanıcıları Sipariş + Support rollerini birlikte alır.
 begin;
 alter table profiles add column if not exists roles text[] not null default '{}';
 alter table profiles add constraint profiles_roles_check check (roles <@ array['viewer','sales','production','orders','support','purchasing','stock','admin']);
@@ -64,8 +64,21 @@ alter policy suppliers_ins on suppliers with check (can_purchase());
 alter policy suppliers_upd on suppliers using (can_purchase()) with check (can_purchase());
 alter policy suppliers_del on suppliers using (can_purchase());
 -- fonksiyonlardaki rol kontrolleri
-create or replace function public.support_people() returns table(id uuid, name text, email text) language sql stable security definer set search_path to 'public' as $$
-  select p.id, coalesce(p.full_name, p.email), p.email from profiles p where can_read_app() and cardinality(p.roles) > 0 order by 2 $$;
+do $$ declare f record; d text; begin
+  for f in select p.oid, p.proname from pg_proc p where p.pronamespace = 'public'::regnamespace
+      and p.proname in ('support_merge','support_people','support_push_test','admin_import','stock_admin_import','deals_validate','save_deal') loop
+    d := pg_get_functiondef(f.oid);
+    d := replace(d, 'app_role() not in (''support'',''admin'')', 'not has_role(array[''support'',''admin''])');
+    d := replace(d, 'app_role() in (''viewer'',''sales'',''production'',''support'',''admin'')', 'can_read_app()');
+    d := replace(d, 'app_role() in (''anon'',''pending'')', 'not can_read_app()');
+    d := replace(d, 'public.app_role() <> ''admin''', 'not has_role(array[''admin''])');
+    d := replace(d, 'app_role() is distinct from ''admin''', 'not has_role(array[''admin''])');
+    d := replace(d, 'if tg_op = ''UPDATE'' and r = ''production'' then', 'if tg_op = ''UPDATE'' and has_role(array[''production'']) and not has_role(array[''sales'',''orders'',''admin'']) then');
+    d := replace(d, 'if v_role not in (''sales'',''support'',''admin'',''production'') then', 'if not has_role(array[''sales'',''orders'',''admin'',''production'']) then');
+    d := replace(d, 'elsif v_role = ''production'' then', 'elsif not has_role(array[''sales'',''orders'',''admin'']) then');
+    d := replace(d, 'v_role in (''sales'',''support'',''admin'')', 'has_role(array[''sales'',''orders'',''admin''])');
+    execute d;
+  end loop;
+end $$;
 commit;
--- Not: deals_validate / save_deal / support_merge / support_push_test / admin_import / stock_admin_import gövdeleri
--- has_role() kullanacak şekilde ayrıca güncellenecek (uygulama sırasında Claude yapar).
+select email, role, roles from profiles order by email;
