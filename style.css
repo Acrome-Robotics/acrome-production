@@ -391,3 +391,4 @@ tr:hover .urgbtn,.urgbtn:focus-visible{opacity:1}
 .urgbtn.on{opacity:1;border:1px solid var(--red,#c62828);background:var(--red,#c62828);color:#fff}
 .chip.bomchip{font-size:11px;padding:1px 8px;vertical-align:1px}
 .pwv{letter-spacing:.04em}
+.banner.countday{border-color:var(--amber);background:var(--amber-soft)}

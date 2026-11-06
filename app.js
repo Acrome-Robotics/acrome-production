@@ -95,7 +95,13 @@ async function loadAll(){
   await loadSupport();
   await loadRma();
   await Promise.all([loadStock(true), loadPurCount()]);
+  if (isCountDay() && can('stock', 'production')) sb.rpc('stock_count_notify').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
+// aylık stok sayımı: her ayın ilk cuması
+const isCountDay = (d = new Date()) => d.getDay() === 5 && d.getDate() <= 7;
+const nextCountDay = () => { const d = new Date(); d.setHours(0, 0, 0, 0); for (let i = 0; i < 40; i++, d.setDate(d.getDate() + 1)) if (isCountDay(d)) return d; return null; };
+const countDayTxt = () => { const d = nextCountDay(); return d ? d.toLocaleDateString('tr-TR', { day:'numeric', month:'long', weekday:'long' }) : ''; };
+const countBanner = () => isCountDay() && can('stock', 'production', 'admin') ? `<div class="banner countday"><b>Bugün aylık stok sayımı günü.</b> Rafları sayıp girin: <a href="#/mekanik-sayim">Mekanik sayım</a> · <a href="#/elektronik-sayim">Elektronik sayım</a></div>` : '';
 
 // ---------------------------------------------------------------- oturum
 async function boot(){
@@ -362,6 +368,7 @@ function viewToday(){
     return `<section class="panel tday${hot ? ' is-hot' : ''}${x.rows.length ? '' : ' is-empty'}"><header><h2>${x.title}</h2><span class="tcount${hot ? ' hot' : ''}">${x.rows.length}</span><a class="more" href="${x.link}">Tümü →</a></header>
       ${x.rows.length ? `<ul class="tlist">${x.rows.slice(0, MAX).map(r => `<li><a href="${r.href}"><span class="tm">${r.main}${r.sub ? `<span class="sub">${r.sub}</span>` : ''}</span><span class="tmeta">${r.meta}</span></a></li>`).join('')}</ul>${x.rows.length > MAX ? `<a class="tmore" href="${x.link}">+${x.rows.length - MAX} tane daha</a>` : ''}` : `<p class="tok">✓ ${x.empty}</p>`}</section>`; };
   shell('bugun', `<div class="pagehead"><div><h1>${hi}, ${esc(name)}</h1><p class="lede">${dstr} · ${esc(roleLabel(S.profile))} görünümü · ${hotN ? `<b class="late-txt">${hotN} iş dikkat istiyor</b>` : 'Acil bekleyen iş yok'}</p></div></div>
+    ${countBanner()}
     <div class="tgrid">${secs.filter(x => x.rows.length).map(panel).join('')}</div>
     ${secs.some(x => !x.rows.length) ? `<div class="tclear">${secs.filter(x => !x.rows.length).map(x => `<span>✓ ${x.empty}</span>`).join('')}</div>` : ''}`);
 }
@@ -1585,18 +1592,18 @@ async function enablePush(btn){
 async function viewNotifications(){
   shell('bildirimler', `<div class="empty">Yükleniyor…</div>`);
   const [nr, sr] = await Promise.all([
-    sb.from('support_notifications').select('id,ticket_id,created_at,read_at').order('created_at', { ascending:false }).limit(100),
+    sb.from('support_notifications').select('*').order('created_at', { ascending:false }).limit(100),
     sb.from('push_subscriptions').select('id,user_agent,created_at').order('created_at'),
   ]);
   const ns = nr.data || [], subs = sr.data || [];
   const tk = id => (S.tickets||[]).find(t => t.id === id);
   let here = false; try { const reg = await navigator.serviceWorker?.getRegistration('sw.js'); here = !!(reg && await reg.pushManager.getSubscription()); } catch {}
-  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde, yalnızca konunun sorumlusuna bildirim gider (sorumlusu olmayan konularda bildirim gitmez). Bildirimde yalnızca yeni mail geldiği yazar; ayrıntı sitede.</p></div></div>
+  shell('bildirimler', `<div class="pagehead"><div><h1>Bildirimler</h1><p class="lede">Bir support konusuna müşteriden yeni mail geldiğinde konunun sorumlusuna ve ilgili kişilerine; her ayın ilk cuması (sayım günü) Depo / Stok ve Üretim rolündekilere bildirim gider. Telefona gelen bildirimde yalnızca "yeni bildirim" yazar; ayrıntı burada.</p></div></div>
     <section class="panel"><h2>Bu cihaz</h2>
       <p class="note" style="margin-top:0">${here ? 'Bu cihazda bildirimler açık.' : 'Bu cihazda bildirim almak için aç. Telefon ve bilgisayarda ayrı ayrı açılır.'} Kayıtlı cihaz sayın: ${subs.length}.</p>
       <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}${ns.some(n=>n.read_at)?'<button class="btn" id="pdelr">Okunanları sil</button>':''}${ns.length?'<button class="btn danger" id="pdelall">Tümünü sil</button>':''}</p>
     </section>
-    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
+    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" data-nl="${esc(n.link||'')}" data-nid2="${n.id}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : n.title ? `${n.kind === 'sayim' ? '<b>Stok sayımı</b> · ' : ''}${esc(n.title)}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
   q('#pon') && (q('#pon').onclick = e => enablePush(e.target));
   q('#ptest').onclick = async e => { e.target.disabled = true; const { data, error } = await sb.rpc('support_push_test'); e.target.disabled = false; if (error) return toast(dbErr(error), true); toast('Test gönderildi'); await loadSupport(); viewNotifications(); };
   q('#pread') && (q('#pread').onclick = async () => { await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); await loadSupport(); viewNotifications(); });
@@ -1604,7 +1611,8 @@ async function viewNotifications(){
   q('#pdelr') && (q('#pdelr').onclick = () => ndel(sb.from('support_notifications').delete().not('read_at', 'is', null), 'Okunan bildirimler silindi'));
   q('#pdelall') && (q('#pdelall').onclick = e => { if (e.target.dataset.ok) return ndel(sb.from('support_notifications').delete().gte('id', 0), 'Tüm bildirimler silindi'); e.target.dataset.ok = 1; e.target.textContent = 'Emin misin? Tekrar bas'; });
   qa('.ndel').forEach(b => b.onclick = e => { e.stopPropagation(); ndel(sb.from('support_notifications').delete().eq('id', +b.dataset.nid), 'Bildirim silindi'); });
-  qa('tr[data-nt]').forEach(r => r.onclick = () => r.dataset.nt && (location.hash = '#/support/' + r.dataset.nt));
+  qa('tr[data-nt]').forEach(r => r.onclick = async () => { if (r.dataset.nt) return location.hash = '#/support/' + r.dataset.nt;
+    if (r.dataset.nl) { await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).eq('id', +r.dataset.nid2).is('read_at', null); loadSupport(); location.hash = r.dataset.nl; } });
 }
 
 async function viewTicketNew(){
@@ -1949,8 +1957,9 @@ async function viewStock(g){
   const val = I.filter(i => (i.currency || 'TRY') === 'TRY').reduce((a, i) => a + (+i.qty || 0) * (+i.unit_price || 0), 0);
   const nCrit = I.filter(critical).length;
   const boms = S.boms.filter(b => b.kind !== 'pcb' || g === 'e');
-  shell(G.key, `<div class="pagehead"><div><h1>${G.title}</h1><p class="lede">${g === 'm' ? 'Mekanik parçalar (talaşlı imalat, lazer, pleksi, rulman, bağlantı elemanı…).' : 'Elektronik parçalar, PCB komponentleri ve hazır alınan ürünler.'} Kod biçimi: TÜR-ÜRÜN-SIRA (ör. ${g === 'm' ? 'M-BBT-004' : 'E-STW-002, K-PCB-031'}).</p></div>
+  shell(G.key, `<div class="pagehead"><div><h1>${G.title}</h1><p class="lede">${g === 'm' ? 'Mekanik parçalar (talaşlı imalat, lazer, pleksi, rulman, bağlantı elemanı…).' : 'Elektronik parçalar, PCB komponentleri ve hazır alınan ürünler.'} Kod biçimi: TÜR-ÜRÜN-SIRA (ör. ${g === 'm' ? 'M-BBT-004' : 'E-STW-002, K-PCB-031'}). Sayım günü: her ayın ilk cuması${isCountDay() ? ' (bugün)' : ' · sonraki: ' + countDayTxt()}.</p></div>
     <div style="display:flex;gap:8px">${canStock() ? `<a class="btn" href="#/${G.upd}">Sayım / giriş-çıkış</a><a class="btn primary" href="#/stok-yeni/${g}">Yeni parça</a>` : ''}</div></div>
+  ${countBanner()}
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
     <div class="kpi"><div class="v">${I.length}</div><div class="l">Parça kalemi</div><div class="d">${I.filter(i => i.qty == null).length} kalemde stok girilmemiş</div></div>
     <div class="kpi ${nCrit ? 'alert' : ''} kpi-click" id="kcrit" title="Kritik stokları göster"><div class="v">${nCrit}</div><div class="l">Kritik stok</div><div class="d">minimumun altında · göstermek için tıkla</div></div>
@@ -2082,7 +2091,8 @@ async function viewStockUpdate(g){
   const I = S.items.filter(i => G.cats.includes(i.category)), changed = new Map();
   const cats = Object.fromEntries(G.cats.map(c => [c, STK_CAT[c]]));
   const MODES = { sayim:['Sayım', 'Sayılan gerçek adet'], giris:['Giriş', 'Gelen adet'], cikis:['Çıkış', 'Çıkan adet'] };
-  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var.</p></div></div>
+  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}; Depo / Stok ve Üretim rolündekilere o sabah bildirim gider.</p></div></div>
+  ${countBanner()}
   <div class="toolbar"><div class="seg" id="sgm">${Object.entries(MODES).map(([k, v]) => `<button data-m="${k}" class="${s.mode === k ? 'on' : ''}">${v[0]}</button>`).join('')}</div>
     ${G.cats.length > 1 ? `<div class="seg" id="sgc">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
     <div class="seg" id="sgo">${[['', 'Hepsi'], ['crit', 'Kritik'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
@@ -2494,13 +2504,18 @@ async function viewSuppliers(id){
       ${ed ? '<p><button class="btn primary">Kaydet</button></p>' : ''}</fieldset></form>
       ${s.id && ed ? `<section class="panel mt"><div class="board-head"><h2 style="margin:0">Site hesabı <span class="tcount">${acc.length}</span></h2><button class="btn sm" id="accadd">Hesap ekle</button></div>
         <div id="accbox"></div>${acc.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Site</th><th class="nosort">Kullanıcı</th><th class="nosort">Şifre</th><th class="nosort">Telefon / not</th><th class="nosort"></th></tr></thead><tbody>${acc.map(a => `<tr data-aid="${a.id}" style="cursor:default">${accCells(a)}<td class="sub">${esc([a.phone, a.note].filter(Boolean).join(' · '))}</td><td><button class="btn sm aedit">Düzenle</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu firmaya kayıtlı site hesabı yok.</p>'}
-        <p class="note">Hesapları yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici görür.</p></section>` : ''}</div>
+        <p class="note">Hesapları yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici görür.</p></section>
+      <section class="panel mt"><h2>Başka bir kayıtla birleştir</h2><p class="note" style="margin-top:0">Aynı firma iki kez kayıtlıysa seçtiğiniz kayıt bu firmaya katılır: alımları, parçaları ve site hesapları buraya taşınır; iletişim, e-posta, web, parça ve notlar eklenir, hiçbir bilgi silinmez. Seçilen kayıt sonra kaldırılır.</p>
+        <div class="row r2"><label class="f">Bu firmaya katılacak kayıt<select id="smerge"><option value="">—</option>${all.filter(x => x.id !== s.id).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label><div style="align-self:end"><button class="btn" id="smergeb">Birleştir</button></div></div></section>` : ''}</div>
     <aside><section class="panel"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
     q('#suf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null; if (!g('name')) return toast('Firma adı girin', true);
       const o = { name:g('name'), kind:f.kind.value, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason') };
       const r = s.id ? await sb.from('suppliers').update(o).eq('id', s.id) : await sb.from('suppliers').insert(o).select('id').single();
       if (r.error) return toast(dbErr(r.error), true); toast('Kaydedildi'); S.stockLoaded = false; location.hash = '#/tedarikciler/' + (s.id || r.data.id); };
     q('#sdel') && (q('#sdel').onclick = async () => { if (!confirmTwice(q('#sdel'), 'Emin misin? Tekrar bas')) return; const { error } = await sb.from('suppliers').delete().eq('id', s.id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/tedarikciler'; });
+    q('#smergeb') && (q('#smergeb').onclick = async e => { const v = +q('#smerge').value; if (!v) return toast('Birleştirilecek kaydı seçin', true);
+      if (!confirmTwice(e.target, `"${all.find(x => x.id === v).name}" buraya katılacak — tekrar bas`)) return;
+      const { error } = await sb.rpc('supplier_merge', { p_keep:s.id, p_drop:v }); if (error) return toast(dbErr(error), true); toast('Birleştirildi'); S.stockLoaded = false; viewSuppliers(s.id); });
     if (q('#accbox')) { const box = q('#accbox'), open = a => { box.innerHTML = accForm(a, all); bindAccForm(box, a, () => viewSuppliers(s.id)); box.scrollIntoView({ block:'nearest' }); };
       bindAccCells(document); q('#accadd').onclick = () => open({ supplier_id:s.id, kind:s.kind === 'kargo' ? 'kargo' : 'tedarikci', name:s.name, url:(s.websites || '').startsWith('http') ? s.websites : '' });
       qa('.aedit').forEach(b => b.onclick = () => open(ACC.find(a => a.id === +b.closest('tr').dataset.aid))); }
