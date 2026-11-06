@@ -270,3 +270,6 @@ tr.unread td{font-weight:600}
 .rp-in{background:var(--amber-soft);color:var(--amber)}
 .rp-done{background:var(--green-soft);color:var(--green)}
 td.num{text-align:right;white-space:nowrap}
+.rp-draft{background:var(--soft);color:var(--muted);border:1px dashed var(--line)}
+.row.req label.f{font-weight:600}
+@media print{ aside.side,.sidebar,nav,.toolbar,.btn{display:none !important} main{margin:0 !important} }

@@ -196,6 +196,7 @@ function route(){
     case 'support-yeni': return canSup() ? viewTicketNew() : viewSupport();
     case 'bildirimler': return viewNotifications();
     case 'rma': return a ? viewRmaForm(+a) : viewRma();
+    case 'rma-rapor': return viewRmaReport(a);
     case 'rma-yeni': { if (!canRma()) return viewRma(); const m = /^([td])(\d+)$/.exec(a||''); return viewRmaForm(null, m ? (m[1]==='t' ? { ticket_id:+m[2] } : { deal_id:+m[2] }) : {}); }
     default: return viewReport();
   }
@@ -1447,7 +1448,7 @@ const RMA_COST = { customs_duty:'Gümrük vergisi', vat:'KDV', broker:'Gümrük 
 const RMA_REGIME = { returned_goods:'Geri gelen eşya', inward_processing:'Dahilde işleme', outward_processing:'Hariçte işleme', temporary:'Geçici ithalat / ihracat', none:'Gümrük yok (yurt içi)', other:'Diğer' };
 const CURR = ['TRY','USD','EUR','GBP'];
 const rmaPill = st => `<span class="pill rp-${['closed','cancelled'].includes(st)?'done':['received','diagnosis','quote','repair','test'].includes(st)?'in':'out'}">${RMA_ST[st]||st}</span>`;
-const rmaOpen = r => !['closed','cancelled'].includes(r.status);
+const rmaOpen = r => !r.is_draft && !['closed','cancelled'].includes(r.status);
 const rmaAtUs = r => ['received','diagnosis','quote','repair','test'].includes(r.status);
 const rmaLate = r => rmaOpen(r) && r.estimated_ready_at && r.estimated_ready_at < today() && !r.shipped_back_at;
 const dDiff = (a, b) => a && b ? Math.round((new Date(b) - new Date(a)) / 864e5) : null;
@@ -1468,19 +1469,19 @@ function avgRepairDays(product){
 async function viewRma(){
   await loadRma();
   const R = S.rmas, s = rmaState;
-  const tabs = { open:'Açık', atus:'Ürün bizde', late:'Gecikenler', closed:'Kapanan', all:'Tümü' };
+  const tabs = { open:'Açık', atus:'Ürün bizde', late:'Gecikenler', closed:'Kapanan', draft:'Taslaklar', all:'Tümü' };
   const mon = today().slice(0,7);
   const closedM = R.filter(r => r.status === 'closed' && (r.delivered_at||'').slice(0,7) === mon);
   const tat = R.filter(r => r.received_at && r.shipped_back_at).map(r => dDiff(r.received_at, r.shipped_back_at));
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
-    const rows = R.filter(r => (s.tab === 'all' || (s.tab === 'open' ? rmaOpen(r) : s.tab === 'atus' ? rmaAtUs(r) : s.tab === 'late' ? rmaLate(r) : !rmaOpen(r)))
-      && (!ql || [r.code, r.customer, r.serial_no, r.fault_reported, r.diagnosis, prodName(r.product), r.order_no, r.invoice_in_no, r.invoice_out_no, r.import_decl_no, r.export_decl_no].join(' ').toLocaleLowerCase('tr').includes(ql)));
+    const rows = R.filter(r => (s.tab === 'all' || (s.tab === 'draft' ? r.is_draft : s.tab === 'open' ? rmaOpen(r) && !r.is_draft : s.tab === 'atus' ? rmaAtUs(r) : s.tab === 'late' ? rmaLate(r) : !rmaOpen(r)))
+      && (!ql || [r.code, r.customer, r.serial_no, r.fault_reported, r.diagnosis, r.failed_component, r.root_cause, prodName(r.product), r.order_no, r.invoice_in_no, r.invoice_out_no, r.import_decl_no, r.export_decl_no].join(' ').toLocaleLowerCase('tr').includes(ql)));
     q('#rtbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">RMA</th><th class="nosort">Müşteri</th><th class="nosort">Ürün / seri no</th><th class="nosort">Durum</th><th class="nosort">Garanti</th><th class="nosort">Ürün geliş</th><th class="nosort">Tahmini hazır</th><th class="nosort num">Maliyet</th></tr></thead><tbody>
-      ${rows.map(r => `<tr data-rid="${r.id}"><td class="mono" style="white-space:nowrap">${esc(r.code)}<div class="sub">${fmtD(r.requested_at)}</div></td>
+      ${rows.map(r => `<tr data-rid="${r.id}"><td class="mono" style="white-space:nowrap">${esc(r.code)}${r.is_draft?' <span class="pill rp-draft">Taslak</span>':''}<div class="sub">${fmtD(r.requested_at)}</div></td>
         <td>${esc(r.customer || '—')}${r.ticket_id?`<div class="sub">Support #${r.ticket_id}</div>`:''}</td>
         <td>${r.product?esc(prodName(r.product)):'—'}${r.serial_no?`<div class="sub mono">${esc(r.serial_no)}</div>`:''}</td>
-        <td>${rmaPill(r.status)}${r.outcome?`<div class="sub">${RMA_OUT[r.outcome]}</div>`:''}</td>
+        <td>${rmaPill(r.status)}${r.outcome?`<div class="sub">${RMA_OUT[r.outcome]}</div>`:''}${r.failed_component?`<div class="sub">${esc(r.failed_component)}</div>`:''}</td>
         <td>${r.in_warranty == null ? '<span class="sub">—</span>' : r.in_warranty ? '<span class="ok-txt">Garanti içi</span>' : '<span class="amber-txt">Garanti dışı</span>'}${r.warranty_end?`<div class="sub">${fmtD(r.warranty_end)}'e kadar</div>`:''}</td>
         <td>${fmtD(r.received_at)}</td>
         <td class="${rmaLate(r)?'late-txt':''}">${fmtD(r.estimated_ready_at)}${rmaLate(r)?`<div class="sub late-txt">${dDiff(r.estimated_ready_at, today())} gün gecikti</div>`:''}</td>
@@ -1490,7 +1491,7 @@ async function viewRma(){
     qa('#rtbl tr[data-rid]').forEach(tr => tr.onclick = () => location.hash = '#/rma/' + tr.dataset.rid);
   };
   shell('rma', `<div class="pagehead"><div><h1>RMA</h1><p class="lede">Tamir / iade kayıtları: tarihler, garanti, faturalar, gümrük ve tüm masraflar. Kod: sipariş no + RMA sırası (ör. ACRPO-512-RMA#1).</p></div>
-    ${canRma()?'<a class="btn primary" href="#/rma-yeni">Yeni RMA</a>':''}</div>
+    <div style="display:flex;gap:8px"><a class="btn" href="#/rma-rapor">3 aylık rapor</a>${canRma()?'<a class="btn primary" href="#/rma-yeni">Yeni RMA</a>':''}</div></div>
     ${S.rmaErr ? `<div class="banner">RMA verisi okunamadı: ${esc(S.rmaErr)}</div>` : ''}
     <div class="kpis">
       <div class="kpi"><div class="v">${R.filter(rmaOpen).length}</div><div class="l">Açık RMA</div><div class="d">${R.filter(r => rmaOpen(r) && r.in_warranty).length} garanti içi</div></div>
@@ -1505,6 +1506,47 @@ async function viewRma(){
   qa('[data-rt]').forEach(b => b.onclick = () => { s.tab = b.dataset.rt; viewRma(); });
   q('#rq').oninput = e => { s.q = e.target.value; draw(); };
   draw();
+}
+
+// 3 aylık RMA raporu (çeyrek: talep tarihine göre)
+const quarterOf = d => `${d.slice(0,4)}-Ç${Math.floor((+d.slice(5,7) - 1) / 3) + 1}`;
+async function viewRmaReport(qsel){
+  await loadRma();
+  const { data: costs } = await sb.from('rma_costs').select('rma_id,kind,direction,amount_try,currency,fx_rate');
+  const qs = [...new Set((S.rmas||[]).map(r => quarterOf(r.requested_at)))].sort().reverse();
+  const cur = qsel && qs.includes(decodeURIComponent(qsel)) ? decodeURIComponent(qsel) : (qs[0] || quarterOf(today()));
+  const R = (S.rmas||[]).filter(r => quarterOf(r.requested_at) === cur);
+  const ids = new Set(R.map(r => r.id));
+  const C = (costs||[]).filter(c => ids.has(c.rma_id) && c.direction === 'cost');
+  const sum = a => a.reduce((x,y) => x + (+y||0), 0);
+  const tat = R.filter(r => r.received_at && r.shipped_back_at).map(r => dDiff(r.received_at, r.shipped_back_at));
+  const rep = R.filter(r => r.received_at && r.repaired_at).map(r => dDiff(r.received_at, r.repaired_at));
+  const grp = (arr, key) => { const m = new Map(); arr.forEach(r => { const k = (key(r) || '').trim() || '— (girilmemiş)'; m.set(k, (m.get(k)||0) + 1); }); return [...m.entries()].sort((a,b) => b[1]-a[1]); };
+  const byKind = Object.keys(RMA_COST).map(k => [RMA_COST[k], sum(C.filter(c => c.kind === k).map(c => c.amount_try))]).filter(x => x[1]);
+  const tbl = (head, rows) => rows.length ? `<table><thead><tr>${head.map(h=>`<th class="nosort">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="note">Veri yok.</p>';
+  shell('rma', `<p><a href="#/rma">← RMA listesi</a></p>
+  <div class="pagehead"><div><h1>RMA raporu · ${cur}</h1><p class="lede">Talep tarihi bu çeyrekte olan RMA'lar${R.some(r=>r.is_draft)?' (geçmişten çıkarılan taslaklar dahil)':''}.</p></div>
+    <div style="display:flex;gap:8px;align-items:center"><select id="rq" aria-label="Çeyrek">${(qs.length?qs:[cur]).map(x=>`<option ${x===cur?'selected':''}>${x}</option>`).join('')}</select><button class="btn" onclick="window.print()">Yazdır / PDF</button></div></div>
+  <div class="kpis">
+    <div class="kpi"><div class="v">${R.length}</div><div class="l">RMA</div><div class="d">${R.filter(r=>r.status==='closed').length} kapandı · ${R.filter(rmaOpen).length} açık</div></div>
+    <div class="kpi"><div class="v">${R.filter(r=>r.in_warranty).length}</div><div class="l">Garanti içi</div><div class="d">${R.filter(r=>r.in_warranty===false).length} garanti dışı</div></div>
+    <div class="kpi"><div class="v">${rep.length?Math.round(sum(rep)/rep.length):'—'}</div><div class="l">Ort. tamir (gün)</div><div class="d">Geliş → tamir bitti</div></div>
+    <div class="kpi"><div class="v">${tat.length?Math.round(sum(tat)/tat.length):'—'}</div><div class="l">Ort. dönüş (gün)</div><div class="d">Geliş → geri gönderim</div></div>
+    <div class="kpi"><div class="v">${fmtTRY(sum(C.map(c=>c.amount_try)))}</div><div class="l">Toplam masraf</div><div class="d">${C.filter(c=>c.currency!=='TRY'&&!c.fx_rate).length?'Kuru eksik satırlar hariç':'Tüm satırlar dahil'}</div></div>
+  </div>
+  <div class="grid sup-grid">
+    <div>
+      <section class="panel"><h2>Sorunlu parçalar</h2><div class="tablewrap">${tbl(['Arızalı parça / bileşen','Adet'], grp(R, r=>r.failed_component).map(([k,n])=>[esc(k), n]))}</div></section>
+      <section class="panel mt"><h2>Sorunu ne çıkardı</h2><div class="tablewrap">${tbl(['Kök neden','Adet'], grp(R, r=>r.root_cause).map(([k,n])=>[esc(k), n]))}</div></section>
+      <section class="panel mt"><h2>Bu çeyreğin RMA'ları</h2><div class="tablewrap">${tbl(['RMA','Müşteri','Ürün','Durum','Arızalı parça','Kök neden','Masraf'], R.map(r=>[`<a href="#/rma/${r.id}" class="mono">${esc(r.code)}</a>${r.is_draft?' <span class="pill rp-draft">Taslak</span>':''}`, esc(r.customer||'—'), r.product?esc(prodName(r.product)):'—', RMA_ST[r.status], esc(r.failed_component||'—'), esc(r.root_cause||'—'), fmtTRY(r.cost_try)]))}</div></section>
+    </div>
+    <aside>
+      <section class="panel"><h2>Ürüne göre</h2><div class="tablewrap">${tbl(['Ürün','RMA'], grp(R, r=>prodName(r.product)).map(([k,n])=>[esc(k), n]))}</div></section>
+      <section class="panel mt"><h2>Masraf kalemleri</h2><div class="tablewrap">${tbl(['Kalem','Tutar'], byKind.map(([k,v])=>[k, fmtTRY(v)]))}</div></section>
+      <section class="panel mt"><h2>Sonuç</h2><div class="tablewrap">${tbl(['Sonuç','Adet'], grp(R.filter(r=>r.outcome), r=>RMA_OUT[r.outcome]).map(([k,n])=>[k,n]))}</div></section>
+    </aside>
+  </div>`);
+  q('#rq').onchange = e => location.hash = '#/rma-rapor/' + encodeURIComponent(e.target.value);
 }
 
 async function viewRmaForm(id, preset){
@@ -1541,9 +1583,11 @@ async function viewRmaForm(id, preset){
   shell('rma', `<p><a href="#/rma">← RMA listesi</a></p>
   <div class="pagehead"><div><h1>${id ? esc(r.code) : 'Yeni RMA'}</h1>
     <p class="lede">${esc(r.customer || r.customer_name || 'Müşteri belirtilmemiş')}${r.order_no?` · <a href="#/kayit/${r.deal_id}" class="mono">${esc(r.order_no)}</a>`:''}${r.ticket_id?` · <a href="#/support/${r.ticket_id}">Support #${r.ticket_id}</a>`:''}</p></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${id?rmaPill(r.status):''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${r.is_draft?'<span class="pill rp-draft">Taslak</span>':''}${id?rmaPill(r.status):''}
+      ${id && ed && r.is_draft ? '<button class="btn" id="rconfirm">Taslağı onayla</button>' : ''}
       ${id && ed && nextSt && r.status!=='cancelled' ? `<button class="btn primary" id="rnext">→ ${RMA_ST[nextSt]}</button>` : ''}
-      ${id && can('admin') ? '<button class="btn danger" id="rdel">Sil</button>' : ''}</div></div>
+      ${id && (can('admin') || (ed && r.is_draft)) ? '<button class="btn danger" id="rdel">Sil</button>' : ''}</div></div>
+  ${r.is_draft ? `<div class="banner">Bu kayıt geçmiş support konusundan otomatik çıkarılmış bir <b>taslak</b>. Bilgileri kontrol edip “Taslağı onayla” deyin; yanlışsa silin.</div>` : ''}
   ${id && rmaLate(r) ? `<div class="banner">Tahmini hazır olma tarihi (${fmtD(r.estimated_ready_at)}) geçti; ürün henüz geri gönderilmedi.</div>` : ''}
   <div class="grid sup-grid">
   <div>
@@ -1564,7 +1608,10 @@ async function viewRmaForm(id, preset){
       <div class="row r3">${dt('delivered_at','Müşteriye teslim')}<div></div><div></div></div>
     </section>
     <section class="panel mt"><h2>Teşhis ve tamir</h2>
-      ${ta('diagnosis','Bulunan arıza')}<div class="row r2">${tx('root_cause','Kök neden')}${tx('parts_replaced','Değişen parçalar')}</div>
+      ${ta('diagnosis','Bulunan arıza')}
+      <div class="row r2 req">${tx('failed_component','Arızalı parça / bileşen','zorunlu · ör. pendulum kontrol kartı, SMD, motor')}${tx('root_cause','Sorunu ne çıkardı (kök neden)','zorunlu · ör. limit switch kablosu, aşırı akım, nakliye')}</div>
+      <p class="note" style="margin:-4px 0 10px">Bu iki alan doldurulmadan "Test", "Geri gönderildi" ve "Kapandı" aşamalarına geçilemez; 3 aylık raporda sorunlu parçalar buradan çıkar.</p>
+      ${tx('parts_replaced','Değişen / gönderilen parçalar')}
       <div class="row r2">${tx('labor_hours','İşçilik (saat)','','number')}<label class="f">Sonuç${sel('outcome', RMA_OUT, r.outcome||'', '—')}</label></div>${ta('repair_note','Tamir notu',2)}
     </section>
     <section class="panel mt"><h2>Kargo</h2>
@@ -1610,7 +1657,7 @@ async function viewRmaForm(id, preset){
   if (!ed) return;
   const collect = f => {
     const o = {}; const g = n => f[n] ? f[n].value.trim() : '';
-    for (const k of ['customer_name','product','serial_no','fault_reported','requested_at','approved_at','customer_shipped_at','received_at','diagnosed_at','repaired_at','shipped_back_at','delivered_at','diagnosis','root_cause','parts_replaced','outcome','repair_note','in_carrier','in_tracking','out_carrier','out_tracking','invoice_in_no','invoice_in_date','invoice_in_currency','invoice_out_no','invoice_out_date','invoice_out_currency','charged_currency','customs_regime','original_export_decl','import_decl_no','import_decl_date','export_decl_no','export_decl_date','notes','assignee','status']) o[k] = g(k) || null;
+    for (const k of ['customer_name','product','serial_no','fault_reported','failed_component','requested_at','approved_at','customer_shipped_at','received_at','diagnosed_at','repaired_at','shipped_back_at','delivered_at','diagnosis','root_cause','parts_replaced','outcome','repair_note','in_carrier','in_tracking','out_carrier','out_tracking','invoice_in_no','invoice_in_date','invoice_in_currency','invoice_out_no','invoice_out_date','invoice_out_currency','charged_currency','customs_regime','original_export_decl','import_decl_no','import_decl_date','export_decl_no','export_decl_date','notes','assignee','status']) o[k] = g(k) || null;
     for (const k of ['labor_hours','invoice_in_amount','invoice_out_amount','charged_to_customer','estimated_repair_days','ticket_id']) o[k] = g(k) === '' ? null : +g(k);
     o.warranty_override = g('warranty_override') === '' ? null : g('warranty_override') === 'true';
     if (!o.requested_at) o.requested_at = today();
@@ -1625,6 +1672,7 @@ async function viewRmaForm(id, preset){
     toast(id ? 'Kaydedildi' : 'RMA açıldı'); await loadRma(); location.hash = '#/rma/' + res.data.id; if (id) viewRmaForm(id);
   };
   q('#rnext') && (q('#rnext').onclick = async () => { const { error } = await sb.from('rma').update({ status: nextSt }).eq('id', id); if (error) return toast(dbErr(error), true); toast(RMA_ST[nextSt]); await loadRma(); viewRmaForm(id); });
+  q('#rconfirm') && (q('#rconfirm').onclick = async () => { const { error } = await sb.from('rma').update({ is_draft:false }).eq('id', id); if (error) return toast(dbErr(error), true); toast('Taslak onaylandı'); await loadRma(); viewRmaForm(id); });
   q('#rdel') && (q('#rdel').onclick = async e => { if (!confirmInline(e.target, 'Silmek için tekrar bas')) return; const { error } = await sb.from('rma').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('RMA silindi'); await loadRma(); location.hash = '#/rma'; });
   q('#cf') && (q('#cf').onsubmit = async e => {
     e.preventDefault(); const f = e.target; const amt = +f.amount.value;
