@@ -1195,7 +1195,7 @@ async function viewTicket(id){
     : e.kind === 'assignee' ? `Sorumlu: ${esc(e.old_value||'—')} → <b>${esc(e.new_value||'—')}</b>`
     : e.kind === 'merged' ? `Birleştirildi: ${esc(e.old_value)} "${esc(e.new_value||'')}"`
     : e.kind === 'category' ? `Kategori: ${SUP_CAT[e.old_value]||e.old_value} → <b>${SUP_CAT[e.new_value]||e.new_value}</b>` : esc(e.kind);
-  const items = [...msgs.map(m => ({ at:m.sent_at, m })), ...evs.map(e => ({ at:e.at, e }))].sort((a,b) => a.at.localeCompare(b.at));
+  const items = [...msgs.map(m => ({ at:m.sent_at, m })), ...evs.map(e => ({ at:e.at, e }))].sort((a,b) => b.at.localeCompare(a.at));
   const who = m => m.direction === 'in' ? 'Müşteri' : m.direction === 'out' ? 'Acrome' : SUP_SRC[m.source] || 'Dahili';
   const mine = m => canSup() && ['note','call','meet'].includes(m.source) && (m.created_by === S.profile.id || can('admin'));
   const msgHtml = m => {
@@ -1228,7 +1228,7 @@ async function viewTicket(id){
     <div>
       ${aiPanel(t, msgs.length)}
       ${t.summary ? `<section class="panel mt"><h2>Özet</h2><p style="margin:0;white-space:pre-wrap">${esc(t.summary)}</p>${t.resolution?`<h2 class="mt">Çözüm</h2><p style="margin:0;white-space:pre-wrap">${esc(t.resolution)}</p>`:''}</section>` : ''}
-      <section class="panel mt"><h2>Zaman çizelgesi <span class="sub">(${msgs.length} mesaj)</span></h2>
+      <section class="panel mt"><h2>Zaman çizelgesi <span class="sub">(${msgs.length} mesaj · en yeni üstte)</span></h2>
         <div class="timeline">${items.length ? items.map(x => x.m ? msgHtml(x.m) : `<div class="ev"><span>${fmtDT(x.e.at)}</span> · ${esc(x.e.actor_name||'')} · ${evText(x.e)}</div>`).join('') : '<p class="note">Henüz mesaj yok.</p>'}</div>
       </section>
       ${hist.length ? `<section class="panel mt"><h2>Bu müşterinin destek geçmişi <span class="sub">(${hist.length} konu)</span></h2>
@@ -1371,7 +1371,9 @@ async function enablePush(btn){
   try {
     const reg = await navigator.serviceWorker.register('sw.js');
     if (await Notification.requestPermission() !== 'granted') throw new Error('Bildirim izni verilmedi');
-    const { publicKey } = await (await fetch(PUSH_FN + '?action=publicKey', { headers:{ apikey: APP_CONFIG.supabaseKey } })).json();
+    const tok = (await sb.auth.getSession()).data.session?.access_token;
+    const { publicKey } = await (await fetch(PUSH_FN + '?action=publicKey', { headers:{ apikey: APP_CONFIG.supabaseKey, Authorization: 'Bearer ' + tok } })).json();
+    if (!publicKey) throw new Error('Bildirim servisine ulaşılamadı');
     const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64ToU8(publicKey) });
     const j = sub.toJSON();
     const { error } = await sb.from('push_subscriptions').upsert({ endpoint:j.endpoint, p256dh:j.keys.p256dh, auth:j.keys.auth, user_agent:navigator.userAgent.slice(0,200) }, { onConflict:'endpoint' });
