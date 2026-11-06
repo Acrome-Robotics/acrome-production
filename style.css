@@ -374,3 +374,11 @@ fieldset:disabled .watchers .chk{cursor:default;opacity:.8}
 .pstat button{font-size:13px}
 .qpin,.pcin{width:84px !important;border-color:transparent !important;background:transparent !important}
 tr:hover .qpin,tr:hover .pcin,.qpin:focus,.pcin:focus{border-color:var(--line) !important;background:var(--surface) !important}
+.rolechk{display:flex;flex-wrap:wrap;gap:4px 12px}
+.rolechk .chk{display:inline-flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap;cursor:pointer}
+.imgpanel{padding:12px}
+.partimg{width:100%;height:auto;border-radius:var(--radius);display:block;background:var(--soft)}
+.imgdot{color:var(--data);font-size:11px}
+.savebar{position:sticky;bottom:12px;margin-top:12px;display:flex;gap:10px;align-items:center;justify-content:flex-end;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;box-shadow:0 4px 16px rgba(0,0,0,.08)}
+.savebar span{margin-right:auto;font-weight:600}
+.sgin{width:110px !important;text-align:right}
