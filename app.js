@@ -118,6 +118,9 @@ const countDayTxt = () => { const d = nextCountDay(); return d ? d.toLocaleDateS
 const countBanner = () => isCountDay() && can('stock', 'production', 'admin') ? `<div class="banner countday"><b>Bugün aylık stok sayımı günü.</b> Rafları sayıp girin: <a href="#/mekanik-sayim">Mekanik sayım</a> · <a href="#/elektronik-sayim">Elektronik sayım</a></div>` : '';
 
 // ---------------------------------------------------------------- oturum
+// sayfa içi küçük işleyiciler (satır içi onclick yok; güvenlik başlığı CSP buna izin vermez)
+document.addEventListener('click', e => { const t = e.target.closest && e.target.closest('[data-print], .stopprop'); if (!t) return;
+  if (t.dataset.print) window.print(); else e.stopPropagation(); }, true);
 async function boot(){
   const { data } = await sb.auth.getSession();
   S.session = data.session;
@@ -2073,7 +2076,7 @@ async function viewRmaReport(qsel){
   const tbl = (head, rows) => rows.length ? `<table><thead><tr>${head.map(h=>`<th class="nosort">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="note">Veri yok.</p>';
   shell('rma-rapor', `<p><a href="#/rma">← RMA listesi</a></p>
   <div class="pagehead"><div><h1>RMA raporu · ${cur}</h1><p class="lede">Talep tarihi bu çeyrekte olan RMA'lar${R.some(r=>r.is_draft)?' (geçmişten çıkarılan taslaklar dahil)':''}.</p></div>
-    <div style="display:flex;gap:8px;align-items:center"><select id="rq" aria-label="Çeyrek">${(qs.length?qs:[cur]).map(x=>`<option ${x===cur?'selected':''}>${x}</option>`).join('')}</select><button class="btn" onclick="window.print()">Yazdır / PDF</button></div></div>
+    <div style="display:flex;gap:8px;align-items:center"><select id="rq" aria-label="Çeyrek">${(qs.length?qs:[cur]).map(x=>`<option ${x===cur?'selected':''}>${x}</option>`).join('')}</select><button class="btn" data-print="1" type="button">Yazdır / PDF</button></div></div>
   <div class="kpis">
     <div class="kpi"><div class="v">${R.length}</div><div class="l">RMA</div><div class="d">${R.filter(r=>r.status==='closed').length} kapandı · ${R.filter(rmaOpen).length} açık</div></div>
     <div class="kpi"><div class="v">${R.filter(r=>r.in_warranty).length}</div><div class="l">Garanti içi</div><div class="d">${R.filter(r=>r.in_warranty===false).length} garanti dışı</div></div>
@@ -2734,7 +2737,7 @@ async function viewPurchases(){
       ${rows.slice(0, 800).map(p => `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
         <td><b style="font-weight:600">${esc(p.item_name)}</b>${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
         <td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(p.requester_name || '') || '<span class="sub">—</span>'}<div class="sub opt">${esc([p.unit, p.area].filter(Boolean).join(' · '))}</div></td>
-        <td>${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.link ? `${supName(p.supplier_id) || p.supplier_text ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub" onclick="event.stopPropagation()">bağlantı ↗</a>` : (supName(p.supplier_id) || p.supplier_text ? '' : '<span class="sub">—</span>')}</td>
+        <td>${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.link ? `${supName(p.supplier_id) || p.supplier_text ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub stopprop">bağlantı ↗</a>` : (supName(p.supplier_id) || p.supplier_text ? '' : '<span class="sub">—</span>')}</td>
         <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}</td></tr>`).join('')}</tbody>
       <tfoot><tr class="tfoot"><td colspan="3">${rows.length} kayıt${rows.length > 800 ? ' (ilk 800)' : ''}</td><td class="num">${fmtTRY(sumT(rows))}</td><td colspan="3"></td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('#ptbl tr[data-pid]').forEach(r => r.onclick = () => location.hash = '#/alimlar/' + r.dataset.pid);
@@ -2822,7 +2825,7 @@ const SUP_GRP = { elektronik:'Elektronik & komponent', robotik:'Robotik & hobi s
   pazar:'Pazar yeri & genel alışveriş', kargo:'Kargo & gümrük', hizmet:'Hizmet & diğer' };
 const copyTxt = async (t, btn) => { try { await navigator.clipboard.writeText(t || ''); toast('Kopyalandı'); } catch { toast('Kopyalanamadı', true); } };
 // tek hesap satırı (şifre gizli, göster / kopyala)
-const accCells = a => `<td><b style="font-weight:600">${esc(a.name)}</b>${a.url ? `<div><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener" class="sub" onclick="event.stopPropagation()">${esc(a.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40))} ↗</a></div>` : ''}</td>
+const accCells = a => `<td><b style="font-weight:600">${esc(a.name)}</b>${a.url ? `<div><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener" class="sub stopprop">${esc(a.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40))} ↗</a></div>` : ''}</td>
   <td class="mono">${a.username ? `${esc(a.username)} <button type="button" class="linkbtn acopy" data-v="${esc(a.username)}" title="Kullanıcı adını kopyala">kopyala</button>` : '<span class="sub">—</span>'}</td>
   <td class="mono" style="white-space:nowrap">${a.password ? `<span class="pwv" data-pw="${esc(a.password)}">••••••••</span> <button type="button" class="linkbtn pwshow">göster</button> · <button type="button" class="linkbtn acopy" data-v="${esc(a.password)}">kopyala</button>` : '<span class="sub">—</span>'}</td>`;
 const bindAccCells = root => {

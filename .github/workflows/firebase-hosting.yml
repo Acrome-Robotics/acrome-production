@@ -1,0 +1,20 @@
+# main dalına her gönderimde siteyi Firebase Hosting'e (web.app) yayınlar.
+# Gerekli: depo Settings → Secrets and variables → Actions → FIREBASE_SERVICE_ACCOUNT (Firebase hizmet hesabı JSON'u)
+# ve Variables → FIREBASE_PROJECT_ID. İkisi de yoksa iş atlanır (GitHub Pages yayını etkilenmez).
+name: Firebase Hosting
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ vars.FIREBASE_PROJECT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
+          channelId: live
