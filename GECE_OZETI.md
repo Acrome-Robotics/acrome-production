@@ -23,15 +23,6 @@ Durum: Devam ediyor (başlangıç 03:10)
   - BOM'da stok kartına bağlı olmayan 39 satır var (çoğu kablo ve kart). Mükerrer BOM satırı 3: Stewart'ta 2 PCB, Copter'de 1 PCB iki kez geçiyor
   - 15 olası mükerrer elektronik komponent kartı (ör. "16Mhz Kristal" ve "16Mhz")
 
-## Uyuşmazlıklar
-- Referansla tutmayan sonuç yok: tedarik hesabı iki yöntemde de aynı çıktı.
-- Dikkat: ürün malzeme listeleri ile siparişlerdeki kontrolcü seçimi tutarsız.
-  - Stewart'ın malzeme listesinde hem Raspberry Pi hem Arduino Shield var; siparişlerde ise kontrolcü ayrı kalem olarak yazılıyor (ör. ACRPO-546: 4 Stewart + 12 RPI).
-  - Sonuç: her Stewart için bir Raspberry Pi sayılıyor; Arduino'lu siparişte bu fazla alıma yol açar. Soru 2'ye bak.
-
-## Yapılacaklar (bugün)
-- Hazırlananları onayla: veritabanı değişikliği (sql/ klasöründeki dosya) uygulanır, `gece-2026-11-07` dalı ana dala birleşir.
-
 - Bugün yazılan kodun bağımsız güvenlik ve hata incelemesi yapıldı: 14 bulgu. Düzeltmeler hazır ama canlıya alınmadı ✅
   - 🔴 **Yüksek – en önce bu:**
     - Alımlar, stok ve tedarik sayfalarında para birimi alanı kaçırılmadan sayfaya basılıyordu. Siteye girebilen herhangi biri, sahte para birimiyle bir alım talebi açıp yönetici o sayfayı açınca onun oturumunda kod çalıştırabilirdi; bu yolla kendine yönetici rolü bile verebilirdi.
@@ -57,6 +48,28 @@ Durum: Devam ediyor (başlangıç 03:10)
     - `supabase/functions/` (2 sunucu fonksiyonu)
   - Sorun bulunmayanlar: rol önizleme, yedek ve geri yükleme fonksiyonları, masraf dosyalarının okunma kuralı, yeni tablolara doğrudan yazma yetkileri.
 
+## Uyuşmazlıklar
+- Referansla tutmayan sonuç yok: tedarik hesabı iki yöntemde de aynı çıktı.
+- Dikkat: ürün malzeme listeleri ile siparişlerdeki kontrolcü seçimi tutarsız.
+  - Stewart'ın malzeme listesinde hem Raspberry Pi hem Arduino Shield var; siparişlerde ise kontrolcü ayrı kalem olarak yazılıyor (ör. ACRPO-546: 4 Stewart + 12 RPI).
+  - Sonuç: her Stewart için bir Raspberry Pi sayılıyor; Arduino'lu siparişte bu fazla alıma yol açar. Soru 2'ye bak.
+
+## Yapılacaklar (bugün)
+Sen "onay" deyince ben sırayla yaparım (her adımdan sonra kontrol):
+1. 🔴 Güvenlik düzeltmeleri veritabanına: `sql/2026-11-07b_guvenlik_duzeltmeleri.sql`
+2. Tedarik planı veritabanına: `sql/2026-11-07_tedarik_plani.sql`
+3. Düzeltilmiş 2 sunucu fonksiyonu yüklenir (mail senkronu, Basecamp bağlantısı)
+4. `gece-2026-11-07` dalı ana dala birleşir → site güncellenir
+5. Canlı sitede kontrol: alımlar, masraf, tedarik planı, aşama panosu
+
+Senin yapacakların:
+- Muhasebe rolünü ve üretim bölümlerini (Mekanik, Elektronik, Paketleme, Gönderim…) kişilere ata
+- Üretimdeki 13 siparişin aşamalarını gir
+- Çalışma planı kişilerinde eksik e-postaları tamamla
+- noreply@acrome.net takma adı: Google Admin'de alias + Gmail'de "Farklı gönder"
+- web.app'e geçiş için Firebase proje kimliğini gönder (bekliyor)
+
+
 ## #4 Sabah brifingindeki Basecamp kısmını sunucuya taşıma — plan (uygulanmadı)
 - Bugün brifing Basecamp'i bilgisayarındaki araçla okuyor; araç 5 bölüm üretiyor: atamalarım, gecikenler raporu, bildirimler, aktivite, ping konuşmaları.
 - Bu 5 bölümün hepsi Basecamp'in resmi API'sinde var ve dün kurduğumuz salt okuma bağlantısıyla okunabilir:
@@ -72,7 +85,18 @@ Durum: Devam ediyor (başlangıç 03:10)
 - Süre: yaklaşık 1 saat. Senin onayınla sunucuya yüklenir; gece yapılmadı.
 
 ## Önerilerim
-- 
+- Güvenlik düzeltmesini (1. adım) bugün ilk iş al; diğerleri beklese de bu beklememeli.
+- Tedarik planından önce 33 tedarikçi bağlantısını onayla; paketler (Çin motorları vb.) o zaman doğru gruplanır.
+- Fiyatı olmayan 4 satın alınan karta fiyat gir; plan tutarı eksik kalmasın.
+- Stewart BOM'undaki kontrolcü satırını "alternatif grup" yap (Raspberry Pi / Arduino); planda seçilebilir olur, fazla alım olmaz.
+- Brifingin Basecamp kısmını sunucuya taşıyalım (#4, ~1 saat); bilgisayar kapalıyken de çalışır.
 
 ## Sana sorularım
-1. 
+1. Onay: yukarıdaki 5 adımı canlıya alayım mı? (hepsi / yalnız güvenlik / bekle)
+2. Stewart'ta kontrolcü: BOM'daki Raspberry Pi her Stewart'ta var mı, yoksa siparişteki RPI/ARD satırı mı belirliyor? (çift sayım olabilir)
+3. Stewart BOM'unda 2, Copter BOM'unda 1 PCB iki kez yazılmış: gerçekten 2 adet mi, yoksa mükerrer mi?
+4. ACROBOT ile ARM4 aynı ürün mü?
+5. Stewart PRO, SMD ve Stewart Premium BOM'larında ürün kodu yok: hangi sipariş kodlarına bağlayayım? (ör. SMD → SMD_EDU?)
+6. 33 tedarikçi bağlantı önerisini (Excel'de) uygulayayım mı?
+7. Alımlardaki tutarlar KDV dahil mi? Stok kartı fiyatları KDV hariç görünüyor.
+8. Tedarikçi "CNC" hangi firma? 
