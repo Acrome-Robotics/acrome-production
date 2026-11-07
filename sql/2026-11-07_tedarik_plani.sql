@@ -102,7 +102,9 @@ res as (
     coalesce(s.qty, pc.working, 0) stock,
     coalesce(nullif(s.unit_price, 0), pc.cost_usd, nd.bom_price) price,
     case when nullif(s.unit_price, 0) is not null then coalesce(s.currency, 'TRY') when pc.cost_usd is not null then 'USD' when nd.bom_price is not null then 'TRY' end cur,
-    case when pc.id is not null then 'PCB dizgi' else coalesce(su.name, nullif(trim(s.supplier_text), ''), 'Tedarikçi belirsiz') end package,
+    case when pc.id is not null then 'PCB dizgi'
+         when su.name is null and s.supplier_text ~* '(creality|k1 ?max|3d bask)' then 'İç üretim – 3D baskı'
+         else coalesce(su.name, nullif(trim(s.supplier_text), ''), 'Tedarikçi belirsiz') end package,
     coalesce(su.name, s.supplier_text) supplier_text
   from nd left join stock_items s on s.id = nd.item_id left join pcb_boards pc on pc.id = nd.pcb_board_id left join suppliers su on su.id = s.supplier_id),
 fin as (
@@ -200,7 +202,8 @@ begin
   if not found then raise exception 'Plan bulunamadı'; end if;
   if pl.status <> 'onaylandi' then raise exception 'Önce plan onaylanmalı'; end if;
   who := (select coalesce(full_name, email) from public.profiles where id = auth.uid());
-  for l in select * from public.supply_plan_lines where plan_id = p_id and order_qty > 0 and purchase_id is null order by package, name loop
+  -- iç üretim (3D baskı) kalemleri için alım talebi açılmaz; atölye kendisi basar
+  for l in select * from public.supply_plan_lines where plan_id = p_id and order_qty > 0 and purchase_id is null and package <> 'İç üretim – 3D baskı' order by package, name loop
     insert into public.purchases(kind, unit, area, requested_at, requester_name, requester, urgency, status, project, item_name, item_id, qty, unit_price, total,
       currency, supplier_id, supplier_text, source, plan_id, package, note)
     values ('alim', case when l.section = 'mekanik' then 'Mekanik' else 'Elektronik' end, 'Üretim', (now() at time zone 'Europe/Istanbul')::date, who, auth.uid(), 'normal', 'talep',

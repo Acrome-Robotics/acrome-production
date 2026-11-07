@@ -2959,7 +2959,8 @@ async function viewPlan(id){
   const acts = [];
   if (p.status === 'taslak' && canPlan()) acts.push(`<a class="btn" href="#/tedarik-duzenle/${id}">Düzenle</a>`, btn('gonderildi', 'Yöneticiye ve muhasebeye gönder', 'primary'));
   if (p.status === 'gonderildi' && can('admin')) acts.push(btn('onaylandi', 'Onayla', 'primary'), btn('taslak', 'Düzeltme için geri gönder'));
-  if (p.status === 'onaylandi' && can('admin', 'purchasing')) acts.push(btn('alim', `Alım taleplerini oluştur (${L.filter(l => !l.purchase_id).length} kalem)`, 'primary'));
+  const INHOUSE = 'İç üretim – 3D baskı';
+  if (p.status === 'onaylandi' && can('admin', 'purchasing')) acts.push(btn('alim', `Alım taleplerini oluştur (${L.filter(l => !l.purchase_id && l.package !== INHOUSE).length} kalem)`, 'primary'));
   if (['taslak', 'gonderildi', 'onaylandi'].includes(p.status) && (can('admin') || (p.status === 'taslak' && p.created_by === S.profile.id))) acts.push(btn('iptal', 'Planı iptal et', 'danger'));
   shell('tedarik', `<p><a href="#/tedarik">← Tedarik planları</a></p>
     <div class="pagehead"><div><h1>${esc(p.name)}</h1><p class="lede">${esc(p.created_by_name || '')} · ${fmtDT(p.created_at)}${p.approved_by_name ? ` · onaylayan ${esc(p.approved_by_name)} (${fmtDT(p.approved_at)})` : ''}</p></div>
@@ -2973,7 +2974,7 @@ async function viewPlan(id){
     ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
     ${acts.length ? `<section class="panel noprint">${p.status === 'gonderildi' && can('admin') ? '<label class="f">Not <span class="hint">geri gönderirken zorunlu</span><input id="plrev" maxlength="500"></label>' : ''}<p style="display:flex;gap:8px;flex-wrap:wrap;margin:${p.status === 'gonderildi' && can('admin') ? '10px' : '0'} 0 0">${acts.join('')}</p></section>` : ''}
     ${pkgs.map(pk => { const R = L.filter(l => l.package === pk), sub = t.pk[pk];
-      return `<section class="panel mt"><div class="board-head"><h2 style="margin:0">${esc(pk)} <span class="tcount">${R.length}</span></h2><span><b>${fx.usd ? fmtUSD2(sub.usd) : '—'}</b>${sub.miss ? ` <span class="amber-txt">(${sub.miss} fiyatsız)</span>` : ''}${sub.lead ? ` · teslim ${sub.lead} gün` : ''}</span></div>
+      return `<section class="panel mt"><div class="board-head"><h2 style="margin:0">${esc(pk)} <span class="tcount">${R.length}</span>${pk === INHOUSE ? ' <span class="sub" style="font-weight:400">· atölyede basılır, alım talebi açılmaz</span>' : ''}</h2><span><b>${fx.usd ? fmtUSD2(sub.usd) : '—'}</b>${sub.miss ? ` <span class="amber-txt">(${sub.miss} fiyatsız)</span>` : ''}${sub.lead ? ` · teslim ${sub.lead} gün` : ''}</span></div>
         <div class="tablewrap"><table><thead><tr><th class="nosort">Parça</th><th class="nosort num">İhtiyaç</th><th class="nosort num">Stok</th><th class="nosort num">Sipariş</th><th class="nosort num">Birim fiyat</th><th class="nosort num">Tutar</th></tr></thead><tbody>
         ${R.map(l => { const u = toUSD(l.unit_price, l.currency, fx); return `<tr style="cursor:default"><td>${l.purchase_id ? `<a href="#/alimlar/${l.purchase_id}">${esc(l.name)}</a>` : esc(l.name)}<div class="sub">${esc(l.products || '')}</div></td><td class="num">${fmtQ(l.need)}</td><td class="num">${fmtQ(l.stock)}</td><td class="num"><b>${fmtQ(l.order_qty)}</b></td>
           <td class="num">${l.unit_price == null ? '<span class="amber-txt">fiyat yok</span>' : fmtMoney(l.unit_price, l.currency)}</td><td class="num">${u == null ? '—' : fmtUSD2(u * l.order_qty)}</td></tr>`; }).join('')}</tbody></table></div></section>`; }).join('') || '<div class="empty mt">Bu planda alınacak kalem yok.</div>'}`);

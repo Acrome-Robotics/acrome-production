@@ -16,6 +16,13 @@ Durum: Devam ediyor (başlangıç 03:10)
     - Alımlar listesinde 📦 paket etiketi ve paket filtresi; parça kartında sipariş katı, minimum sipariş, teslim süresi alanları
   - Bugünkü verilerle eksiklerin tutarı yaklaşık 558.050 ₺ + 2.725 $ (21 eksik kalemin fiyatı yok, bu tutara dahil değil)
 
+- Veri kalitesi raporu hazır: `veri-kalitesi-2026-11-07.xlsx` (8 sayfa). Veritabanında hiçbir kayıt değiştirilmedi ✅
+  - Ürün BOM'larında kullanılan 183 stok kartından 123'ü tedarikçi listesine bağlı değil. Tedarik planındaki paketler bu yüzden kısmen serbest metne göre gruplanıyor. 33 bağlantı önerisi hazır (ör. 17 aktüatör → Wenzhou Huifeng Electric, kişi: Ellar Wang)
+  - Fiyatı olmayan 12 kart: 8'i atölyede 3D basılıyor; gerçekten alınan 4 karta fiyat girilmeli
+  - 10 parça atölyede 3D basılıyor (creality K1 Max). Planda ayrı "İç üretim – 3D baskı" paketine düşüyor, alım talebi açılmıyor (bunu bu gece ekledim)
+  - BOM'da stok kartına bağlı olmayan 39 satır var (çoğu kablo ve kart). Mükerrer BOM satırı 3: Stewart'ta 2 PCB, Copter'de 1 PCB iki kez geçiyor
+  - 15 olası mükerrer elektronik komponent kartı (ör. "16Mhz Kristal" ve "16Mhz")
+
 ## Uyuşmazlıklar
 - (yok)
 
