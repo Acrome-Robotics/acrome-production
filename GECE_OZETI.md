@@ -1,5 +1,5 @@
 # Gece Özeti - 7 Kasım 2026
-Durum: Devam ediyor (başlangıç 03:10)
+Durum: Tamamlandı (03:10–03:50). 4 işin hepsi bitti; hiçbiri canlıya alınmadı, onayını bekliyor
 
 ## Yapılanlar
 - Tedarik planı hesabı (malzeme ihtiyacı) iki bağımsız yöntemle doğrulandı ✅
@@ -46,6 +46,7 @@ Durum: Devam ediyor (başlangıç 03:10)
     - güncellenmiş `sql/2026-11-07_tedarik_plani.sql` (artık tek işlemde çalışıyor ve tekrar çalıştırılabiliyor)
     - `app.js`
     - `supabase/functions/` (2 sunucu fonksiyonu)
+  - Düzeltmelerden sonra tüm site deneme verisiyle yeniden test edildi (10 test: aşama panosu, masraf, muhasebe, tedarik, rol önizleme, logo linki, kişiler, güvenlik başlıkları): hata yok, telefonda taşma yok ✅
   - Sorun bulunmayanlar: rol önizleme, yedek ve geri yükleme fonksiyonları, masraf dosyalarının okunma kuralı, yeni tablolara doğrudan yazma yetkileri.
 
 ## Uyuşmazlıklar
