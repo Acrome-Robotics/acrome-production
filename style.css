@@ -555,3 +555,5 @@ mark{background:color-mix(in srgb,var(--amber) 30%,transparent);color:inherit;bo
 a.brand.homelink{color:inherit;text-decoration:none;cursor:pointer}
 a.brand.homelink *{text-decoration:none}
 .homelink:hover small{color:var(--ink)}
+.pclist{list-style:none;margin:0;padding:0;display:grid;gap:10px;font-size:14px}
+.pclist li{border-left:3px solid var(--line);padding-left:10px}

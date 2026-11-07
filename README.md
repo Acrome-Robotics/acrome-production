@@ -107,6 +107,11 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - `#/masraf-liste` (Muhasebe + Yönetici): tüm formlar, durum/ay/kişi filtresi, CSV. Form sayfasında Onayla / Reddet (not zorunlu) / Ödendi (tarih). Muhasebeye yeni form, gönderene karar için site içi bildirim (e-posta yok).
 - Yeni rol **Muhasebe**. Tablolar `expense_reports`, `expense_items`; yazma `expense_submit()`, `expense_review()`. Fişler özel `masraf` deposunda (`<kullanıcı id>/...`); kişi kendi dosyalarını, Muhasebe ve Yönetici hepsini görür.
 
+- Muhasebe rolü (yalnız bu rolü olan): menüde Alımlar (talepler, aylık alım raporu, tedarikçiler — salt okuma), Ekip ve Bildirimler. Alım talebine herkes yorum yazabilir (`purchase_comments`, `purchase_comment_add()`); talep sahibine ve Satın alma rolüne site içi bildirim gider.
+- Üretim aşaması "Bitti"/"Gerekmiyor" olunca sıradaki aşamanın bölümündeki kişilere site içi bildirim (`kind = 'asama'`; e-posta gitmez). Panoda siparişin o aşamada kaç gündür beklediği görünür.
+- Sistem e-postalarının göndereni `Acrome <noreply@acrome.net>` (notify-mail, `MAIL_FROM` ile değiştirilebilir).
+- Haftalık yedek sürüm 2: `sema` alanında veritabanı yapısı (`backup_schema_ddl()`: tablolar, kısıtlar, indeksler, fonksiyonlar, görünümler, tetikleyiciler, RLS, yetkiler, depolama, cron). Vault anahtarları ve Edge Function sırları yedekte yoktur.
+
 ### Rol önizleme (geçici, geliştirme kontrolü)
 - Yönetici, sol alttaki "Rol önizleme" ile rolleri (ve üretim bölümünü) seçip siteyi o rolle görür. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkisiyle yapılır. Tarayıcıda `rolePreview` anahtarında tutulur; üstteki şeritten çıkılır. Sonra kaldırılacak.
 

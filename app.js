@@ -16,6 +16,8 @@ const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sale
   muhasebe:'Masraf formlarının hepsini görür; onaylar, reddeder, ödendi işaretler. Diğer sayfaları izleyici gibi görür.',
   personel:'Yalnızca haftalık çalışma planını, daily notlarını ve kendi masraf formunu görür (atölye, stajyer vb.).',
   admin:'Her şey + silme, ürün yönetimi, rol verme.' };
+// yalnız Muhasebe (ve Personel) rolü olan: menüde Ekip + Alımlar (görme ve yorum)
+const accOnly = () => !!S.profile && userRoles(S.profile).includes('muhasebe') && userRoles(S.profile).every(r => r === 'muhasebe' || r === 'personel');
 const staffOnly = () => !!S.profile && userRoles(S.profile).length > 0 && userRoles(S.profile).every(r => r === 'personel');
 const userRoles = p => !p ? [] : Array.isArray(p.roles) ? p.roles : p.role === 'pending' ? [] : p.role === 'support' ? ['orders','support'] : [p.role];
 // Rol önizleme (yalnız yönetici, geliştirme kontrolü için): arayüzü seçilen rollerle gösterir; veri ve yazma yetkisi yöneticininkidir.
@@ -211,7 +213,10 @@ function shell(active, html){
       ...(canAcc() ? [['masraf-liste','Masraf formları', S.expPending || '', 'hot']] : []),
       ...(can('admin') ? [['calisma-raporu','Aylık çalışma raporu'], ['calisma-kisiler','Çalışma planı kişileri']] : []),
     ]];
-  const nav = staffOnly() ? [ekip] : [
+  const nav = staffOnly() ? [ekip] : accOnly() ? [
+    ['Alımlar', 'cart', [['alimlar','Talepler', S.purOpen || ''], ['alim-rapor','Aylık alım raporu'], ['tedarikciler','Tedarikçiler']]],
+    ekip, ['Veri', 'db', [['bildirimler','Bildirimler', S.unread || '', 'hot']]],
+  ] : [
     ['Üretim', 'gear', [
       ['uretim-pano','Üretim panosu', myDeps().length ? S.deals.filter(d => d.status === 'production' && myDeps().includes((curStage(d.id) || [])[0])).length || '' : ''],
       ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
@@ -389,7 +394,7 @@ function todaySections(){
   }
   // alımlar ve stok
   const PO = (S.purOpenList || []);
-  const buyer = can('purchasing', 'admin');
+  const buyer = can('purchasing', 'admin', 'muhasebe');
   if (buyer) {
     const op = PO.filter(p => p.kind === 'alim').sort((a,b) => ((b.urgency === 'acil') - (a.urgency === 'acil')) || (a.requested_at||'').localeCompare(b.requested_at||''));
     S_.push({ id:'pur', title:'Açık alım talepleri', link:'#/alimlar', rows: op.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:esc([p.project, p.requester_name].filter(Boolean).join(' · ')),
@@ -739,6 +744,10 @@ const canStg = k => can('admin') || (k === 'gonderim' && can('orders')) || (can(
 const stgPill = st => `<span class="pill sg-${st}">${STG_ST[st]}</span>`;
 const stgDots = id => `<span class="sgdots" title="${STG.map(([k, n]) => n + ': ' + STG_ST[stOf(id, k).status]).join(' · ')}">${STG.map(([k]) => `<i class="sg-${stOf(id, k).status}"></i>`).join('')}</span>`;
 const stgNow = id => { const c = curStage(id); if (!c) return 'Tamamlandı'; const s = stOf(id, c[0]); return c[1] + (s.status === 'devam' ? ' · devam ediyor' : ''); };
+// sipariş bu aşamada ne zamandan beri: devam ediyorsa başlama anı, değilse önceki aşamanın bitişi (yoksa sipariş tarihi)
+const stgWait = d => { const c = curStage(d.id); if (!c) return null; const s = stOf(d.id, c[0]);
+  let t = s.status === 'devam' && s.started_at ? s.started_at : STG.slice(0, STG.findIndex(x => x[0] === c[0])).map(([k]) => stOf(d.id, k).done_at).filter(Boolean).sort().pop() || d.order_date;
+  return t ? Math.max(0, Math.floor((Date.now() - new Date(t.length === 10 ? t + 'T00:00:00' : t)) / 864e5)) : null; };
 async function loadStages(){ const { data, error } = await sb.from('deal_stages').select('*'); S.stages = error ? [] : data || []; }
 async function setStage(d, k, status, note, ship){
   const { data, error } = await sb.rpc('deal_stage_set', { p_deal:d.id, p_stage:k, p_status:status, p_note:note ?? null, p_ship_date:ship || null });
@@ -773,7 +782,7 @@ const ago2 = t => t ? new Date(t).toLocaleString('tr-TR', { day:'numeric', month
 function stagePanel(d){
   if (d.status !== 'production' && !(S.stages || []).some(s => s.deal_id === d.id)) return '';
   const c = curStage(d.id);
-  return `<section class="panel mt" id="stgp"><h2>Üretim aşamaları <span class="sub" style="font-weight:400">· ${d.status === 'production' ? 'şu an: <b>' + esc(stgNow(d.id)) + '</b>' : esc(STATUSES[d.status])}</span></h2>
+  return `<section class="panel mt" id="stgp"><h2>Üretim aşamaları <span class="sub" style="font-weight:400">· ${d.status === 'production' ? 'şu an: <b>' + esc(stgNow(d.id)) + '</b>' + (c && stgWait(d) ? ` · ${stgWait(d)} gündür bu aşamada` : '') : esc(STATUSES[d.status])}</span></h2>
     <ol class="stglist">${STG.map(([k, n], i) => { const s = stOf(d.id, k), edit = d.status === 'production' && canStg(k);
       return `<li class="stgrow${c && c[0] === k ? ' cur' : ''}" data-stgrow="${k}"><span class="sgn sg-${s.status}">${stgDone(s) ? '✓' : i + 1}</span>
         <div class="stgmain"><div class="stghead"><b>${n}</b> ${stgPill(s.status)} ${s.updated_by_name ? `<span class="sub">${esc(s.updated_by_name)} · ${ago2(s.updated_at)}</span>` : ''}</div>
@@ -805,7 +814,8 @@ async function viewBoard(){
       <div class="bc-cust">${esc(custName(d))}</div>
       <div class="items">${Object.entries(d.items || {}).map(([c, qn]) => `<span>${fmtN(qn)}× ${esc(prodName(c))}</span>`).join('') || `<span>${esc(d.description || '')}</span>`}</div>
       <div class="bc-meta">${due(d) ? `<span class="${late ? 'late-txt' : ''}">${late ? days(due(d), T) + ' gün gecikti' : 'Sevk ' + fmtD(due(d))}</span>` : '<span class="sub">sevk tarihi yok</span>'}
-        ${s.status === 'devam' ? `<span class="amber-txt">● devam · ${esc((s.updated_by_name || '').split(' ')[0])}</span>` : ''}</div>
+        ${s.status === 'devam' ? `<span class="amber-txt">● devam · ${esc((s.updated_by_name || '').split(' ')[0])}</span>` : ''}
+        ${stgWait(d) != null ? `<span class="${stgWait(d) >= 7 ? 'late-txt' : 'sub'}" title="Bu aşamada bekleme süresi">${stgWait(d) ? stgWait(d) + ' gündür bu aşamada' : 'bugün geldi'}</span>` : ''}</div>
       ${s.note ? `<div class="bc-note">${esc(s.note)}</div>` : ''}
       <div class="bc-act">${stgActions(d, k, true)}</div></article>`; };
   shell('uretim-pano', `<div class="pagehead"><div><h1>Üretim panosu</h1><p class="lede">Üretimdeki ${prod.length} sipariş, şu an bulundukları aşamaya göre. Her bölüm kendi sütunundaki siparişi ilerletir; "Bitti" deyince sipariş bir sonraki bölüme geçer. Sıralama: sevk tarihi en yakın üstte.</p></div></div>
@@ -1933,7 +1943,7 @@ async function viewNotifications(){
       <p class="note" style="margin-top:0">${here ? 'Bu cihazda bildirimler açık.' : 'Bu cihazda bildirim almak için aç. Telefon ve bilgisayarda ayrı ayrı açılır.'} Kayıtlı cihaz sayın: ${subs.length}.</p>
       <p style="display:flex;gap:8px;flex-wrap:wrap">${here ? '' : '<button class="btn primary" id="pon">Bu cihazda bildirimleri aç</button>'}<button class="btn" id="ptest">Test bildirimi gönder</button>${ns.some(n=>!n.read_at)?'<button class="btn" id="pread">Hepsini okundu say</button>':''}${ns.some(n=>n.read_at)?'<button class="btn" id="pdelr">Okunanları sil</button>':''}${ns.length?'<button class="btn danger" id="pdelall">Tümünü sil</button>':''}</p>
     </section>
-    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" data-nl="${esc(n.link||'')}" data-nid2="${n.id}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : n.title ? `${/^sayim/.test(n.kind || '') ? '<b>Stok sayımı</b> · ' : n.kind === 'masraf' ? '<b>Masraf</b> · ' : ''}${esc(n.title)}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
+    <div class="tablewrap mt">${ns.length ? `<table><tbody>${ns.map(n => { const t = tk(n.ticket_id); return `<tr data-nt="${n.ticket_id||''}" data-nl="${esc(n.link||'')}" data-nid2="${n.id}" class="${n.read_at?'':'unread'}"><td style="white-space:nowrap">${fmtDT(n.created_at)}</td><td>${n.ticket_id ? `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}` : n.title ? `${/^sayim/.test(n.kind || '') ? '<b>Stok sayımı</b> · ' : n.kind === 'masraf' ? '<b>Masraf</b> · ' : n.kind === 'asama' ? '<b>Üretim aşaması</b> · ' : n.kind === 'alim' ? '<b>Alım</b> · ' : ''}${esc(n.title)}` : 'Test bildirimi'}</td><td>${n.read_at ? '<span class="sub">okundu</span>' : '<b>yeni</b>'}</td><td style="width:1%"><button class="btn ndel" data-nid="${n.id}" title="Bildirimi sil" aria-label="Bildirimi sil">Sil</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz bildirim yok.</div>'}</div>`);
   q('#pon') && (q('#pon').onclick = e => enablePush(e.target));
   q('#ptest').onclick = async e => { e.target.disabled = true; const { data, error } = await sb.rpc('support_push_test'); e.target.disabled = false; if (error) return toast(dbErr(error), true); toast('Test gönderildi'); await loadSupport(); viewNotifications(); };
   q('#pread') && (q('#pread').onclick = async () => { await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null); await loadSupport(); viewNotifications(); });
@@ -2770,7 +2780,17 @@ async function viewPurchase(id, preset){
     <label class="f">Not<textarea name="note" rows="3">${v('note')}</textarea></label>
     ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Talebi aç'}</button></p>` : '<p class="note">Bu kaydı yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ya da Yönetici değiştirebilir.</p>'}
   </fieldset></form><datalist id="itemlist2">${S.items.map(i => `<option value="${esc(i.name)}">`).join('')}</datalist></div>
-  <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Tutar</dt><dd><b>${fmtMoney(p.total, p.currency)}</b></dd><dt>Durum</dt><dd>${purPill(p.status)}</dd>${p.purchased_at ? `<dt>Alındı</dt><dd>${fmtD(p.purchased_at)}</dd>` : ''}${p.received_into_stock ? '<dt>Stok</dt><dd class="ok-txt">Stoğa girdi</dd>' : ''}${p.link ? `<dt>Bağlantı</dt><dd><a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener">aç ↗</a></dd>` : ''}${p.bom_id && bomById(p.bom_id) ? `<dt>Ürün / proje</dt><dd><a href="#/bom/${p.bom_id}">${esc(bomById(p.bom_id).name)}</a></dd>` : ''}${it ? `<dt>Parça</dt><dd><a href="#/stok/${it.id}">${esc(it.name)}</a> · stok ${fmtQ(it.qty)}</dd>` : ''}</dl></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Aynı tedarikçiden birden fazla parça istiyorsanız her parçayı ayrı talep olarak açın; böylece her biri ayrı takip edilir ve stoğa ayrı girer.</p></section>`}</aside></div>`);
+  <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Tutar</dt><dd><b>${fmtMoney(p.total, p.currency)}</b></dd><dt>Durum</dt><dd>${purPill(p.status)}</dd>${p.purchased_at ? `<dt>Alındı</dt><dd>${fmtD(p.purchased_at)}</dd>` : ''}${p.received_into_stock ? '<dt>Stok</dt><dd class="ok-txt">Stoğa girdi</dd>' : ''}${p.link ? `<dt>Bağlantı</dt><dd><a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener">aç ↗</a></dd>` : ''}${p.bom_id && bomById(p.bom_id) ? `<dt>Ürün / proje</dt><dd><a href="#/bom/${p.bom_id}">${esc(bomById(p.bom_id).name)}</a></dd>` : ''}${it ? `<dt>Parça</dt><dd><a href="#/stok/${it.id}">${esc(it.name)}</a> · stok ${fmtQ(it.qty)}</dd>` : ''}</dl></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Aynı tedarikçiden birden fazla parça istiyorsanız her parçayı ayrı talep olarak açın; böylece her biri ayrı takip edilir ve stoğa ayrı girer.</p></section>`}
+    ${id ? `<section class="panel mt"><h2>Yorumlar</h2><div id="pcl"><p class="sub">Yükleniyor…</p></div>
+      <textarea id="pct" rows="2" maxlength="2000" placeholder="Yorum yaz (talep sahibi ve Satın alma görür, bildirim alır)" style="width:100%;margin-top:8px"></textarea>
+      <p style="margin:6px 0 0"><button class="btn sm primary" id="pcadd" type="button">Yorum ekle</button></p></section>` : ''}</aside></div>`);
+  if (id) { const loadC = async () => { const { data } = await sb.from('purchase_comments').select('*').eq('purchase_id', id).order('created_at');
+      q('#pcl').innerHTML = (data || []).length ? `<ul class="pclist">${data.map(c => `<li><div><b>${esc(c.author_name || '')}</b> <span class="sub">${fmtDT(c.created_at)}</span>${c.author === S.profile.id || can('admin') ? ` <button class="linkbtn pcdel" data-c="${c.id}" type="button">sil</button>` : ''}</div><div style="white-space:pre-wrap">${esc(c.body)}</div></li>`).join('')}</ul>` : '<p class="sub" style="margin:0">Henüz yorum yok.</p>';
+      qa('.pcdel').forEach(b => b.onclick = async () => { const { error } = await sb.from('purchase_comments').delete().eq('id', +b.dataset.c); if (error) return toast(dbErr(error), true); loadC(); }); };
+    loadC();
+    q('#pcadd').onclick = async () => { const t = q('#pct').value.trim(); if (!t) return toast('Yorum yaz', true);
+      const { error } = await sb.rpc('purchase_comment_add', { p_purchase:id, p_body:t }); if (error) return toast(dbErr(error), true);
+      q('#pct').value = ''; toast('Yorum eklendi'); loadC(); }; }
   q('#puf').onsubmit = async e => {
     e.preventDefault(); const f = e.target, g = n => f[n] ? f[n].value.trim() : '';
     if (!g('item_name')) return toast('Ürün / iş adı girin', true);
