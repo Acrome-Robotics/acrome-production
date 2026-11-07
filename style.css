@@ -557,3 +557,17 @@ a.brand.homelink *{text-decoration:none}
 .homelink:hover small{color:var(--ink)}
 .pclist{list-style:none;margin:0;padding:0;display:grid;gap:10px;font-size:14px}
 .pclist li{border-left:3px solid var(--line);padding-left:10px}
+
+/* ---- tedarik planı ---- */
+.pl-taslak{background:var(--soft);color:var(--muted)}
+.pl-gonderildi{background:var(--amber-soft);color:var(--amber)}
+.pl-onaylandi{background:var(--data-soft);color:var(--data)}
+.pl-alimlar{background:var(--green-soft);color:var(--green)}
+.pl-iptal{background:var(--soft);color:var(--muted);text-decoration:line-through}
+.pkgchip{background:var(--data-soft);color:var(--data)}
+.plpkg .board-head{margin-bottom:8px}
+.plpkg input.pl-pkname{font-size:15px;padding:4px 8px;min-height:32px}
+.plpkg select{max-width:220px;font-size:13px;min-height:30px;padding:2px 6px}
+.plpkg td .pl-alt{display:block;margin-top:4px;max-width:320px}
+table.plprod td input{min-height:30px;padding:2px 6px}
+@media print{.side,.topbar,.noprint,.pvbar,[data-print],#plcsv{display:none!important}.main{padding:0!important}.panel{break-inside:avoid;border:0}}

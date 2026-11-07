@@ -108,7 +108,7 @@ async function loadAll(){
   S.deals = d.data; S.customers = c.data; S.products = p.data; S.countries = k.data; S.issues = i.data; S.loaded = true;
   await loadSupport();
   await loadRma();
-  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadAttToday().catch(() => {})]);
+  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadPlanCount().catch(() => {}), loadAttToday().catch(() => {})]);
   if (isCountDay() && can('stock')) sb.rpc('stock_count_notify_me').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
 // aylık stok sayımı: her ayın ilk cuması
@@ -217,12 +217,13 @@ function shell(active, html){
       ...(can('admin') ? [['calisma-raporu','Aylık çalışma raporu'], ['calisma-kisiler','Çalışma planı kişileri']] : []),
     ]];
   const nav = staffOnly() ? [ekip] : accOnly() ? [
-    ['Alımlar', 'cart', [['alimlar','Talepler', S.purOpen || ''], ['alim-rapor','Aylık alım raporu'], ['tedarikciler','Tedarikçiler']]],
+    ['Alımlar', 'cart', [['alimlar','Talepler', S.purOpen || ''], ['tedarik','Tedarik planları'], ['alim-rapor','Aylık alım raporu'], ['tedarikciler','Tedarikçiler']]],
     ekip, ['Veri', 'db', [['bildirimler','Bildirimler', S.unread || '', 'hot']]],
   ] : [
     ['Üretim', 'gear', [
       ['uretim-pano','Üretim panosu', myDeps().length ? S.deals.filter(d => d.status === 'production' && myDeps().includes((curStage(d.id) || [])[0])).length || '' : ''],
       ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
+      ...(canSeePlan() ? [['tedarik','Tedarik planı', S.planPending || '', 'hot']] : []),
       ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
     ]],
     ['Satış', 'chart', [
@@ -339,6 +340,8 @@ function route(){
     case 'pcb': return viewPcb(a);
     case 'motor-test': return viewMotorTests();
     case 'alimlar': return a ? viewPurchase(+a) : viewPurchases();
+    case 'tedarik': return a === 'yeni' ? (PS = null, viewPlanEdit(null)) : a ? viewPlan(+a) : viewPlans();
+    case 'tedarik-duzenle': return viewPlanEdit(+a);
     case 'alim-yeni': { const m = /^i(\d+)$/.exec(a || ''); const it = m && (S.items||[]).find(i => i.id === +m[1]);
       return viewPurchase(null, it ? { item_id:it.id, item_name:it.name, unit:grpOfCat(it.category) === 'm' ? 'Mekanik' : 'Elektronik', supplier_id:it.supplier_id, unit_price:it.unit_price, currency:it.currency } : {}); }
     case 'tedarikciler': return viewSuppliers(a);
@@ -2363,6 +2366,7 @@ async function viewStockItem(id, g){
       <div class="row ${i.code ? 'r2' : ''}">${tx('name', 'Parça adı')}${tx('code', 'Parça kodu', i.code ? 'TÜR-ÜRÜN-SIRA' : 'boş bırakılırsa otomatik verilir')}${i.code ? '' : `<label class="f">Kod grubu <span class="hint">hangi ürünün parçası</span><select name="grp">${Object.entries(CODE_GRP).map(([k, l]) => `<option value="${k}" ${k === (i.category === 'komponent' ? 'PCB' : 'ORT') ? 'selected' : ''}>${k} · ${esc(l)}</option>`).join('')}</select></label>`}</div>
       <div class="row">${'<label class="f">Tür' + stkSel('category', STK_CAT, i.category) + '</label>'}${tx('unit', 'Birim', 'adet, metre, kg')}${tx('location', 'Konum / raf')}</div>
       <div class="row">${id ? `<label class="f">Stok <span class="hint">değiştirmek için sağdaki kutuyu kullanın</span><input type="text" value="${i.qty == null ? '' : fmtQ(i.qty)}" disabled></label>` : nm('qty', 'Açılış stoğu')}${nm('min_qty', 'Minimum stok', 'altına düşünce uyarı')}${tx('mfr_no', 'Üretici no')}</div>
+      <div class="row">${nm('order_multiple', 'Sipariş katı', 'ör. 20\'li paket; tedarik planı yuvarlar')}${nm('min_order', 'Minimum sipariş', 'tedarikçinin en az adedi')}${nm('lead_days', 'Teslim süresi (gün)', 'ör. Çin 35')}</div>
       <div class="row">${nm('unit_price', 'Birim fiyat')}<label class="f">Para birimi${stkSel('currency', { TRY:'TRY', USD:'USD', EUR:'EUR' }, i.currency || 'TRY')}</label><label class="f">Tedarikçi<select name="supplier_id"><option value="">—</option>${S.suppliers.map(s => `<option value="${s.id}" ${i.supplier_id === s.id ? 'selected' : ''}>${esc(s.name)}${s.blacklisted ? ' (kara liste)' : ''}</option>`).join('')}</select></label></div>
       <div class="row r2">${tx('material', 'Malzeme')}${tx('process', 'İmalat türü')}</div>
       ${tx('supplier_text', 'Tedarik notu', 'firma, link ya da açıklama')}${tx('link', 'Bağlantı')}
@@ -2392,7 +2396,7 @@ async function viewStockItem(id, g){
     if (!g('name')) return toast('Parça adı boş olamaz', true);
     const o = { name:g('name'), code:g('code') || null, category:f.category.value, unit:g('unit') || 'adet', location:g('location') || null, min_qty:num0(g('min_qty')),
       mfr_no:g('mfr_no') || null, unit_price:num0(g('unit_price')), currency:f.currency.value, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
-      material:g('material') || null, process:g('process') || null, supplier_text:g('supplier_text') || null, link:g('link') || null, description:g('description') || null, notes:g('notes') || null };
+      order_multiple:num0(g('order_multiple')) || null, min_order:num0(g('min_order')), lead_days:g('lead_days') ? Math.round(+g('lead_days')) : null, material:g('material') || null, process:g('process') || null, supplier_text:g('supplier_text') || null, link:g('link') || null, description:g('description') || null, notes:g('notes') || null };
     if (!o.code && f.grp) { const r = await sb.rpc('stock_next_code', { p_cat:o.category, p_grp:f.grp.value }); if (!r.error && r.data) o.code = r.data; }
     if (!id) {
       const start = num0(g('qty'));
@@ -2702,11 +2706,14 @@ async function viewMotorTests(){
 }
 
 // ---------------------------------------------------------------- ALIMLAR
-const purState = { tab:'open', q:'', unit:'', year:'', who:'', bom:'', urg:'' };
+const purState = { tab:'open', q:'', unit:'', year:'', who:'', bom:'', urg:'', pkg:'' };
 async function viewPurchases(){
   await loadStock();
   const { data, error } = await fetchAll(() => sb.from('purchases').select('*').order('requested_at', { ascending:false, nullsFirst:false }).order('id', { ascending:false }));
   const P = error ? [] : data, s = purState, Y = new Date().getFullYear(), mon = today().slice(0, 7);
+  { const qp = new URLSearchParams(location.hash.split('?')[1] || ''); if (qp.get('plan')) { s.pkg = 'plan:' + qp.get('plan'); s.tab = 'all'; } }
+  const pkgOpts = [...new Map(P.filter(p => p.plan_id).map(p => [`${p.plan_id}|${p.package || ''}`, p])).values()].sort((a, b) => b.plan_id - a.plan_id || (a.package || '').localeCompare(b.package || '', 'tr'));
+  const planIds = [...new Set(pkgOpts.map(p => p.plan_id))];
   const open = P.filter(p => PUR_OPEN.includes(p.status) && p.kind === 'alim');
   const years = [...new Set(P.map(p => (p.requested_at || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   const who = [...new Set(P.map(p => p.requester_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
@@ -2727,15 +2734,17 @@ async function viewPurchases(){
     <select id="pyear"><option value="">Tüm yıllar</option>${years.map(y => `<option ${s.year === y ? 'selected' : ''}>${y}</option>`).join('')}</select>
     <select id="pwho"><option value="">Talep eden: herkes</option>${who.map(w => `<option ${s.who === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select>
     <select id="pbom"><option value="">Tüm ürün / projeler</option>${bomOpts(+s.bom)}</select>
+    ${pkgOpts.length ? `<select id="ppkg" aria-label="Alım paketi"><option value="">Tüm paketler</option>${planIds.map(pid => `<option value="plan:${pid}" ${s.pkg === 'plan:' + pid ? 'selected' : ''}>Plan #${pid} (tümü)</option>${pkgOpts.filter(p => p.plan_id === pid).map(p => `<option value="${pid}|${esc(p.package || '')}" ${s.pkg === pid + '|' + (p.package || '') ? 'selected' : ''}>&nbsp;&nbsp;${esc(p.package || '—')}</option>`).join('')}`).join('')}</select>` : ''}
     <div class="seg" id="purg">${[['', 'Hepsi'], ['acil', 'Acil'], ['normal', 'Acil değil']].map(([k, v]) => `<button data-u="${k}" class="${s.urg === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
   <div class="tablewrap" id="ptbl"></div>`);
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
-    const rows = P.filter(p => (s.tab === 'all' || tabOf(p) === s.tab) && (!s.unit || p.unit === s.unit) && (!s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (!s.year || (p.requested_at || '').startsWith(s.year)) && (!s.who || p.requester_name === s.who)
+    const pkgOk = p => !s.pkg || (s.pkg.startsWith('plan:') ? p.plan_id === +s.pkg.slice(5) : `${p.plan_id}|${p.package || ''}` === s.pkg);
+    const rows = P.filter(p => pkgOk(p) && (s.tab === 'all' || tabOf(p) === s.tab) && (!s.unit || p.unit === s.unit) && (!s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (!s.year || (p.requested_at || '').startsWith(s.year)) && (!s.who || p.requester_name === s.who)
       && (!ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id), p.note, p.purpose, p.requester_name].join(' ').toLocaleLowerCase('tr').includes(ql)));
     q('#ptbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Talep eden</th><th class="nosort">Tedarikçi</th><th class="nosort">Durum</th></tr></thead><tbody>
       ${rows.slice(0, 800).map(p => `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
-        <td><b style="font-weight:600">${esc(p.item_name)}</b>${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
+        <td><b style="font-weight:600">${esc(p.item_name)}</b>${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.package ? ` <span class="chip pkgchip" title="Tedarik planı #${p.plan_id} alım paketi">📦 ${esc(p.package)}</span>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
         <td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(p.requester_name || '') || '<span class="sub">—</span>'}<div class="sub opt">${esc([p.unit, p.area].filter(Boolean).join(' · '))}</div></td>
         <td>${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.link ? `${supName(p.supplier_id) || p.supplier_text ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub stopprop">bağlantı ↗</a>` : (supName(p.supplier_id) || p.supplier_text ? '' : '<span class="sub">—</span>')}</td>
         <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}</td></tr>`).join('')}</tbody>
@@ -2751,6 +2760,7 @@ async function viewPurchases(){
   q('#pyear').onchange = e => { s.year = e.target.value; draw(); };
   q('#pwho').onchange = e => { s.who = e.target.value; draw(); };
   q('#pbom').onchange = e => { s.bom = e.target.value; draw(); };
+  q('#ppkg') && (q('#ppkg').onchange = e => { s.pkg = e.target.value; draw(); });
   qa('#purg button').forEach(b => b.onclick = () => { s.urg = b.dataset.u; qa('#purg button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
 }
 const bomById = id => (S.boms || []).find(b => b.id === id);
@@ -2814,6 +2824,170 @@ async function viewPurchase(id, preset){
     toast('Durum: ' + PUR_ST[b.dataset.s]); S.stockLoaded = false; loadPurCount(); viewPurchase(id); });
   q('#pdel') && (q('#pdel').onclick = async () => { if (!confirmTwice(q('#pdel'), 'Emin misin? Tekrar bas')) return;
     const { error } = await sb.from('purchases').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/alimlar'; });
+}
+
+// ---------------------------------------------------------------- ÜRETİM TEDARİK PLANI
+// Ürün adetleri (üretimdeki siparişlerden) → BOM × adet → stok düşülür → net eksik → sipariş katı/min. sipariş ile yuvarlanır
+// → tedarikçiye göre alım paketleri (adı değiştirilebilir) → USD toplam → yönetici + muhasebe → onay → alım talepleri.
+const PLAN_ST = { taslak:'Taslak', gonderildi:'Onay bekliyor', onaylandi:'Onaylandı', alimlar:'Alım talepleri açıldı', iptal:'İptal' };
+const canSeePlan = () => can('admin', 'muhasebe', 'purchasing', 'production', 'stock', 'orders');
+const canPlan = () => can('admin', 'production', 'purchasing', 'stock', 'orders');
+const planPill = s => `<span class="pill pl-${s}">${PLAN_ST[s] || s}</span>`;
+const fmtUSD2 = n => n == null || isNaN(n) ? '—' : '$' + (+n).toLocaleString('tr-TR', { maximumFractionDigits: n < 100 ? 2 : 0 });
+const toUSD = (price, cur, fx) => { if (price == null || price === '') return null; const p = +price;
+  if (cur === 'USD') return p; if (cur === 'EUR') return fx.eur && fx.usd ? p * fx.eur / fx.usd : null; return fx.usd ? p / fx.usd : null; };
+const planProdQty = () => { const m = {}; S.deals.filter(d => d.status === 'production').forEach(d => Object.entries(d.items || {}).forEach(([c, n]) => m[c] = (m[c] || 0) + +n)); return m; };
+const prodHasBom = code => (S.boms || []).some(b => b.kind === 'product' && b.product_code === code && (b.status || 'aktif') === 'aktif');
+async function loadPlanCount(){ if (!can('admin')) { S.planPending = 0; return; } const { count } = await sb.from('supply_plans').select('id', { count:'exact', head:true }).eq('status', 'gonderildi'); S.planPending = count || 0; }
+const planTotals = (lines, fx) => { let usd = 0, miss = 0; const pk = {};
+  lines.forEach(l => { if (!(+l.order_qty > 0)) return; const u = toUSD(l.unit_price, l.currency, fx); const v = u == null ? null : u * l.order_qty;
+    const p = pk[l.package] || (pk[l.package] = { usd:0, n:0, miss:0, lead:0 }); p.n++; p.lead = Math.max(p.lead, +l.lead_days || 0);
+    if (v == null) { miss++; p.miss++; } else { usd += v; p.usd += v; } });
+  return { usd, miss, pk }; };
+
+async function viewPlans(){
+  if (!canSeePlan()) return viewToday();
+  shell('tedarik', `<div class="empty">Yükleniyor…</div>`);
+  const { data } = await sb.from('supply_plans').select('*').order('created_at', { ascending:false }).limit(200);
+  const P = data || [];
+  shell('tedarik', `<div class="pagehead"><div><h1>Üretim tedarik planı</h1><p class="lede">Üretimdeki siparişleri (ve stok için yapılacak üretimi) karşılamak için neyin, ne kadar, hangi tedarikçiden alınacağını hesaplar. Aynı tedarikçiden alınacaklar tek bir <b>alım paketinde</b> toplanır (ör. Çin'den motorlar). Plan yöneticiye ve muhasebeye gönderilir; onaylanınca alım talepleri paket adıyla açılır.</p></div>
+    ${canPlan() ? '<a class="btn primary" href="#/tedarik/yeni">Yeni tedarik planı</a>' : ''}</div>
+    <div class="tablewrap">${P.length ? `<table><thead><tr><th class="nosort">Plan</th><th class="nosort">Ürünler</th><th class="nosort num">Tutar</th><th class="nosort">Durum</th><th class="nosort">Hazırlayan</th></tr></thead><tbody>
+      ${P.map(p => `<tr data-pl="${p.id}"><td><b style="font-weight:600">${esc(p.name)}</b><div class="sub">${fmtDT(p.created_at)}</div></td>
+        <td>${Object.entries(p.products || {}).filter(([, n]) => +n > 0).map(([c, n]) => `<span class="chip">${fmtN(n)}× ${esc(prodName(c))}</span>`).join(' ')}</td>
+        <td class="num">${fmtUSD2(p.total_usd)}</td><td>${planPill(p.status)}</td><td>${esc(p.created_by_name || '')}</td></tr>`).join('')}</tbody></table>`
+      : `<div class="empty">Henüz plan yok.${canPlan() ? ' <a href="#/tedarik/yeni">İlk planı hazırla</a>' : ''}</div>`}</div>`);
+  qa('tr[data-pl]').forEach(tr => tr.onclick = () => location.hash = '#/tedarik/' + tr.dataset.pl);
+}
+
+// plan düzenleme durumu (sayfa yenilenene kadar korunur)
+let PS = null;
+async function viewPlanEdit(id){
+  if (!canPlan()) return viewPlans();
+  await loadStock();
+  if (!PS || PS.id !== (id || null)) {
+    if (id) { const [{ data: p }, { data: ls }] = await Promise.all([sb.from('supply_plans').select('*').eq('id', id).maybeSingle(), sb.from('supply_plan_lines').select('*').eq('plan_id', id).order('package').order('name')]);
+      if (!p) return shell('tedarik', '<h1>Plan bulunamadı</h1>'); if (p.status !== 'taslak') { toast('Yalnız taslak plan düzenlenir', true); location.hash = '#/tedarik/' + id; return; }
+      PS = { id, name:p.name, products:{ ...p.products }, alt_pick:{ ...p.alt_pick }, fill_min:p.fill_min, fx_usd:p.fx_usd, fx_eur:p.fx_eur, note:p.note || '', lines:ls || [], showAll:false, calcd:true };
+    } else {
+      const mo = new Date().toLocaleDateString('tr-TR', { month:'long', year:'numeric' });
+      let fx = {}; try { fx = JSON.parse(localStorage.getItem('planFx') || '{}'); } catch {}
+      PS = { id:null, name:`${mo} üretim partisi`, products:planProdQty(), alt_pick:{}, fill_min:false, fx_usd:fx.usd || '', fx_eur:fx.eur || '', note:'', lines:[], showAll:false, calcd:false };
+    }
+  }
+  const s = PS, inOrders = planProdQty();
+  const prods = S.products.filter(p => p.active !== false && (prodHasBom(p.code) || inOrders[p.code] || +s.products[p.code]));
+  const fx = { usd:+s.fx_usd || 0, eur:+s.fx_eur || 0 };
+  const t = planTotals(s.lines, fx), pkgs = [...new Set(s.lines.map(l => l.package))].sort((a, b) => a.localeCompare(b, 'tr'));
+  const noBom = Object.entries(s.products).filter(([c, n]) => +n > 0 && !prodHasBom(c)).map(([c]) => prodName(c));
+  const vis = l => s.showAll || +l.order_qty > 0 || +l.net > 0;
+  const lineRow = l => { const u = toUSD(l.unit_price, l.currency, fx), v = u == null ? null : u * (+l.order_qty || 0);
+    return `<tr data-k="${esc(l.k)}"><td><b style="font-weight:600">${esc(l.name)}</b><div class="sub">${esc(l.products || '')}${l.section ? ' · ' + esc(l.section) : ''}${l.lead_days ? ` · teslim ${l.lead_days} gün` : ''}</div>
+        ${l.alts && l.alts.length > 1 ? `<select class="pl-alt" data-bom="${l.bom_id}" data-grp="${esc(l.alt_group)}" aria-label="Alternatif">${l.alts.map(a => `<option value="${a.item_id}" ${a.item_id === l.item_id ? 'selected' : ''}>${esc(a.name)} (stok ${fmtQ(a.stock)})</option>`).join('')}</select>` : ''}</td>
+      <td class="num">${fmtQ(l.need)}</td><td class="num">${fmtQ(l.stock)}</td><td class="num ${+l.net > 0 ? 'amber-txt' : 'sub'}">${fmtQ(l.net)}</td>
+      <td class="num"><input type="number" class="pl-qty" min="0" step="1" value="${+l.order_qty || 0}" aria-label="Sipariş adedi" style="width:84px;text-align:right">${l.order_multiple || l.min_order ? `<div class="sub">${l.order_multiple ? `${fmtQ(l.order_multiple)}'li` : ''}${l.order_multiple && l.min_order ? ' · ' : ''}${l.min_order ? `min ${fmtQ(l.min_order)}` : ''}</div>` : ''}</td>
+      <td class="num">${l.unit_price == null ? '<span class="amber-txt">fiyat yok</span>' : fmtMoney(l.unit_price, l.currency)}</td><td class="num">${v == null ? (l.unit_price == null || !(+l.order_qty > 0) ? '—' : '<span class="amber-txt">kur?</span>') : fmtUSD2(v)}</td>
+      <td><select class="pl-pkg" aria-label="Paket">${pkgs.map(p => `<option ${p === l.package ? 'selected' : ''}>${esc(p)}</option>`).join('')}<option value="__new">+ Yeni paket…</option></select></td></tr>`; };
+  shell('tedarik', `<p><a href="#/tedarik">← Tedarik planları</a></p>
+    <div class="pagehead"><div><h1>${id ? 'Planı düzenle' : 'Yeni tedarik planı'}</h1><p class="lede">1) Üretilecek adetleri gir · 2) Hesapla · 3) Paketleri ve sipariş adetlerini düzenle · 4) Taslak kaydet, sonra yöneticiye ve muhasebeye gönder.</p></div></div>
+    <section class="panel"><div class="grid g2"><label class="f">Plan adı<input id="plname" maxlength="200" value="${esc(s.name)}"></label>
+      <label class="f">Not <span class="hint">isteğe bağlı</span><input id="plnote" maxlength="1000" value="${esc(s.note)}"></label></div>
+      <h2 class="mt">1 · Üretilecekler</h2>
+      <div class="tablewrap"><table class="plprod"><thead><tr><th class="nosort">Ürün</th><th class="nosort num">Siparişte</th><th class="nosort num">Plan adedi</th><th class="nosort">Malzeme listesi</th></tr></thead><tbody>
+        ${prods.map(p => `<tr style="cursor:default"><td>${esc(p.name)}</td><td class="num">${inOrders[p.code] ? fmtN(inOrders[p.code]) : '<span class="sub">—</span>'}</td>
+          <td class="num"><input type="number" class="pl-n" data-c="${p.code}" min="0" step="1" value="${+s.products[p.code] || 0}" style="width:80px;text-align:right" aria-label="${esc(p.name)} adedi"></td>
+          <td>${prodHasBom(p.code) ? '<span class="sub">var</span>' : '<span class="amber-txt">BOM yok, hesaplanamaz</span>'}</td></tr>`).join('')}</tbody></table></div>
+      <p class="note">"Siparişte" = üretimdeki siparişlerin toplamı. Stok için fazladan üretilecekse plan adedini artır.</p>
+      <div class="toolbar" style="align-items:flex-end"><label class="chk" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="plmin" ${s.fill_min ? 'checked' : ''}> Minimum stok seviyesini de tamamla</label>
+        <label class="f" style="width:150px">1 USD = TL<input type="number" id="plfx" step="0.01" min="0" value="${esc(s.fx_usd || '')}"></label>
+        <label class="f" style="width:150px">1 EUR = TL<input type="number" id="plfxe" step="0.01" min="0" value="${esc(s.fx_eur || '')}"></label>
+        <button class="btn primary" id="plcalc" type="button">${s.calcd ? 'Yeniden hesapla' : 'Hesapla'}</button></div></section>
+    ${s.calcd ? `<section class="mt"><div class="board-head"><h2 style="margin:0">2 · Alım paketleri</h2><label class="chk" style="display:inline-flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="plall" ${s.showAll ? 'checked' : ''}> Stokta yeterli olanları da göster</label></div>
+      <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+        <div class="kpi"><div class="v">${fx.usd ? fmtUSD2(t.usd) : '—'}</div><div class="l">Toplam alım (USD)</div><div class="d">${fx.usd ? (t.miss ? `${t.miss} kalemin fiyatı/kuru yok, dahil değil` : 'tüm kalemler dahil') : 'kur girin'}</div></div>
+        <div class="kpi"><div class="v">${s.lines.filter(l => +l.order_qty > 0).length}</div><div class="l">Alınacak kalem</div><div class="d">${s.lines.length} kalemden</div></div>
+        <div class="kpi"><div class="v">${Object.keys(t.pk).length}</div><div class="l">Alım paketi</div><div class="d">tedarikçiye göre</div></div>
+        <div class="kpi"><div class="v">${Math.max(0, ...Object.values(t.pk).map(p => p.lead)) || '—'}</div><div class="l">En uzun teslim (gün)</div><div class="d">parça kartındaki teslim süresi</div></div></div>
+      ${noBom.length ? `<div class="banner">Malzeme listesi olmadığı için hesaba girmeyenler: <b>${noBom.map(esc).join(', ')}</b>. Bunlar için gerekenleri ayrıca talep edin ya da BOM ekleyin.</div>` : ''}
+      ${pkgs.map(pk => { const L = s.lines.filter(l => l.package === pk), V = L.filter(vis), sub = t.pk[pk];
+        return `<section class="panel mt plpkg" data-pkg="${esc(pk)}"><div class="board-head"><h3 style="margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="pl-pkname" value="${esc(pk)}" aria-label="Paket adı" style="font-weight:650;min-width:220px">
+            <span class="tcount">${sub ? sub.n : 0} kalem</span></h3><span><b>${sub && fx.usd ? fmtUSD2(sub.usd) : '—'}</b>${sub && sub.miss ? ` <span class="amber-txt">(${sub.miss} kalem fiyatsız)</span>` : ''}${sub && sub.lead ? ` · teslim ${sub.lead} gün` : ''}</span></div>
+          ${V.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Parça</th><th class="nosort num">İhtiyaç</th><th class="nosort num">Stok</th><th class="nosort num">Eksik</th><th class="nosort num">Sipariş</th><th class="nosort num">Birim fiyat</th><th class="nosort num">Tutar</th><th class="nosort">Paket</th></tr></thead><tbody>${V.map(lineRow).join('')}</tbody></table></div>`
+            : `<p class="tok">✓ Bu paketteki ${L.length} kalem stokta yeterli.</p>`}</section>`; }).join('')}
+      <p class="mt" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="plsave" type="button">Taslak kaydet</button><span class="sub" style="align-self:center">Kaydettikten sonra plan sayfasından yöneticiye ve muhasebeye gönderilir.</span></p></section>` : ''}`);
+
+  const keep = () => { s.name = q('#plname').value; s.note = q('#plnote').value; s.fill_min = q('#plmin').checked; s.fx_usd = q('#plfx').value; s.fx_eur = q('#plfxe').value;
+    qa('.pl-n').forEach(i => s.products[i.dataset.c] = +i.value || 0);
+    try { localStorage.setItem('planFx', JSON.stringify({ usd:s.fx_usd, eur:s.fx_eur })); } catch {} };
+  const calc = async () => { keep(); const btn = q('#plcalc'); btn.disabled = true; btn.textContent = 'Hesaplanıyor…';
+    const { data, error } = await sb.rpc('supply_plan_calc', { p_products:s.products, p_alt:s.alt_pick, p_fillmin:s.fill_min });
+    btn.disabled = false; if (error) { btn.textContent = 'Hesapla'; return toast(dbErr(error), true); }
+    const prev = new Map(s.lines.map(l => [l.k, l]));
+    s.lines = (data || []).map(l => { const o = prev.get(l.k); return o && o.package !== o._pkg0 ? { ...l, package:o.package, _pkg0:l.package } : { ...l, _pkg0:l.package }; });
+    s.calcd = true; viewPlanEdit(id); };
+  q('#plcalc').onclick = calc;
+  ['#plfx', '#plfxe'].forEach(sel => q(sel).onchange = () => { keep(); if (s.calcd) viewPlanEdit(id); });
+  if (!s.calcd) return;
+  q('#plall').onchange = e => { keep(); s.showAll = e.target.checked; viewPlanEdit(id); };
+  const lineOf = el => s.lines.find(l => l.k === el.closest('tr').dataset.k);
+  qa('.pl-qty').forEach(i => i.onchange = () => { keep(); lineOf(i).order_qty = Math.max(0, +i.value || 0); viewPlanEdit(id); });
+  qa('.pl-pkg').forEach(sel => sel.onchange = () => { keep(); let v = sel.value;
+    if (v === '__new') { v = (prompt('Yeni paketin adı (ör. Çin – motorlar)') || '').trim(); if (!v) return viewPlanEdit(id); }
+    lineOf(sel).package = v.slice(0, 120); viewPlanEdit(id); });
+  qa('.pl-pkname').forEach(i => i.onchange = () => { keep(); const old = i.closest('.plpkg').dataset.pkg, nv = i.value.trim().slice(0, 120);
+    if (!nv) return viewPlanEdit(id); s.lines.forEach(l => { if (l.package === old) l.package = nv; }); viewPlanEdit(id); });
+  qa('.pl-alt').forEach(sel => sel.onchange = () => { s.alt_pick[sel.dataset.bom + '|' + sel.dataset.grp] = +sel.value; calc(); });
+  q('#plsave').onclick = async e => { keep(); if (!s.name.trim()) return toast('Plan adı girin', true);
+    const fx2 = { usd:+s.fx_usd || 0, eur:+s.fx_eur || 0 }, tt = planTotals(s.lines, fx2);
+    e.target.disabled = true;
+    const { data: pid, error } = await sb.rpc('supply_plan_save', { p:{ id:s.id, name:s.name, note:s.note, products:s.products, alt_pick:s.alt_pick, fill_min:s.fill_min,
+      fx_usd:s.fx_usd || null, fx_eur:s.fx_eur || null, total_usd:fx2.usd ? Math.round(tt.usd * 100) / 100 : null,
+      lines:s.lines.map(({ alts, _pkg0, nlines, bom_id, min_qty, order_multiple, min_order, ...l }) => l) } });
+    e.target.disabled = false; if (error) return toast(dbErr(error), true);
+    PS = null; toast('Plan kaydedildi'); location.hash = '#/tedarik/' + pid; };
+}
+
+async function viewPlan(id){
+  if (!canSeePlan()) return viewToday();
+  shell('tedarik', `<div class="empty">Yükleniyor…</div>`);
+  const [{ data: p }, { data: ls }, { data: pur }] = await Promise.all([sb.from('supply_plans').select('*').eq('id', id).maybeSingle(),
+    sb.from('supply_plan_lines').select('*').eq('plan_id', id).order('package').order('name'), sb.from('purchases').select('id,status,qty,total,currency,package').eq('plan_id', id)]);
+  if (!p) return shell('tedarik', `<h1>Plan bulunamadı</h1><p><a href="#/tedarik">Tedarik planlarına dön</a></p>`);
+  const L = (ls || []).filter(l => +l.order_qty > 0), fx = { usd:+p.fx_usd || 0, eur:+p.fx_eur || 0 }, t = planTotals(L, fx), pkgs = Object.keys(t.pk).sort((a, b) => a.localeCompare(b, 'tr'));
+  const P = pur || [], got = P.filter(x => x.status === 'alindi').length;
+  const btn = (act, label, cls = '') => `<button class="btn ${cls}" data-pa="${act}" type="button">${label}</button>`;
+  const acts = [];
+  if (p.status === 'taslak' && canPlan()) acts.push(`<a class="btn" href="#/tedarik-duzenle/${id}">Düzenle</a>`, btn('gonderildi', 'Yöneticiye ve muhasebeye gönder', 'primary'));
+  if (p.status === 'gonderildi' && can('admin')) acts.push(btn('onaylandi', 'Onayla', 'primary'), btn('taslak', 'Düzeltme için geri gönder'));
+  if (p.status === 'onaylandi' && can('admin', 'purchasing')) acts.push(btn('alim', `Alım taleplerini oluştur (${L.filter(l => !l.purchase_id).length} kalem)`, 'primary'));
+  if (['taslak', 'gonderildi', 'onaylandi'].includes(p.status) && (can('admin') || (p.status === 'taslak' && p.created_by === S.profile.id))) acts.push(btn('iptal', 'Planı iptal et', 'danger'));
+  shell('tedarik', `<p><a href="#/tedarik">← Tedarik planları</a></p>
+    <div class="pagehead"><div><h1>${esc(p.name)}</h1><p class="lede">${esc(p.created_by_name || '')} · ${fmtDT(p.created_at)}${p.approved_by_name ? ` · onaylayan ${esc(p.approved_by_name)} (${fmtDT(p.approved_at)})` : ''}</p></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${planPill(p.status)}<button class="btn" id="plcsv" type="button">CSV</button><button class="btn" data-print="1" type="button">Yazdır / PDF</button></div></div>
+    ${p.review_note ? `<div class="banner"><b>Yönetici notu:</b> ${esc(p.review_note)}</div>` : ''}
+    <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      <div class="kpi"><div class="v">${fx.usd ? fmtUSD2(t.usd) : fmtUSD2(p.total_usd)}</div><div class="l">Toplam alım (USD)</div><div class="d">${t.miss ? `${t.miss} kalem fiyatsız, dahil değil` : 'tüm kalemler dahil'}${fx.usd ? ` · 1 USD = ${fmtN(fx.usd)} ₺` : ''}</div></div>
+      <div class="kpi"><div class="v">${L.length}</div><div class="l">Alınacak kalem</div><div class="d">${pkgs.length} paket</div></div>
+      <div class="kpi"><div class="v">${Object.entries(p.products || {}).filter(([, n]) => +n > 0).reduce((a, [, n]) => a + +n, 0)}</div><div class="l">Üretilecek ürün</div><div class="d">${Object.entries(p.products || {}).filter(([, n]) => +n > 0).map(([c, n]) => `${fmtN(n)} ${esc(prodName(c))}`).join(', ')}</div></div>
+      <div class="kpi"><div class="v">${P.length ? `${got}/${P.length}` : '—'}</div><div class="l">Alınan talepler</div><div class="d">${P.length ? `<a href="#/alimlar?plan=${id}">Alımlarda gör →</a>` : 'talepler henüz açılmadı'}</div></div></div>
+    ${p.note ? `<p class="note">${esc(p.note)}</p>` : ''}
+    ${acts.length ? `<section class="panel noprint">${p.status === 'gonderildi' && can('admin') ? '<label class="f">Not <span class="hint">geri gönderirken zorunlu</span><input id="plrev" maxlength="500"></label>' : ''}<p style="display:flex;gap:8px;flex-wrap:wrap;margin:${p.status === 'gonderildi' && can('admin') ? '10px' : '0'} 0 0">${acts.join('')}</p></section>` : ''}
+    ${pkgs.map(pk => { const R = L.filter(l => l.package === pk), sub = t.pk[pk];
+      return `<section class="panel mt"><div class="board-head"><h2 style="margin:0">${esc(pk)} <span class="tcount">${R.length}</span></h2><span><b>${fx.usd ? fmtUSD2(sub.usd) : '—'}</b>${sub.miss ? ` <span class="amber-txt">(${sub.miss} fiyatsız)</span>` : ''}${sub.lead ? ` · teslim ${sub.lead} gün` : ''}</span></div>
+        <div class="tablewrap"><table><thead><tr><th class="nosort">Parça</th><th class="nosort num">İhtiyaç</th><th class="nosort num">Stok</th><th class="nosort num">Sipariş</th><th class="nosort num">Birim fiyat</th><th class="nosort num">Tutar</th></tr></thead><tbody>
+        ${R.map(l => { const u = toUSD(l.unit_price, l.currency, fx); return `<tr style="cursor:default"><td>${l.purchase_id ? `<a href="#/alimlar/${l.purchase_id}">${esc(l.name)}</a>` : esc(l.name)}<div class="sub">${esc(l.products || '')}</div></td><td class="num">${fmtQ(l.need)}</td><td class="num">${fmtQ(l.stock)}</td><td class="num"><b>${fmtQ(l.order_qty)}</b></td>
+          <td class="num">${l.unit_price == null ? '<span class="amber-txt">fiyat yok</span>' : fmtMoney(l.unit_price, l.currency)}</td><td class="num">${u == null ? '—' : fmtUSD2(u * l.order_qty)}</td></tr>`; }).join('')}</tbody></table></div></section>`; }).join('') || '<div class="empty mt">Bu planda alınacak kalem yok.</div>'}`);
+  qa('[data-pa]').forEach(b => b.onclick = async () => { const a = b.dataset.pa;
+    if (a === 'iptal' && !b.dataset.ok) { b.dataset.ok = 1; b.textContent = 'Emin misin? Tekrar bas'; return; }
+    b.disabled = true;
+    const r = a === 'alim' ? await sb.rpc('supply_plan_create_purchases', { p_id:id }) : await sb.rpc('supply_plan_set_status', { p_id:id, p_status:a, p_note:(q('#plrev') || {}).value || null });
+    b.disabled = false; if (r.error) return toast(dbErr(r.error), true);
+    toast(a === 'alim' ? `${r.data} alım talebi oluşturuldu` : { gonderildi:'Plan yöneticiye ve muhasebeye gönderildi', onaylandi:'Plan onaylandı', taslak:'Plan geri gönderildi', iptal:'Plan iptal edildi' }[a]);
+    if (a === 'alim') loadPurCount(); await loadPlanCount(); viewPlan(id); });
+  q('#plcsv').onclick = () => { const head = ['Paket', 'Parça', 'Ürünler', 'İhtiyaç', 'Stok', 'Eksik', 'Sipariş adedi', 'Birim fiyat', 'Para birimi', 'Tutar (USD)', 'Teslim (gün)'];
+    const lines = [head, ...L.map(l => { const u = toUSD(l.unit_price, l.currency, fx); return [l.package, l.name, l.products || '', l.need, l.stock, l.net, l.order_qty, l.unit_price ?? '', l.currency || '', u == null ? '' : (u * l.order_qty).toFixed(2), l.lead_days ?? '']; })]
+      .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `tedarik-plani-${id}.csv`; a.click(); };
 }
 
 // ---------------------------------------------------------------- TEDARİKÇİLER + SİTE HESAPLARI

@@ -115,6 +115,12 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 ### Rol önizleme (geçici, geliştirme kontrolü)
 - Yönetici, sol alttaki "Rol önizleme" ile rolleri (ve üretim bölümünü) seçip siteyi o rolle görür. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkisiyle yapılır. Tarayıcıda `rolePreview` anahtarında tutulur; üstteki şeritten çıkılır. Sonra kaldırılacak.
 
+### Üretim tedarik planı (8 Kasım 2026)
+- `#/tedarik`: plan listesi; `#/tedarik/yeni`: ürün adetleri (üretimdeki siparişlerden dolar, stok için artırılabilir) → `supply_plan_calc()` BOM × adet − stok = net eksik; parça kartındaki **sipariş katı**, **minimum sipariş** ve **teslim süresi** (`stock_items.order_multiple / min_order / lead_days`) ile yuvarlar. Alternatif gruplarda (ör. aktüatör boyu) satırdan seçilir.
+- Kalemler tedarikçiye göre **alım paketlerinde** toplanır (PCB'ler "PCB dizgi"); paket adı değiştirilebilir, kalem başka pakete taşınabilir. Tutarlar USD (planda 1 USD / 1 EUR = TL kuru girilir).
+- Akış: taslak → yöneticiye ve muhasebeye gönder (site içi bildirim) → yönetici onaylar / not ile geri gönderir → Satın alma veya yönetici "Alım taleplerini oluştur" → her kalem `purchases` satırı olur (`plan_id`, `package`). Alımlarda paket filtresi ve 📦 etiketi; `#/alimlar?plan=<id>`.
+- Görebilen: Yönetici, Muhasebe, Satın alma, Üretim, Depo / Stok, Sipariş. Hazırlayan: Yönetici, Üretim, Satın alma, Depo / Stok, Sipariş. Veritabanı: `sql/2026-11-07_tedarik_plani.sql`.
+
 ## Yedekleme ve senkronlar (7 Kasım 2026)
 Sistem kullanıcının bilgisayarına bağlı değildir.
 - **Yedek:** Google Apps Script (Serhan'ın hesabında, proje "AcromeERPYedek") her pazar 03:00 `backup-export`'u çağırır, Drive'da "Acrome Site Yedekleri" klasörüne `json.gz` kaydeder (son 12). Her ayın 1'i 04:00 `backup-restore-test` son yedeği ayrı `restore_test` şemasına yükleyip canlıyla satır satır karşılaştırır ve şemayı siler (sonuç `backup_checks`). Kimlik: Vault `backup_token` (Apps Script'te `BACKUP_TOKEN`).
