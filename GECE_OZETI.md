@@ -24,10 +24,38 @@ Durum: Devam ediyor (başlangıç 03:10)
   - 15 olası mükerrer elektronik komponent kartı (ör. "16Mhz Kristal" ve "16Mhz")
 
 ## Uyuşmazlıklar
-- (yok)
+- Referansla tutmayan sonuç yok: tedarik hesabı iki yöntemde de aynı çıktı.
+- Dikkat: ürün malzeme listeleri ile siparişlerdeki kontrolcü seçimi tutarsız.
+  - Stewart'ın malzeme listesinde hem Raspberry Pi hem Arduino Shield var; siparişlerde ise kontrolcü ayrı kalem olarak yazılıyor (ör. ACRPO-546: 4 Stewart + 12 RPI).
+  - Sonuç: her Stewart için bir Raspberry Pi sayılıyor; Arduino'lu siparişte bu fazla alıma yol açar. Soru 2'ye bak.
 
 ## Yapılacaklar (bugün)
 - Hazırlananları onayla: veritabanı değişikliği (sql/ klasöründeki dosya) uygulanır, `gece-2026-11-07` dalı ana dala birleşir.
+
+- Bugün yazılan kodun bağımsız güvenlik ve hata incelemesi yapıldı: 14 bulgu. Düzeltmeler hazır ama canlıya alınmadı ✅
+  - 🔴 **Yüksek – en önce bu:**
+    - Alımlar, stok ve tedarik sayfalarında para birimi alanı kaçırılmadan sayfaya basılıyordu. Siteye girebilen herhangi biri, sahte para birimiyle bir alım talebi açıp yönetici o sayfayı açınca onun oturumunda kod çalıştırabilirdi; bu yolla kendine yönetici rolü bile verebilirdi.
+    - Canlıda kontrol ettim: hiçbir kayıtta zararlı değer yok, para birimleri yalnız TRY ve USD. Açık kullanılmamış.
+    - Düzeltme: arayüzde değer kaçırılıyor (test edildi) ve veritabanına "yalnız TRY, USD, EUR, GBP" kuralı ekleniyor.
+  - 🟠 **Masraf formu:**
+    - Onaylanmış formun fişi silinip değiştirilebiliyordu; aynı fiş iki formda kullanılabiliyordu.
+    - Onay atlanıp doğrudan "ödendi" yapılabiliyordu; ödenmiş form geri alınıp silinebiliyordu.
+    - Muhasebe çalışanı kendi formunu onaylayabiliyordu.
+    - Hepsi düzeltildi ve yerel test veritabanında denendi.
+  - 🟠 **Bölüm kısıtı:** Yalnız "Mekanik" bölümü atanmış biri siparişi doğrudan "Gönderildi" yapabiliyordu. Düzeltildi; ayrıca Gönderim aşaması artık "Gerekmiyor" yapılamıyor.
+  - 🟠 **Basecamp bağlantısı:** Bağlantı linki tek seferlik ve zorunlu hale getirildi (Basecamp bu değeri geri gönderiyor, kayıtlarda doğrulandı).
+  - 🟡 **Küçükler:**
+    - CSV dosyaları Excel'de formül çalıştırmasın diye korundu.
+    - 6 MB üstü fiş için açık hata mesajı; yarım kalan yüklemelerde dosyalar temizleniyor.
+    - Mail senkronunda adres eşleşmesindeki joker karakter açığı kapatıldı.
+    - Tutar alanlarında NaN ve sonsuz değer engellendi.
+    - Tedarik planının toplamı artık sunucuda hesaplanıyor.
+  - Dosyalar:
+    - `sql/2026-11-07b_guvenlik_duzeltmeleri.sql`
+    - güncellenmiş `sql/2026-11-07_tedarik_plani.sql` (artık tek işlemde çalışıyor ve tekrar çalıştırılabiliyor)
+    - `app.js`
+    - `supabase/functions/` (2 sunucu fonksiyonu)
+  - Sorun bulunmayanlar: rol önizleme, yedek ve geri yükleme fonksiyonları, masraf dosyalarının okunma kuralı, yeni tablolara doğrudan yazma yetkileri.
 
 ## #4 Sabah brifingindeki Basecamp kısmını sunucuya taşıma — plan (uygulanmadı)
 - Bugün brifing Basecamp'i bilgisayarındaki araçla okuyor; araç 5 bölüm üretiyor: atamalarım, gecikenler raporu, bildirimler, aktivite, ping konuşmaları.

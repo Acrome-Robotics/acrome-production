@@ -2,6 +2,9 @@
 -- Akış: ürün adetleri (üretimdeki siparişlerden) → BOM × adet = ihtiyaç → stok düşülür = net eksik
 --       → sipariş katı / minimum sipariş ile yuvarlanır → tedarikçiye göre "alım paketleri" → USD toplam
 --       → yöneticiye + muhasebeye gönder → yönetici onaylar → alım talepleri (paket adıyla) oluşur.
+-- Önce bu dosya, sonra arayüz (app.js) yayına alınmalı: stok kartı formu yeni sütunları gönderiyor.
+-- Tek işlemde çalışır ve tekrar çalıştırılabilir.
+begin;
 
 -- 1) Parça kartına toplu alım bilgileri
 alter table public.stock_items add column if not exists order_multiple numeric check (order_multiple is null or order_multiple > 0);
@@ -46,9 +49,9 @@ create table if not exists public.supply_plan_lines (
   need numeric not null default 0,
   stock numeric not null default 0,
   net numeric not null default 0,
-  order_qty numeric not null default 0,
-  unit_price numeric,
-  currency text,
+  order_qty numeric not null default 0 check (order_qty <> 'NaN'::numeric and order_qty >= 0 and order_qty < 1e9),
+  unit_price numeric check (unit_price is null or (unit_price <> 'NaN'::numeric and unit_price >= 0 and unit_price < 1e9)),
+  currency text check (currency is null or currency in ('TRY','USD','EUR','GBP')),
   supplier_id bigint references public.suppliers(id) on delete set null,
   supplier_text text,
   package text not null default 'Tedarikçi belirsiz',
@@ -66,10 +69,13 @@ create index if not exists supply_plans_approved_by_idx on public.supply_plans(a
 alter table public.purchases add column if not exists plan_id bigint references public.supply_plans(id) on delete set null;
 alter table public.purchases add column if not exists package text;
 create index if not exists purchases_plan_idx on public.purchases(plan_id);
+alter table public.supply_plan_lines drop constraint if exists supply_plan_lines_purchase_fk;
 alter table public.supply_plan_lines add constraint supply_plan_lines_purchase_fk foreign key (purchase_id) references public.purchases(id) on delete set null;
 
 alter table public.supply_plans enable row level security;
 alter table public.supply_plan_lines enable row level security;
+drop policy if exists supply_plans_read on public.supply_plans;
+drop policy if exists supply_plan_lines_read on public.supply_plan_lines;
 create policy supply_plans_read on public.supply_plans for select to authenticated
   using ((select public.has_role(array['admin','muhasebe','purchasing','production','stock','orders'])));
 create policy supply_plan_lines_read on public.supply_plan_lines for select to authenticated
@@ -149,10 +155,17 @@ begin
       unit_price, currency, supplier_id, supplier_text, package, lead_days, note)
     values (pid, l->>'k', nullif(l->>'item_id', '')::bigint, nullif(l->>'pcb_board_id', '')::bigint, left(coalesce(l->>'name', '(adsız)'), 200), l->>'section', l->>'products', l->>'alt_group',
       coalesce(nullif(l->>'need', '')::numeric, 0), coalesce(nullif(l->>'stock', '')::numeric, 0), coalesce(nullif(l->>'net', '')::numeric, 0),
-      greatest(coalesce(nullif(l->>'order_qty', '')::numeric, 0), 0), nullif(l->>'unit_price', '')::numeric, nullif(l->>'currency', ''),
+      greatest(coalesce(nullif(nullif(l->>'order_qty', ''), 'NaN')::numeric, 0), 0), nullif(nullif(l->>'unit_price', ''), 'NaN')::numeric, nullif(l->>'currency', ''),
       nullif(l->>'supplier_id', '')::bigint, l->>'supplier_text', left(coalesce(nullif(trim(l->>'package'), ''), 'Tedarikçi belirsiz'), 120),
       nullif(l->>'lead_days', '')::int, nullif(trim(l->>'note'), ''));
   end loop;
+  -- toplam USD sunucuda hesaplanır (istemcinin gönderdiği değere güvenilmez)
+  update public.supply_plans pl set total_usd = (
+      select round(sum(l.order_qty * case l.currency when 'USD' then l.unit_price
+                                                    when 'EUR' then l.unit_price * pl.fx_eur / nullif(pl.fx_usd, 0)
+                                                    else l.unit_price / nullif(pl.fx_usd, 0) end), 2)
+      from public.supply_plan_lines l where l.plan_id = pl.id and l.order_qty > 0 and l.unit_price is not null)
+  where pl.id = pid;
   return pid;
 end $$;
 
@@ -232,3 +245,5 @@ begin
   if new.kind in ('masraf','asama','alim','plan') then new.emailed_at := coalesce(new.emailed_at, now()); new.pushed_at := coalesce(new.pushed_at, now()); end if;
   return new;
 end $$;
+
+commit;

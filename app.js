@@ -66,6 +66,8 @@ const normUrl = u => { u = String(u || '').trim(); return !u ? null : /^https?:\
 // Supabase en fazla 1000 satır döndürür; hepsini sayfa sayfa al
 async function fetchAll(mk){ const out = []; for (let k = 0; ; k += 1000) { const { data, error } = await mk().range(k, k + 999); if (error) return { data:out, error }; out.push(...(data || [])); if (!data || data.length !== 1000) return { data:out, error:null }; } }
 const safeUrl = u => /^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '#';
+// CSV hücresi Excel'de formül olarak çalışmasın (=, +, -, @ ile başlayan metin)
+const csvSafe = v => { v = v == null ? '' : String(v); return /^[=+\-@\t\r]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v) ? "'" + v : v; };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ymd = x => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
 const today = () => ymd(new Date());
@@ -91,6 +93,8 @@ function dbErr(e){
   if (/deals_opp_no_uq/.test(m)) return 'Bu PROS numarası zaten kayıtlı.';
   if (/customers_name_uq/.test(m)) return 'Bu müşteri zaten kayıtlı.';
   if (/row-level security|permission/.test(m)) return 'Bu işlem için yetkiniz yok.';
+  if (/expense_items_receipt_uq/.test(m)) return 'Bu fiş başka bir masraf kaleminde kullanılmış.';
+  if (/currency_ok/.test(m)) return 'Geçersiz para birimi.';
   if (/stage_status_ok/.test(m)) return 'Aşama ile durum uyumsuz (sipariş = Kazanıldı, kayıp = Kaybedildi olmalı).';
   return m;
 }
@@ -605,7 +609,7 @@ function csv(rows, name){
   const cols = [['No',refNo],['PROS',d=>d.opp_no],['Müşteri',custName],['Ülke',d=>ctryName(d.country)],['Açıklama',d=>d.description],['Aşama',d=>STAGES[d.stage]],['Durum',d=>STATUSES[d.status]],
     ['Fırsat girişi',d=>d.lead_date],['Sipariş tarihi',d=>d.order_date],['İstenen sevk',d=>d.requested_ship_date],['Planlanan sevk',d=>d.planned_ship_date],['Sevk tarihi',d=>d.ship_date],['Sevk ayı',d=>d.ship_month],
     ['Tutar USD',d=>d.amount_usd],['Para birimi',d=>d.currency],['Orijinal tutar',d=>d.amount_orig],...S.products.map(p=>[p.name,d=>(d.items||{})[p.code]||'']),['Detay',d=>d.details],['Ödeme',d=>d.payment_terms],['Not',d=>d.notes]];
-  const cell = v => { v = v==null?'':String(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+  const cell = v => { v = csvSafe(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
   const txt = '﻿' + [cols.map(c=>c[0]).join(';'), ...rows.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'})); a.download = name; a.click();
 }
@@ -688,7 +692,7 @@ function viewShipments(){
   });
   q('#scsv').onclick = () => {
     const cols = [['Sevk tarihi',d=>d.ship_date||''],['Sevk ayı',d=>d.ship_month||''],['Tarih esası',d=>({day:'Sevk tarihi',month:'Sevk ayı',est:'İstenen sevk (tahmini)'})[shipBasis(d)]],['Rapor tarihi',shipDate],['No',refNo],['Müşteri',custName],['Ülke',d=>ctryName(d.country)],['Açıklama',d=>d.description],['Tutar USD',d=>d.amount_usd],['Dahili',d=>d.is_internal?'Evet':''],...S.products.map(p=>[p.name,d=>(d.items||{})[p.code]||''])];
-    const cell = v => { v = v==null?'':String(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+    const cell = v => { v = csvSafe(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
     const txt = '﻿' + [cols.map(c=>c[0]).join(';'), ...rows.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'})); a.download = `acrome-gonderim-${Y}${st.month?'-'+String(st.month).padStart(2,'0'):''}.csv`; a.click();
   };
@@ -894,24 +898,27 @@ async function viewExpense(){
       if (!v('day') || v('day') > today()) { err.textContent = `${k + 1}. kalem: geçerli bir tarih gir.`; return; }
       if (!v('description')) { err.textContent = `${k + 1}. kalem: açıklama yaz.`; return; }
       if (!(+v('amount') > 0)) { err.textContent = `${k + 1}. kalem: tutarı gir.`; return; }
-      if (file && file.size > 15e6) { err.textContent = `${k + 1}. kalem: dosya çok büyük (en fazla 15 MB).`; return; }
+      if (file && file.size > 30e6) { err.textContent = `${k + 1}. kalem: dosya çok büyük.`; return; }
       items.push({ day:v('day'), category:v('category'), description:v('description'), amount:+v('amount'), currency:v('currency'), project:v('project'), file });
     }
     if (!items.some(x => x.file) && !confirm('Hiçbir kaleme fiş/fatura eklemedin. Yine de gönderilsin mi?')) return;
     btn.disabled = true; btn.textContent = 'Gönderiliyor…';
+    const uploaded = [];
     try {
       for (const [k, it] of items.entries()) {
         if (!it.file) continue;
         const fl = await shrinkReceipt(it.file), safe = fl.name.normalize('NFKD').replace(/[^\w.-]+/g, '_').slice(-80);
+        if (fl.size > 6e6) throw new Error(`${k + 1}. kalemin dosyası 6 MB'tan büyük; daha küçük bir fotoğraf ya da PDF seçin.`);
         const path = `${me}/${Date.now()}-${k}-${safe}`;
         const { error } = await sb.storage.from('masraf').upload(path, fl, { contentType:fl.type || 'application/octet-stream', upsert:false });
         if (error) throw new Error(`${k + 1}. kalemin dosyası yüklenemedi: ${error.message}`);
-        it.receipt_path = path; it.receipt_name = it.file.name;
+        it.receipt_path = path; it.receipt_name = it.file.name; uploaded.push(path);
       }
       const { data: id, error } = await sb.rpc('expense_submit', { p:{ title, note:String(f.get('note') || ''), items:items.map(({ file, ...x }) => x) } });
       if (error) throw error;
       toast('Masraf formu muhasebeye gönderildi'); location.hash = '#/masraf/' + id;
-    } catch (x) { err.textContent = dbErr(x); btn.disabled = false; btn.textContent = 'Muhasebeye gönder'; }
+    } catch (x) { if (uploaded.length) sb.storage.from('masraf').remove(uploaded).catch(() => {});
+      err.textContent = dbErr(x); btn.disabled = false; btn.textContent = 'Muhasebeye gönder'; }
   };
 }
 async function openReceipt(path){
@@ -925,6 +932,8 @@ async function viewExpenseDetail(id){
   const { data: r } = await sb.from('expense_reports').select('*,expense_items(*)').eq('id', id).maybeSingle();
   if (!r) return shell('masraf', `<h1>Form bulunamadı</h1><p><a href="#/masraf">Masraf formuna dön</a></p>`);
   const its = (r.expense_items || []).sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id), own = r.user_id === S.profile.id, acc = canAcc();
+  const nextSt = { gonderildi:['onaylandi', 'reddedildi'], onaylandi:['odendi', 'gonderildi'], reddedildi:['gonderildi'], odendi:[] }[r.status] || [];
+  const canReview = acc && (!own || can('admin'));
   const act = st => `<button class="btn ${st === 'onaylandi' || st === 'odendi' ? 'primary' : st === 'reddedildi' ? 'danger' : ''}" data-ex="${st}">${{ onaylandi:'Onayla', reddedildi:'Reddet', odendi:'Ödendi olarak işaretle', gonderildi:'Onay bekliyor\'a geri al' }[st]}</button>`;
   shell(acc ? 'masraf-liste' : 'masraf', `<p><a href="${acc ? '#/masraf-liste' : '#/masraf'}">← ${acc ? 'Masraf formları' : 'Masraf formum'}</a></p>
     <div class="pagehead"><div><h1>${esc(r.title)}</h1><p class="lede">${esc(r.user_name || '')} · ${fmtDT(r.created_at)} · ${its.length} kalem · <b>${sumByCur(its)}</b></p></div><div>${expPill(r.status)}</div></div>
@@ -935,7 +944,7 @@ async function viewExpenseDetail(id){
       <tr class="tfoot"><td colspan="4">Toplam</td><td class="num">${sumByCur(its)}</td><td></td></tr></tbody></table></div>
     ${acc ? `<section class="panel mt"><h2>Muhasebe</h2><div class="grid g2"><label class="f">Not <span class="hint">reddederken zorunlu; gönderen görür</span><input id="exnote" maxlength="500" value="${esc(r.review_note || '')}"></label>
       ${r.status === 'onaylandi' ? `<label class="f">Ödeme tarihi<input type="date" id="expaid" value="${today()}" max="${today()}"></label>` : ''}</div>
-      <p style="display:flex;gap:8px;flex-wrap:wrap">${(r.status === 'gonderildi' ? ['onaylandi', 'reddedildi'] : r.status === 'onaylandi' ? ['odendi', 'gonderildi'] : ['gonderildi']).map(act).join('')}</p></section>` : ''}
+      <p style="display:flex;gap:8px;flex-wrap:wrap">${canReview ? nextSt.map(act).join('') || '<span class="sub">Ödenmiş form değiştirilemez.</span>' : '<span class="sub">Kendi masraf formunu inceleyemezsin; başka bir muhasebe çalışanı ya da yönetici inceler.</span>'}</p></section>` : ''}
     ${own && r.status === 'gonderildi' ? `<p class="mt"><button class="btn danger" id="exrm">Formu geri çek (sil)</button> <span class="sub">Muhasebe incelemeden önce geri çekebilirsin.</span></p>` : ''}`);
   qa('[data-rc]').forEach(b => b.onclick = () => openReceipt(b.dataset.rc));
   qa('[data-ex]').forEach(b => b.onclick = async () => {
@@ -985,7 +994,7 @@ async function viewExpenseList(){
   q('#excsv').onclick = () => {
     const head = ['Form no', 'Gönderim', 'Kişi', 'Form', 'Durum', 'Masraf tarihi', 'Tür', 'Açıklama', 'Proje', 'Tutar', 'Para birimi', 'Fiş', 'Ödeme tarihi'];
     const lines = [head, ...items.map(i => [i.r.id, i.r.created_at.slice(0, 10), i.r.user_name || '', i.r.title, EXP_ST[i.r.status], i.day, i.category, i.description, i.project || '', String(i.amount).replace('.', ','), i.currency, i.receipt_path ? 'var' : 'yok', i.r.paid_at || ''])]
-      .map(x => x.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+      .map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `masraflar-${st.month || 'tum'}.csv`; a.click();
   };
 }
@@ -2254,7 +2263,7 @@ const BOM_KIND = { product:'Ürün', project:'Proje', pcb:'PCB dizgi' };
 const SECT = { mekanik:'Mekanik', elektronik:'Elektronik', komponent:'Komponent', diger:'Diğer' };
 const num0 = v => v == null || v === '' ? null : +String(v).replace(',', '.');
 const fmtQ = n => n == null ? '—' : (+n).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
-const fmtMoney = (n, cur) => n == null || n === '' ? '—' : (+n).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) + ' ' + ({ TRY:'₺', USD:'$', EUR:'€' }[cur || 'TRY'] || cur);
+const fmtMoney = (n, cur) => n == null || n === '' ? '—' : (+n).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) + ' ' + ({ TRY:'₺', USD:'$', EUR:'€' }[cur || 'TRY'] || esc(cur));
 const purPill = st => `<span class="pill pu-${st}">${PUR_ST[st] || st}</span>`;
 const stkSel = (name, o, v, blank) => `<select name="${name}">${blank !== undefined ? `<option value="">${blank}</option>` : ''}${Object.entries(o).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
 const arrSel = (name, arr, v, blank) => `<select name="${name}">${blank !== undefined ? `<option value="">${blank}</option>` : ''}${[...new Set([...(v && !arr.includes(v) ? [v] : []), ...arr])].map(x => `<option ${v === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`;
@@ -2987,7 +2996,7 @@ async function viewPlan(id){
     if (a === 'alim') loadPurCount(); await loadPlanCount(); viewPlan(id); });
   q('#plcsv').onclick = () => { const head = ['Paket', 'Parça', 'Ürünler', 'İhtiyaç', 'Stok', 'Eksik', 'Sipariş adedi', 'Birim fiyat', 'Para birimi', 'Tutar (USD)', 'Teslim (gün)'];
     const lines = [head, ...L.map(l => { const u = toUSD(l.unit_price, l.currency, fx); return [l.package, l.name, l.products || '', l.need, l.stock, l.net, l.order_qty, l.unit_price ?? '', l.currency || '', u == null ? '' : (u * l.order_qty).toFixed(2), l.lead_days ?? '']; })]
-      .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+      .map(r => r.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `tedarik-plani-${id}.csv`; a.click(); };
 }
 
@@ -3135,7 +3144,7 @@ async function viewPurchaseReport(){
   qa('.bars [data-m], [data-m2]').forEach(b => b.onclick = e => { e.preventDefault(); const m = b.dataset.m || b.dataset.m2; st.month = +st.month === +m ? '' : m; viewPurchaseReport(); });
   q('#pcsv').onclick = () => { const head = ['Tarih', 'Ürün / iş', 'Birim', 'Ürün / proje', 'Proje notu', 'Tedarikçi', 'Adet', 'Tutar (TL)'];
     const lines = [head, ...R.map(p => [p.d, p.item_name, p.unit || '', bomName(p.bom_id) || '', p.project || '', supName(p.supplier_id) || p.supplier_text || '', p.qty ?? '', p.total ?? ''])]
-      .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+      .map(r => r.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `alimlar-${st.year}${st.month ? '-' + String(st.month).padStart(2, '0') : ''}.csv`; a.click(); };
 }
 
@@ -3304,7 +3313,7 @@ async function viewAttReport(){
   </tbody></table></div></section>`);
   q('#arm').onchange = e => { if (e.target.value) { s.month = e.target.value; viewAttReport(); } };
   q('#arcsv').onclick = () => { const head = ['Ad', ...wd, 'Geldi', 'Geç', 'Uzaktan', 'Yarım', 'İzinli', 'Raporlu', 'Gelmedi', 'Boş', 'Katılım %'];
-    const lines = [head, ...rows.map(r => [r.p.name, ...wd.map(d => code(r.p.id, d)), r.x, r.G, r.U, r.h, r.I, r.R, r.no, r.bos, r.rate ?? ''])].map(x => x.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const lines = [head, ...rows.map(r => [r.p.name, ...wd.map(d => code(r.p.id, d)), r.x, r.G, r.U, r.h, r.I, r.R, r.no, r.bos, r.rate ?? ''])].map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `calisma-raporu-${s.month}.csv`; a.click(); };
 }
 
