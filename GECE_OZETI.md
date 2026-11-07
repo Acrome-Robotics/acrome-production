@@ -9,6 +9,11 @@ Durum: Devam ediyor (başlangıç 03:10)
     - Hesap fonksiyonu 8 Stewart için referansla aynı sonucu verdi (26 / 1.136 / 803)
     - Sipariş katı (ör. 20'li paket) ve minimum sipariş yuvarlaması, alternatif seçimi (aktüatör boyu), "minimum stoğu da tamamla" doğru çalışıyor
     - Yetkiler: Satış plan yapamıyor; Muhasebe görüyor ama onaylayamıyor; yalnız yönetici onaylıyor; geri gönderirken neden zorunlu; alım taleplerini Satın alma veya yönetici oluşturuyor; aynı plandan ikinci kez talep oluşmuyor
+  - Arayüz hazır (Üretim → Tedarik planı) ve deneme verisiyle test edildi ✅ (masaüstü + telefon, 4 rol, hata yok, taşma yok)
+    - Plan adı, ürün adetleri (siparişten otomatik), kur, "min. stoğu tamamla" → Hesapla → paketler; paket adı değiştirme, kalemi başka pakete taşıma, sipariş adedini değiştirme, alternatif seçimi
+    - Toplam elle doğrulandı: 5 kalemlik örnekte $9.642 (aynı)
+    - Plan sayfası: gönder / onayla / geri gönder (not zorunlu) / iptal / alım taleplerini oluştur, CSV, yazdır
+    - Alımlar listesinde 📦 paket etiketi ve paket filtresi; parça kartında sipariş katı, minimum sipariş, teslim süresi alanları
   - Bugünkü verilerle eksiklerin tutarı yaklaşık 558.050 ₺ + 2.725 $ (21 eksik kalemin fiyatı yok, bu tutara dahil değil)
 
 ## Uyuşmazlıklar
