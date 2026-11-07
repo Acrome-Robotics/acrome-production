@@ -49,6 +49,9 @@ Durum: Tamamlandı (03:10–03:50). 4 işin hepsi bitti; hiçbiri canlıya alın
   - Düzeltmelerden sonra tüm site deneme verisiyle yeniden test edildi (10 test: aşama panosu, masraf, muhasebe, tedarik, rol önizleme, logo linki, kişiler, güvenlik başlıkları): hata yok, telefonda taşma yok ✅
   - Sorun bulunmayanlar: rol önizleme, yedek ve geri yükleme fonksiyonları, masraf dosyalarının okunma kuralı, yeni tablolara doğrudan yazma yetkileri.
 
+- Dal GitHub'a yedeklendi (senin isteğinle, 04:04): `gece-2026-11-07`. Ana dal ve site değişmedi ✅
+  - Dikkat: depo herkese açık ve daldaki dosyalar para birimi açığını anlatıyor; güvenlik düzeltmesini bugün ilk iş uygulayalım.
+
 ## Uyuşmazlıklar
 - Referansla tutmayan sonuç yok: tedarik hesabı iki yöntemde de aynı çıktı.
 - Dikkat: ürün malzeme listeleri ile siparişlerdeki kontrolcü seçimi tutarsız.
