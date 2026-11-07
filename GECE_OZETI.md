@@ -29,6 +29,20 @@ Durum: Devam ediyor (başlangıç 03:10)
 ## Yapılacaklar (bugün)
 - Hazırlananları onayla: veritabanı değişikliği (sql/ klasöründeki dosya) uygulanır, `gece-2026-11-07` dalı ana dala birleşir.
 
+## #4 Sabah brifingindeki Basecamp kısmını sunucuya taşıma — plan (uygulanmadı)
+- Bugün brifing Basecamp'i bilgisayarındaki araçla okuyor; araç 5 bölüm üretiyor: atamalarım, gecikenler raporu, bildirimler, aktivite, ping konuşmaları.
+- Bu 5 bölümün hepsi Basecamp'in resmi API'sinde var ve dün kurduğumuz salt okuma bağlantısıyla okunabilir:
+  - `/my/assignments.json`
+  - `/reports/todos/overdue.json`
+  - `/my/readings.json` (bildirimler)
+  - `/reports/progress.json` (aktivite)
+  - `/buckets/<id>/chats/<id>/lines.json` (ping mesajları)
+- Yapılacak:
+  1. Basecamp senkron fonksiyonuna "brifing" modu eklenir. Bugünkü araçla aynı başlıklarda kısa bir metin üretir; Basecamp'te hiçbir şey okundu işaretlenmez.
+  2. Veritabanına bu metni döndüren küçük bir fonksiyon eklenir.
+  3. Brifing görevinin Basecamp bölümü önce bu yolu kullanır; olmazsa bilgisayar, o da olmazsa Chrome yedek kalır.
+- Süre: yaklaşık 1 saat. Senin onayınla sunucuya yüklenir; gece yapılmadı.
+
 ## Önerilerim
 - 
 
