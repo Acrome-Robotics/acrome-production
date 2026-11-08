@@ -2251,7 +2251,7 @@ async function viewRmaForm(id, preset){
 // Stok (parçalar, BOM listeleri, PCB kartları, motor testleri) ve Alımlar
 // app.js'teki ortak yardımcıları kullanır (sb, S, shell, q, qa, esc, toast, ...)
 // =====================================================================
-const canStock = () => can('production', 'stock', 'orders', 'admin');
+const canStock = () => can('production', 'stock', 'admin');
 const canPurchase = () => can('production', 'stock', 'purchasing', 'orders', 'admin');
 const STK_CAT = { mekanik:'Mekanik', elektronik:'Elektronik', komponent:'Komponent', hazir:'Hazır alınan', diger:'Diğer' };
 const MOVE_R = { acilis:'Açılış', sayim:'Sayım', alim:'Alım', uretim:'Üretim', rma:'RMA', duzeltme:'Düzeltme', iade:'İade', diger:'Diğer' };
