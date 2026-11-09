@@ -63,7 +63,7 @@ h3{font-weight:650;font-size:15px;margin:0 0 8px}
 .btn.danger:hover{background:var(--red-soft)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn.sm{padding:5px 10px;font-size:13px}
-input:not([type]),input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=search],input[type=tel],input[type=url],select,textarea{
+input:not([type]),input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=time],input[type=month],input[type=search],input[type=tel],input[type=url],select,textarea{
   width:100%;border:1px solid var(--line);background:var(--surface);border-radius:var(--radius);padding:8px 10px;min-height:38px}
 textarea{min-height:76px;resize:vertical}
 input:disabled,select:disabled,textarea:disabled{background:var(--soft);color:var(--muted)}
@@ -588,3 +588,18 @@ tr.ret td{color:var(--muted)}
 label.f.chk{flex-direction:row;display:flex;align-items:center;gap:8px;font-weight:400}
 label.f.chk input{width:auto}
 .kv dd{min-width:0;overflow-wrap:anywhere}
+/* geri düğmesi */
+.backbtn{display:inline-flex;align-items:center;gap:4px;margin:0 0 10px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--card, transparent);color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+.backbtn:hover{color:var(--fg, inherit);border-color:var(--muted)}
+@media print{.backbtn{display:none}}
+.whosel{display:flex;flex-direction:column;gap:4px;min-width:0}.whosel input[hidden]{display:none}
+tr.ledrow td{background:var(--soft);padding:10px 12px}
+.btnrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.attcell:has(.atttime){height:auto;min-height:34px;flex-wrap:wrap;row-gap:0;padding:3px 8px}
+.attcell i.atttime{display:block;flex-basis:100%;text-align:center;font-style:normal;font-size:10.5px;font-variant-numeric:tabular-nums;opacity:.85}
+.attpop.timepop{width:300px;padding:12px}
+.attpop.timepop form{display:block}
+.attpop.timepop .row.r2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+tr.ldrow > td{background:var(--soft);padding:8px 10px}
+.attpop.timepop button.btn{width:auto;display:inline-flex;justify-content:center;padding:6px 12px;border:1px solid var(--line);background:var(--surface);font-size:13px}
+.attpop.timepop button.btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}

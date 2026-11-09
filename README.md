@@ -142,3 +142,10 @@ Geri dönülebilir sabit nokta. Kapsam: satış/sipariş, support + RMA, stok (m
 - **Belgeler**: alım talebine proforma / fatura / irsaliye (PDF veya foto, en fazla 10 MB) eklenir; `alim` deposu, `purchase_files`.
 - **Durum**: alım sayfasında durum seçilir ve "Durumu kaydet" ile onaylanır. Her değişiklik `purchase_events`'e yazılır. "Alındı"dan sipariş öncesi bir duruma dönülürse stoğa girmiş adet geri düşülür ("Eski / kapandı"da düşülmez).
 - Veritabanı: `sql/2026-11-09_faturalar_belgeler.sql`.
+
+## Test & support önerileri (10 Kasım 2026)
+
+- **Geri düğmesi:** site içinde gezildiyse her sayfanın üstünde "← Geri"; bir önceki açılan sayfaya döner.
+- **Ürün dokümanları:** Webflow'daki 40 PDF (courseware, user manual, infosheet, API, troubleshoot) metni `product_docs` / `product_doc_chunks` tablolarında; `doc_search(ürün, sorgu)` ile aranır. Support yapay zekâ özeti ürün bazında bu dokümanlardan sayfa numarasıyla alıntı yapar. PDF'leri `docs-ingest` edge function'ı indirir. SQL: `sql/2026-11-10_urun_dokuman_kutuphanesi.sql`.
+- **PCB takip:** Teslim eden / alan ekip listesinden, sabit yerlerden (Stok, Ürün, Hurda…) ya da daha önce yazılan adlardan seçilir; listede yoksa "Diğer…" ile elle yazılır. Kişi, kart ve sebebe göre filtre. Kaydı açan ya da kayıtta adı geçen kişi kaydını düzeltebilir; stok yetkilileri hepsini. Numara sunucuda verilir.
+- **Geç kalma / telafi (`#/gec-kalma`):** G seçilince geliş saati sorulur; hücreden "saat gir" ile çıkış saati de eklenir. Hafta sonu / tatilde çalışma telafi sayılır. Ay sonu: geç süre − telafi = net eksik. Kişi kendini, muhasebe ve yöneticiler herkesi görür. Mesai saatleri Kişiler sayfasından (varsayılan 09:00–18:00). SQL: `sql/2026-11-10_pcb_calisma_saatleri.sql`.

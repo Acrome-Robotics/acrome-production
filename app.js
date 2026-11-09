@@ -144,9 +144,9 @@ async function start(){
       S.profile = { ...S.profile, roles:pv.roles, role:pv.roles.includes('admin') ? 'admin' : pv.roles[0], departments:pv.departments || [], _preview:true }; }
   if (S.profile.role === 'pending' || !userRoles(S.profile).length) return renderPending();
   if (staffOnly()) { Object.assign(S, { deals:[], customers:[], products:[], countries:[], issues:[], items:[], boms:[], tickets:[], rmas:[] });
-    try { await loadAttToday(); } catch {} window.onhashchange = route; return route(); }
+    try { await loadAttToday(); } catch {} window.onhashchange = navRoute; return route(); }
   try { await loadAll(); } catch(e){ $app.innerHTML = `<div class="boot">Veri okunamadı: ${esc(dbErr(e))}</div>`; return; }
-  window.onhashchange = route; route();
+  window.onhashchange = navRoute; route();
 }
 
 function renderAuth(mode='in'){
@@ -209,6 +209,10 @@ const ICON = {
   chev: '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
 };
 const navClosed = () => { try { return JSON.parse(localStorage.getItem('navClosed') || '[]'); } catch { return []; } };
+// Geri düğmesi: site içinde gezildiyse bir önceki sayfaya döner (tarayıcının geri tuşuyla aynı)
+let NAV_DEPTH = 0, NAV_BACK = false;
+function navRoute(){ if (NAV_BACK) NAV_BACK = false; else NAV_DEPTH++; return route(); }
+function goBack(){ if (NAV_DEPTH > 0) { NAV_DEPTH--; NAV_BACK = true; history.back(); } else location.hash = '#/bugun'; }
 function shell(active, html){
   const cnt = st => S.deals.filter(d => d.status === st).length;
   const openIssues = S.issues.filter(i => !i.resolved).length;
@@ -218,7 +222,9 @@ function shell(active, html){
       ['daily','Daily notları'],
       ['masraf','Masraf formu'],
       ...(canAcc() ? [['masraf-liste','Masraf formları', S.expPending || '', 'hot']] : []),
-      ...(can('admin') ? [['calisma-raporu','Aylık çalışma raporu'], ['calisma-kisiler','Çalışma planı kişileri']] : []),
+      ['gec-kalma','Geç kalma / telafi'],
+      ...(can('admin','muhasebe') ? [['calisma-raporu','Aylık çalışma raporu']] : []),
+      ...(can('admin') ? [['calisma-kisiler','Çalışma planı kişileri']] : []),
     ]];
   const nav = staffOnly() ? [ekip] : accOnly() ? [
     ['Alımlar', 'cart', [['alimlar','Talepler', S.purOpen || ''], ['tedarik','Tedarik planları'], ['alim-rapor','Aylık alım raporu'], ['tedarikciler','Tedarikçiler']]],
@@ -287,8 +293,9 @@ function shell(active, html){
     <nav class="nav">${staffOnly() ? '' : `<a href="#/bugun" class="ntop ${active==='bugun'?'on':''}">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>`}${nav.map(([g, ic, items]) => { const cur = items.some(n => (n[5] || n[0]) === active), closed = !cur && (navClosed().includes(g) || matchMedia('(max-width:820px)').matches), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
       return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===(n[5]||n[0])?'on':''}${n[4]==='sub'?' sub2':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
     <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${esc(roleLabel(S.profile))} · <button class="linkbtn" id="lo">Çıkış</button>${realAdmin() ? ` · <a href="#/rol-onizleme">Rol önizleme</a>` : ''}<div class="prefs">${themeSwitch()}${densSwitch()}</div></div>
-  </aside><main class="main" id="main">${S.profile._preview ? `<div class="pvbar" role="status"><span>👁 <b>Rol önizleme:</b> ${esc(roleLabel(S.profile))}${myDeps().length ? ' · bölüm: ' + esc(myDeps().map(stgName).join(', ')) : ''}. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkinle yapılır.</span><span><a href="#/rol-onizleme">Değiştir</a> · <button class="linkbtn" id="pvexit">Önizlemeden çık</button></span></div>` : ''}${html}</main></div>`;
+  </aside><main class="main" id="main">${NAV_DEPTH > 0 ? '<button type="button" class="backbtn" id="gback" title="Bir önceki sayfaya dön (Alt + ←)">← Geri</button>' : ''}${S.profile._preview ? `<div class="pvbar" role="status"><span>👁 <b>Rol önizleme:</b> ${esc(roleLabel(S.profile))}${myDeps().length ? ' · bölüm: ' + esc(myDeps().map(stgName).join(', ')) : ''}. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkinle yapılır.</span><span><a href="#/rol-onizleme">Değiştir</a> · <button class="linkbtn" id="pvexit">Önizlemeden çık</button></span></div>` : ''}${html}</main></div>`;
   q('#lo').onclick = () => sb.auth.signOut();
+  q('#gback') && (q('#gback').onclick = goBack);
   q('#pvexit') && (q('#pvexit').onclick = () => { try { localStorage.removeItem(PV_KEY); } catch {} location.hash = '#/kullanicilar'; location.reload(); });
   qa('.nhead').forEach(h => h.onclick = () => { const g = h.parentNode, k = g.dataset.g, set = new Set(navClosed());
     g.classList.toggle('closed'); const c = g.classList.contains('closed'); h.setAttribute('aria-expanded', !c); c ? set.add(k) : set.delete(k);
@@ -304,13 +311,14 @@ function route(){
   if (p === 'rol-onizleme' && realAdmin()) return viewRolePreview();
   if (p === 'masraf') return a ? viewExpenseDetail(+a) : viewExpense();
   if (p === 'masraf-liste') return canAcc() ? viewExpenseList() : viewExpense();
-  if (staffOnly()) return p === 'sifre' ? viewNewPassword() : p === 'daily' ? viewDaily(a) : viewAttendance(a);
+  if (staffOnly()) return p === 'sifre' ? viewNewPassword() : p === 'daily' ? viewDaily(a) : p === 'gec-kalma' ? viewAttLate(a) : viewAttendance(a);
   switch(p){
     case 'calisma-plani': case 'yoklama': return viewAttendance(a);
     case 'daily': return viewDaily(a);
     case 'daily-aktar': return viewDailyImport();
     case 'calisma-raporu': case 'yoklama-rapor': return viewAttReport();
     case 'calisma-kisiler': case 'yoklama-kisiler': return viewAttPeople();
+    case 'gec-kalma': return viewAttLate(a);
     case 'kayitlar': return viewList(a || 'all');
     case 'gonderim': return viewShipments();
     case 'uretim-pano': case 'pano': return viewBoard();
@@ -2657,13 +2665,47 @@ async function viewBomNew(a){
 }
 
 // ---------------------------------------------------------------- PCB KARTLARI + TAKİP
+// kişi adlarını karşılaştırmak için (sunucudaki name_key ile aynı kural)
+const nkey = t => { const k = String(t || '').toLocaleLowerCase('tr').replace(/[ıi̇]/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/[^a-z0-9]/g, ''); return k || null; };
+const PCB_PLACES = ['Stok', 'Stok (Q.C)', 'Stok (Arıza)', 'Stok (Test edilecek)', 'Ürün', 'Hurda'];
+let PCB_KNOWN = []; // takip kayıtlarında geçen adlar (yazım farkları birleşik)
+const PCB_REASONS = ['Urun', 'Test', 'Arıza', 'Kalıcı Referans', 'Lehimlendi', 'Ureticiden Teslim Alindi', 'Stok', 'Hurda'];
+// kişi seçimi: ekip listesi + sabit yerler; listede yoksa "Diğer…" ile elle
+function pcbWho(name, val){
+  const ppl = (supPeople || []).map(p => p.name).filter(Boolean).sort((a, b) => a.localeCompare(b, 'tr'));
+  const keys = new Set([...ppl, ...PCB_PLACES].map(nkey)), old = PCB_KNOWN.filter(n => !keys.has(nkey(n)));
+  const all = [...ppl, ...PCB_PLACES, ...old], hit = val ? all.find(n => nkey(n) === nkey(val)) : null, other = val && !hit;
+  return `<span class="whosel"><select data-who="${name}"><option value="">—</option><optgroup label="Kişiler">${ppl.map(n => `<option ${hit === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>
+    <optgroup label="Yer">${PCB_PLACES.map(n => `<option ${hit === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>${old.length ? `<optgroup label="Daha önce yazılan (hesabı yok)">${old.map(n => `<option ${hit === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>` : ''}<option value="__d" ${other ? 'selected' : ''}>Diğer… (listede yok, elle yaz)</option></select>
+    <input type="text" name="${name}" value="${esc(other ? val : (hit || ''))}" ${other ? '' : 'hidden'} placeholder="Ad Soyad" aria-label="Elle ad"></span>`;
+}
+function pcbForm(id, l){
+  const me = l.id ? null : S.profile.full_name;
+  return `<form id="${id}" class="fs plain" novalidate><div class="row r4"><label class="f">PCB<input type="text" name="pcb" list="pcbnames" value="${esc(l.pcb || '')}"></label><label class="f">Versiyon<input type="text" name="version" value="${esc(l.version || '')}"></label><label class="f">Tarih<input type="date" name="at" value="${esc(l.at ? String(l.at).slice(0, 10) : today())}"></label><label class="f">Sebep<input type="text" name="reason" list="reasons" value="${esc(l.reason || '')}"></label></div>
+    <div class="row r2"><label class="f">Teslim eden${pcbWho('given_by', l.id ? l.given_by : me)}</label><label class="f">Teslim alan${pcbWho('received_by', l.received_by)}</label></div>
+    <label class="f">Not<input type="text" name="note" value="${esc(l.note || '')}"></label>
+    <p class="btnrow"><button class="btn primary">Kaydet</button>${l.id ? `<button type="button" class="btn danger" data-del>Sil</button>` : ''}</p></form>
+    <datalist id="pcbnames">${[...new Set(S.pcbs.map(p => p.pcb))].map(n => `<option value="${esc(n)}">`).join('')}</datalist><datalist id="reasons">${PCB_REASONS.map(n => `<option value="${n}">`).join('')}</datalist>`;
+}
+function bindPcbForm(f, onSave, onDel){
+  if (!f) return;
+  f.querySelectorAll('select[data-who]').forEach(sel => { const inp = sel.nextElementSibling;
+    sel.onchange = () => { if (sel.value === '__d') { inp.hidden = false; inp.value = ''; inp.focus(); } else { inp.hidden = true; inp.value = sel.value; } }; });
+  const del = f.querySelector('[data-del]'); if (del) { if (onDel) del.onclick = () => onDel(del); else del.remove(); }
+  f.onsubmit = e => { e.preventDefault(); const g = n => f[n].value.trim() || null; if (!g('pcb')) return toast('PCB girin', true);
+    onSave({ pcb:g('pcb'), version:g('version'), at:g('at'), reason:g('reason'), given_by:g('given_by'), received_by:g('received_by'), note:g('note') }, f); };
+}
 async function viewPcb(tab){
   await loadStock(true);
   const t = tab || 'kart', ed = canStock();
   let log = [];
   let vers = [];
   if (t === 'versiyon') vers = (await sb.from('pcb_versions').select('*').order('id')).data || [];
-  if (t === 'takip') log = (await fetchAll(() => sb.from('pcb_log').select('*').order('at', { ascending:false, nullsFirst:false }).order('id', { ascending:false }))).data || [];
+  if (t === 'takip') { log = (await fetchAll(() => sb.from('pcb_log').select('*').order('at', { ascending:false, nullsFirst:false }).order('id', { ascending:false }))).data || []; await people(); }
+  // kayıtlardaki kişi / yer adları (yazım farkları birleşik: "MertKaya" = "Mert Kaya")
+  const logPeople = (() => { const m = new Map(); log.forEach(l => [l.given_by, l.received_by].forEach(n => { const k = nkey(n); if (!k) return; const o = m.get(k) || [k, n, 0]; o[2]++; if (/\s/.test(n) && !/\s/.test(o[1])) o[1] = n; m.set(k, o); }));
+    return [...m.values()].sort((a, b) => a[1].localeCompare(b[1], 'tr')); })();
+  PCB_KNOWN = logPeople.map(n => n[1]);
   const P = S.pcbs, F = [['filled', 'Dolu'], ['working', 'Çalışan'], ['faulty', 'Arızalı'], ['empty', 'Boş'], ['need', 'İhtiyaç'], ['urgent_need', 'Acil ihtiyaç'], ['cost_usd', 'Maliyet $']];
   const FS = [['working', 'Q.C geçti'], ['faulty', 'Arızalı'], ['testing', 'Test edilecek'], ['in_apps', 'Uygulamada'], ['empty', 'Boş / lehimsiz'], ['scrap', 'Hurda'], ['shipped', 'Gönderilen'], ['cost_usd', 'Maliyet $']];
   const cell = (p, k) => ed ? `<input type="number" step="any" class="pcin" data-k="${k}" value="${p[k] ?? ''}" aria-label="${k}">` : fmtQ(p[k]);
@@ -2676,10 +2718,11 @@ async function viewPcb(tab){
     <h2 class="mt">SMD kartları</h2><div class="tablewrap"><table><thead><tr><th class="nosort">Kart</th>${FS.map(f => `<th class="nosort num">${f[1]}</th>`).join('')}</tr></thead><tbody>
     ${P.filter(p => p.grp === 'smd').map(p => `<tr data-pid="${p.id}"><td><b style="font-weight:600">${esc(p.version)}</b></td>${FS.map(f => `<td class="num">${cell(p, f[0])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
     ${ed ? `<section class="panel mt"><h2>Yeni kart / versiyon</h2><form id="pnf" class="fs plain" novalidate><div class="row r4"><label class="f">PCB adı<input type="text" name="pcb" list="pcbnames"></label><label class="f">Versiyon<input type="text" name="version"></label><label class="f">Grup${stkSel('grp', { ana:'Ana kartlar', smd:'SMD' }, 'ana')}</label><div class="f" style="justify-content:flex-end"><button class="btn primary">Ekle</button></div></div></form><datalist id="pcbnames">${[...new Set(P.map(p => p.pcb))].map(n => `<option value="${esc(n)}">`).join('')}</datalist></section>` : ''}`
-  : `<div class="toolbar"><input type="search" id="lq" placeholder="Ara: PCB, kişi, sipariş, not…"></div>
-    ${ed ? `<section class="panel"><h2>Yeni kayıt</h2><form id="lnf" class="fs plain" novalidate><div class="row r4"><label class="f">PCB<input type="text" name="pcb" list="pcbnames"></label><label class="f">Versiyon<input type="text" name="version"></label><label class="f">Tarih<input type="date" name="at" value="${today()}"></label><label class="f">Sebep<input type="text" name="reason" list="reasons"></label></div>
-      <div class="row r4"><label class="f">Teslim eden<input type="text" name="given_by"></label><label class="f">Teslim alan<input type="text" name="received_by"></label><label class="f" style="grid-column:span 2">Not<input type="text" name="note"></label></div><p><button class="btn primary">Kaydet</button></p></form>
-      <datalist id="pcbnames">${[...new Set(P.map(p => p.pcb))].map(n => `<option value="${esc(n)}">`).join('')}</datalist><datalist id="reasons">${['Urun', 'Test', 'Arıza', 'Kalıcı Referans', 'Lehimlendi', 'Ureticiden Teslim Alindi', 'Stok', 'Hurda'].map(n => `<option value="${n}">`).join('')}</datalist></section>` : ''}
+  : `${ed ? `<section class="panel"><h2>Yeni kayıt</h2>${pcbForm('lnf', {})}</section>` : ''}
+    <div class="toolbar mt" style="flex-wrap:wrap"><label class="f" style="min-width:180px">Kişi<select id="lfp"><option value="">Herkes</option>${logPeople.map(n => `<option value="${esc(n[0])}">${esc(n[1])} (${n[2]})</option>`).join('')}</select></label>
+      <label class="f" style="min-width:150px">Kart<select id="lfk"><option value="">Tüm kartlar</option>${[...new Set(log.map(l => l.pcb).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'tr')).map(n => `<option>${esc(n)}</option>`).join('')}</select></label>
+      <label class="f" style="min-width:140px">Sebep<select id="lfr"><option value="">Tümü</option>${[...new Set(log.map(l => l.reason).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'tr')).map(n => `<option>${esc(n)}</option>`).join('')}</select></label>
+      <label class="f" style="flex:1;min-width:180px">Ara<input type="search" id="lq" placeholder="Sipariş, not, versiyon…"></label></div>
     <div class="tablewrap mt" id="ltbl"></div>`}`);
   if (t === 'versiyon') return;
   if (t === 'kart') {
@@ -2688,13 +2731,22 @@ async function viewPcb(tab){
     q('#pnf') && (q('#pnf').onsubmit = async e => { e.preventDefault(); const f = e.target; if (!f.pcb.value.trim() || !f.version.value.trim()) return toast('PCB adı ve versiyon girin', true);
       const { error } = await sb.from('pcb_boards').insert({ pcb:f.pcb.value.trim(), version:f.version.value.trim(), grp:f.grp.value }); if (error) return toast(dbErr(error), true); toast('Eklendi'); viewPcb(); });
   } else {
-    const draw = ql => { const r = log.filter(l => !ql || [l.no, l.pcb, l.version, l.reason, l.given_by, l.received_by, l.note].join(' ').toLocaleLowerCase('tr').includes(ql));
-      q('#ltbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">No</th><th class="nosort">Tarih</th><th class="nosort">PCB</th><th class="nosort">Sebep</th><th class="nosort">Teslim eden → alan</th><th class="nosort">Not</th></tr></thead><tbody>${r.slice(0, 500).map(l => `<tr><td class="mono">${esc(l.no || '')}</td><td style="white-space:nowrap">${fmtD(l.at)}</td><td>${esc(l.pcb || '')} <span class="sub mono">${esc(l.version || '')}</span></td><td>${esc(l.reason || '')}</td><td>${esc(l.given_by || '—')} → ${esc(l.received_by || '—')}</td><td class="sub">${esc(l.note || '')}</td></tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="6">${r.length} kayıt${r.length > 500 ? ' (ilk 500)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>'; };
-    draw(''); q('#lq').oninput = e => draw(e.target.value.trim().toLocaleLowerCase('tr'));
-    q('#lnf') && (q('#lnf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null; if (!g('pcb')) return toast('PCB girin', true);
-      const last = log.map(l => +l.no || 0).reduce((a, b) => Math.max(a, b), 0);
-      const { error } = await sb.from('pcb_log').insert({ no:String(last + 1).padStart(7, '0'), pcb:g('pcb'), version:g('version'), at:g('at'), reason:g('reason'), given_by:g('given_by'), received_by:g('received_by'), note:g('note') });
-      if (error) return toast(dbErr(error), true); toast('Kaydedildi'); viewPcb('takip'); });
+    const mine = l => ed || l.created_by === S.profile.id || [l.given_by, l.received_by].some(n => nkey(n) && nkey(n) === nkey(S.profile.full_name));
+    const F = { p:'', k:'', r:'', q:'' };
+    const draw = () => { const r = log.filter(l => (!F.p || nkey(l.given_by) === F.p || nkey(l.received_by) === F.p) && (!F.k || l.pcb === F.k) && (!F.r || l.reason === F.r)
+        && (!F.q || [l.no, l.pcb, l.version, l.reason, l.given_by, l.received_by, l.note].join(' ').toLocaleLowerCase('tr').includes(F.q)));
+      q('#ltbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">No</th><th class="nosort">Tarih</th><th class="nosort">PCB</th><th class="nosort">Sebep</th><th class="nosort">Teslim eden → alan</th><th class="nosort">Not</th><th class="nosort"></th></tr></thead><tbody>${r.slice(0, 500).map(l => `<tr data-l="${l.id}" style="cursor:default"><td class="mono">${esc(l.no || '')}</td><td style="white-space:nowrap">${fmtD(l.at)}</td><td>${esc(l.pcb || '')} <span class="sub mono">${esc(l.version || '')}</span></td><td>${esc(l.reason || '')}</td><td>${esc(l.given_by || '—')} → ${esc(l.received_by || '—')}</td><td class="sub">${esc(l.note || '')}${l.updated_at ? `<div>düzeltildi ${fmtDT(l.updated_at)}</div>` : ''}</td><td>${mine(l) ? `<button type="button" class="linkbtn led">düzenle</button>` : ''}</td></tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="7">${r.length} kayıt${r.length > 500 ? ' (ilk 500)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+      qa('#ltbl .led').forEach(b => b.onclick = () => { const tr = b.closest('tr'), l = log.find(x => x.id === +tr.dataset.l);
+        if (tr.nextElementSibling && tr.nextElementSibling.classList.contains('ledrow')) return tr.nextElementSibling.remove();
+        const er = document.createElement('tr'); er.className = 'ledrow'; er.innerHTML = `<td colspan="7">${pcbForm('lef' + l.id, l)}</td>`; tr.after(er);
+        bindPcbForm(q('#lef' + l.id), async (o, f) => { const { data, error } = await sb.from('pcb_log').update(o).eq('id', l.id).select('id');
+            if (error) return toast(dbErr(error), true); if (!data || !data.length) return toast('Bu kaydı düzenleme yetkin yok', true); toast('Kaydedildi'); viewPcb('takip'); },
+          (ed || l.created_by === S.profile.id) ? async btn => { if (!confirmTwice(btn, 'emin misin? tekrar bas')) return;
+            const { error } = await sb.from('pcb_log').delete().eq('id', l.id); if (error) return toast(dbErr(error), true); toast('Kayıt silindi'); viewPcb('takip'); } : null); }); };
+    draw();
+    q('#lfp').onchange = e => { F.p = e.target.value; draw(); }; q('#lfk').onchange = e => { F.k = e.target.value; draw(); }; q('#lfr').onchange = e => { F.r = e.target.value; draw(); };
+    q('#lq').oninput = e => { F.q = e.target.value.trim().toLocaleLowerCase('tr'); draw(); };
+    q('#lnf') && bindPcbForm(q('#lnf'), async o => { const { error } = await sb.from('pcb_log').insert(o); if (error) return toast(dbErr(error), true); toast('Kaydedildi'); viewPcb('takip'); });
   }
 }
 
@@ -3444,6 +3496,7 @@ function openAttPop(btn, cur, onPick){
   closeAttPop();
   const el = document.createElement('div'); el.className = 'attpop'; el.setAttribute('role', 'menu');
   el.innerHTML = Object.entries(ATT).map(([k, v]) => `<button type="button" role="menuitem" data-k="${esc(k)}" class="${cur === k ? 'on' : ''}">${attBadge(k)}<span>${v[0]}</span>${cur === k ? '<span class="ck">✓</span>' : ''}</button>`).join('')
+    + (onPick.time ? '<button type="button" role="menuitem" data-k="__t" class="clr">🕘 Geliş / çıkış saati gir…</button>' : '')
     + (cur ? '<button type="button" role="menuitem" data-k="" class="clr">Hücreyi temizle</button>' : '');
   document.body.appendChild(el); attPop = el;
   const r = btn.getBoundingClientRect(), h = el.offsetHeight, w = el.offsetWidth;
@@ -3458,7 +3511,32 @@ function openAttPop(btn, cur, onPick){
   (el.querySelector('button.on') || items[0]).focus();
   setTimeout(() => { document.addEventListener('mousedown', attOutside, true); window.addEventListener('scroll', closeAttPop, true); });
 }
-const attCell = c => c && ATT[c] ? `<b>${esc(c)}</b><span>${ATT[c][2]}</span>` : '<span>Seç</span>';
+const hm = t => t ? String(t).slice(0, 5) : '';
+const attTimeTxt = t => t && (t.arrive || t.leave) ? `${hm(t.arrive) || '?'}–${hm(t.leave) || '…'}` : '';
+const attCell = (c, t) => (c && ATT[c] ? `<b>${esc(c)}</b><span>${ATT[c][2]}</span>` : '<span>Seç</span>') + (attTimeTxt(t) ? `<i class="atttime">${attTimeTxt(t)}</i>` : '');
+// geliş / çıkış saati kutusu (geç gelen kişi geliş saatini, telafi için çıkış saatini girer)
+function openTimePop(btn, pid, day, cur, ws, we, onDone){
+  closeAttPop();
+  const el = document.createElement('div'); el.className = 'attpop timepop'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Geliş / çıkış saati');
+  el.innerHTML = `<form novalidate><b>${fmtD(day)} · saat</b><p class="sub" style="margin:2px 0 8px">Mesai ${hm(ws)}–${hm(we)}. Geç geldiysen geliş saatini gir; geç çıkarak telafi ettiysen çıkış saatini de gir.</p>
+    <div class="row r2"><label class="f">Geliş<input type="time" name="arrive" value="${hm(cur && cur.arrive)}"></label><label class="f">Çıkış<input type="time" name="leave" value="${hm(cur && cur.leave)}"></label></div>
+    <label class="f">Not <span class="hint">isteğe bağlı</span><input type="text" name="note" maxlength="300" value="${esc((cur && cur.note) || '')}" placeholder="ör. doktor, trafik, telafi"></label>
+    <p class="btnrow" style="margin:8px 0 0"><button class="btn sm primary">Kaydet</button>${cur ? '<button type="button" class="btn sm" data-x>Saati sil</button>' : ''}<button type="button" class="btn sm ghost" data-c>Vazgeç</button></p></form>`;
+  document.body.appendChild(el); attPop = el;
+  const r = btn.getBoundingClientRect(), h = el.offsetHeight, w = el.offsetWidth;
+  el.style.top = Math.max(8, r.bottom + 6 + h > innerHeight && r.top - h - 6 > 0 ? r.top - h - 6 : Math.min(r.bottom + 6, innerHeight - h - 8)) + 'px';
+  el.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8)) + 'px';
+  const f = el.querySelector('form'); setTimeout(() => (f.arrive.value ? f.leave : f.arrive).focus());
+  el.onkeydown = e => { if (e.key === 'Escape') { closeAttPop(); btn.focus(); } };
+  f.querySelector('[data-c]').onclick = () => { closeAttPop(); btn.focus(); };
+  const x = f.querySelector('[data-x]'); x && (x.onclick = async () => { const { error } = await sb.from('att_times').delete().eq('person_id', pid).eq('day', day);
+    if (error) return toast(dbErr(error), true); closeAttPop(); toast('Saat silindi'); onDone(null); });
+  f.onsubmit = async e => { e.preventDefault(); const a = f.arrive.value || null, l = f.leave.value || null;
+    if (!a && !l) return toast('Geliş ya da çıkış saati girin', true); if (a && l && l <= a) return toast('Çıkış, gelişten sonra olmalı', true);
+    const row = { person_id:pid, day, arrive:a, leave:l, note:f.note.value.trim() || null };
+    const { error } = await sb.from('att_times').upsert(row); if (error) return toast(dbErr(error), true); closeAttPop(); toast('Saat kaydedildi'); onDone(row); };
+  setTimeout(() => { document.addEventListener('mousedown', attOutside, true); });
+}
 const ATT_DN = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum'];
 const mondayOf = d => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x); };
 const fmtDM = d => d.slice(8, 10) + '.' + d.slice(5, 7);
@@ -3491,17 +3569,19 @@ async function viewAttendance(arg){
   if (arg && /^\d{4}-\d{2}-\d{2}$/.test(arg)) s.week = mondayOf(arg);
   if (!s.week) s.week = mondayOf(td);
   const days = [0, 1, 2, 3, 4].map(i => addDays(s.week, i));
-  const [pr, dr, nr] = await Promise.all([sb.from('att_people').select('*').order('sort').order('name'),
-    sb.from('att_days').select('person_id,day,code').gte('day', days[0]).lte('day', days[4]), sb.from('att_week_notes').select('person_id,note').eq('week', s.week)]);
+  const [pr, dr, nr, tr] = await Promise.all([sb.from('att_people').select('*').order('sort').order('name'),
+    sb.from('att_days').select('person_id,day,code').gte('day', days[0]).lte('day', days[4]), sb.from('att_week_notes').select('person_id,note').eq('week', s.week),
+    sb.from('att_times').select('person_id,day,arrive,leave,note').gte('day', days[0]).lte('day', days[4])]);
   if (pr.error) return shell('calisma-plani', `<h1>Haftalık çalışma planı</h1><div class="empty">${esc(dbErr(pr.error))}</div>`);
-  const all = pr.data || [], people = all.filter(p => p.active), D = dr.data || [], N = nr.data || [];
+  const all = pr.data || [], people = all.filter(p => p.active), D = dr.data || [], N = nr.data || [], T = tr.error ? [] : (tr.data || []);
+  const tOf = (pid, d) => T.find(x => x.person_id === pid && x.day === d);
   const me = attMine(all), adm = can('admin'), canEd = pid => adm || pid === me;
   const code = (pid, d) => (D.find(x => x.person_id === pid && x.day === d) || {}).code || '';
   const note = pid => (N.find(x => x.person_id === pid) || {}).note || '';
   const inWeek = days.includes(td), thisWeek = s.week === mondayOf(td);
   const filled = d => people.filter(p => code(p.id, d)).length;
   shell('calisma-plani', `<div class="pagehead"><div><h1>Haftalık çalışma planı</h1><p class="lede">Ortak tablo: herkes kendi satırını doldurur, herkes tabloyu görür. Hücresi boş kalanlara iş günü 16:00'da e-posta hatırlatması gider.</p></div>
-    ${adm ? '<div style="display:flex;gap:8px"><a class="btn" href="#/calisma-raporu">Aylık rapor</a><a class="btn" href="#/calisma-kisiler">Kişiler</a></div>' : ''}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="#/gec-kalma">Geç kalma / telafi</a>${can('admin', 'muhasebe') ? '<a class="btn" href="#/calisma-raporu">Aylık rapor</a>' : ''}${adm ? '<a class="btn" href="#/calisma-kisiler">Kişiler</a>' : ''}</div></div>
   ${me == null && !adm ? `<div class="banner">E-posta adresin (${esc(S.profile.email || '')}) çalışma planı listesinde yok; yöneticiden eklemesini iste.</div>` : ''}
   ${me != null && inWeek && new Date().getDay() >= 1 && new Date().getDay() <= 5 && !code(me, td) ? '<div class="banner countday"><b>Bugünkü hücren boş.</b> Kendi satırında bugünün hücresinden durumunu seç.</div>' : ''}
   <div class="toolbar"><div class="seg"><button id="awp" type="button">← Önceki</button><button id="awt" type="button" class="${thisWeek ? 'on' : ''}">Bu hafta</button><button id="awn" type="button">Sonraki →</button></div>
@@ -3509,20 +3589,26 @@ async function viewAttendance(arg){
   <div class="tablewrap"><table class="att"><thead><tr><th class="nosort">Ad</th>${days.map((d, i) => `<th class="nosort c${d === td ? ' today' : ''}">${ATT_DN[i]} <span class="sub">${fmtDM(d)}</span><div class="sub">${filled(d)}/${people.length}${adm && filled(d) < people.length ? ` · <button type="button" class="linkbtn atthol" data-d="${d}" title="Boş hücrelere T (tatil) yaz: resmi tatil vb.">tatil</button>` : ''}</div></th>`).join('')}<th class="nosort">Açıklama</th></tr></thead><tbody>
     ${people.map(p => `<tr data-p="${p.id}" class="${p.id === me ? 'mine' : ''}" style="cursor:default"><td><b style="font-weight:600">${esc(p.name)}</b>${p.id === me ? ' <span class="sub">(sen)</span>' : ''}</td>
       ${days.map(d => { const c = code(p.id, d); return `<td class="c${d === td ? ' today' : ''}">${canEd(p.id)
-        ? `<button type="button" class="attcell ${c ? ATT[c][1] : 'empty'}" data-d="${d}" aria-haspopup="menu" aria-label="${esc(p.name)} ${fmtD(d)}: ${c ? ATT[c][0] : 'boş'}">${attCell(c)}</button>`
+        ? `<button type="button" class="attcell ${c ? ATT[c][1] : 'empty'}" data-d="${d}" aria-haspopup="menu" aria-label="${esc(p.name)} ${fmtD(d)}: ${c ? ATT[c][0] : 'boş'}">${attCell(c, tOf(p.id, d))}</button>`
         : attBadge(c) || '<span class="sub">·</span>'}</td>`; }).join('')}
       <td>${canEd(p.id) ? `<input type="text" class="attnote" value="${esc(note(p.id))}" placeholder="Part-time günleri, açıklama…">` : `<span class="sub">${esc(note(p.id))}</span>`}</td></tr>`).join('')}
   </tbody></table></div>
-  <p class="note">Kodlar: ${Object.entries(ATT).map(([k, v]) => `${attBadge(k)} ${v[0]}`).join(' · ')} · Boş hücre: henüz girilmedi.</p>`);
+  <p class="note">Kodlar: ${Object.entries(ATT).map(([k, v]) => `${attBadge(k)} ${v[0]}`).join(' · ')} · Boş hücre: henüz girilmedi. <b>G</b> seçince geliş saati sorulur; geç çıkarak telafi ettiysen hücreden “saat gir” ile çıkış saatini ekle. Ay sonu eksik saat: <a href="#/gec-kalma">Geç kalma / telafi</a>.</p>`);
   const go = w => { s.week = w; viewAttendance(); };
   q('#awp').onclick = () => go(addDays(s.week, -7)); q('#awn').onclick = () => go(addDays(s.week, 7)); q('#awt').onclick = () => go(mondayOf(td));
+  const pOf = pid => all.find(p => p.id === pid) || {};
+  const askTime = (btn, pid, d) => openTimePop(btn, pid, d, tOf(pid, d), pOf(pid).work_start || '09:00', pOf(pid).work_end || '18:00', row => {
+    const i = T.findIndex(x => x.person_id === pid && x.day === d); if (i >= 0) T.splice(i, 1); if (row) T.push(row); btn.innerHTML = attCell(code(pid, d), tOf(pid, d)); btn.focus(); });
   qa('.attcell').forEach(btn => btn.onclick = () => { const pid = +btn.closest('tr').dataset.p, d = btn.dataset.d;
-    openAttPop(btn, code(pid, d), async v => { if (v === code(pid, d)) return;
+    const pick = async v => { if (v === '__t') return askTime(btn, pid, d); if (v === code(pid, d)) return;
     const r = v ? await sb.from('att_days').upsert({ person_id:pid, day:d, code:v, updated_by:S.profile.id, updated_at:new Date().toISOString() }) : await sb.from('att_days').delete().eq('person_id', pid).eq('day', d);
     if (r.error) { toast(dbErr(r.error), true); return viewAttendance(); }
-    btn.className = 'attcell ' + (v ? ATT[v][1] : 'empty'); btn.innerHTML = attCell(v); const x = D.find(y => y.person_id === pid && y.day === d);
+    const x = D.find(y => y.person_id === pid && y.day === d);
     if (v) { if (x) x.code = v; else D.push({ person_id:pid, day:d, code:v }); } else if (x) D.splice(D.indexOf(x), 1);
-    if (d === td) { await loadAttToday(); } toast('Kaydedildi'); }); });
+    btn.className = 'attcell ' + (v ? ATT[v][1] : 'empty'); btn.innerHTML = attCell(v, tOf(pid, d));
+    if (d === td) { await loadAttToday(); } toast('Kaydedildi');
+    if (v === 'G' && !(tOf(pid, d) || {}).arrive && d <= td) askTime(btn, pid, d); };
+    pick.time = !tr.error && d <= td; openAttPop(btn, code(pid, d), pick); });
   qa('.attnote').forEach(inp => inp.onchange = async () => { const pid = +inp.closest('tr').dataset.p, v = inp.value.trim();
     const r = v ? await sb.from('att_week_notes').upsert({ person_id:pid, week:s.week, note:v, updated_by:S.profile.id, updated_at:new Date().toISOString() }) : await sb.from('att_week_notes').delete().eq('person_id', pid).eq('week', s.week);
     if (r.error) return toast(dbErr(r.error), true); toast('Not kaydedildi'); });
@@ -3534,11 +3620,12 @@ async function viewAttendance(arg){
 // aylık rapor (yöneticiler)
 const attRep = { month:'' };
 async function viewAttReport(){
-  if (!can('admin')) return viewAttendance();
+  if (!can('admin', 'muhasebe')) return viewAttendance();
   const s = attRep, td = today(); if (!s.month) s.month = td.slice(0, 7);
   const [y, m] = s.month.split('-').map(Number), first = s.month + '-01', last = ymd(new Date(y, m, 0));
-  const [pr, dr] = await Promise.all([sb.from('att_people').select('*').order('sort').order('name'), fetchAll(() => sb.from('att_days').select('person_id,day,code').gte('day', first).lte('day', last).order('day'))]);
-  const P = (pr.data || []), D = dr.data || [];
+  const [pr, dr, mr] = await Promise.all([sb.from('att_people').select('*').order('sort').order('name'), fetchAll(() => sb.from('att_days').select('person_id,day,code').gte('day', first).lte('day', last).order('day')), sb.rpc('att_month', { p_month:first })]);
+  const P = (pr.data || []), D = dr.data || [], LM = new Map((mr.data || []).map(r => [r.person_id, r]));
+  const lm = (pid, k) => +((LM.get(pid) || {})[k]) || 0;
   const wd = []; for (let d = new Date(y, m - 1, 1); d.getMonth() === m - 1; d.setDate(d.getDate() + 1)) if (d.getDay() >= 1 && d.getDay() <= 5) wd.push(ymd(d));
   const upto = wd.filter(d => d <= td);
   const code = (pid, d) => (D.find(x => x.person_id === pid && x.day === d) || {}).code || '';
@@ -3550,23 +3637,67 @@ async function viewAttReport(){
   const tot = k => rows.reduce((a, r) => a + r[k], 0);
   const mName = MONTHS_LONG[m - 1] + ' ' + y;
   shell('calisma-raporu', `<p><a href="#/calisma-plani">← Haftalık çalışma planı</a></p><div class="pagehead"><div><h1>Aylık çalışma raporu</h1><p class="lede">${esc(mName)} · ${wd.length} iş günü (bugüne kadar ${upto.length}). Katılım = (geldi + geç + uzaktan + yarım gün × ½) ÷ (geçen iş günü − izin − rapor − tatil).</p></div>
-    <button class="btn" id="arcsv">CSV indir</button></div>
+    <div style="display:flex;gap:8px"><a class="btn" href="#/gec-kalma/${s.month}">Geç kalma / telafi</a><button class="btn" id="arcsv">CSV indir</button></div></div>
   <div class="toolbar"><label class="f" style="width:180px">Ay<input type="month" id="arm" value="${s.month}"></label></div>
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
     <div class="kpi"><div class="l">Geç kalma</div><div class="v">${tot('G')}</div><div class="d">bu ay toplam</div></div>
     <div class="kpi ${tot('no') ? 'alert' : ''}"><div class="l">Gelmedi</div><div class="v">${tot('no')}</div><div class="d">habersiz / izinsiz gün</div></div>
     <div class="kpi"><div class="l">İzinli + raporlu</div><div class="v">${tot('I') + tot('R')}</div><div class="d">gün</div></div>
     <div class="kpi ${tot('bos') ? 'alert' : ''}"><div class="l">Boş hücre</div><div class="v">${tot('bos')}</div><div class="d">doldurulmamış iş günü</div></div></div>
-  <section class="mt"><h2>Kişi bazında</h2><div class="tablewrap"><table><thead><tr>${['Ad', 'İş günü', 'Geldi', 'Geç', 'Uzaktan', 'Yarım', 'İzinli', 'Raporlu', 'Gelmedi', 'Boş', 'Katılım'].map((h, i) => `<th class="nosort${i ? ' num' : ''}">${h}</th>`).join('')}</tr></thead><tbody>
-    ${rows.map(r => `<tr style="cursor:default"><td><b style="font-weight:600">${esc(r.p.name)}</b>${r.p.active ? '' : ' <span class="sub">(pasif)</span>'}</td><td class="num">${r.work}</td><td class="num">${r.x || ''}</td><td class="num ${r.G ? 'late-txt' : ''}">${r.G || ''}</td><td class="num">${r.U || ''}</td><td class="num">${r.h || ''}</td><td class="num">${r.I || ''}</td><td class="num">${r.R || ''}</td><td class="num ${r.no ? 'late-txt' : ''}">${r.no || ''}</td><td class="num ${r.bos ? 'warn-txt' : ''}">${r.bos || ''}</td><td class="num"><b>${r.rate == null ? '—' : r.rate + '%'}</b></td></tr>`).join('')}
+  <section class="mt"><h2>Kişi bazında</h2><div class="tablewrap"><table><thead><tr>${['Ad', 'İş günü', 'Geldi', 'Geç', 'Geç süre', 'Telafi', 'Net eksik', 'Uzaktan', 'Yarım', 'İzinli', 'Raporlu', 'Gelmedi', 'Boş', 'Katılım'].map((h, i) => `<th class="nosort${i ? ' num' : ''}">${h}</th>`).join('')}</tr></thead><tbody>
+    ${rows.map(r => `<tr style="cursor:default"><td><b style="font-weight:600">${esc(r.p.name)}</b>${r.p.active ? '' : ' <span class="sub">(pasif)</span>'}</td><td class="num">${r.work}</td><td class="num">${r.x || ''}</td><td class="num ${r.G ? 'late-txt' : ''}">${r.G || ''}</td><td class="num">${lm(r.p.id, 'late_min') ? fmtMin(lm(r.p.id, 'late_min')) : ''}</td><td class="num ok-txt">${lm(r.p.id, 'comp_min') ? fmtMin(lm(r.p.id, 'comp_min')) : ''}</td><td class="num ${lm(r.p.id, 'net_min') ? 'late-txt' : ''}"><b>${lm(r.p.id, 'net_min') ? fmtMin(lm(r.p.id, 'net_min')) : ''}</b></td><td class="num">${r.U || ''}</td><td class="num">${r.h || ''}</td><td class="num">${r.I || ''}</td><td class="num">${r.R || ''}</td><td class="num ${r.no ? 'late-txt' : ''}">${r.no || ''}</td><td class="num ${r.bos ? 'warn-txt' : ''}">${r.bos || ''}</td><td class="num"><b>${r.rate == null ? '—' : r.rate + '%'}</b></td></tr>`).join('')}
   </tbody></table></div></section>
   <section class="mt"><h2>Gün gün</h2><div class="tablewrap"><table class="att attm"><thead><tr><th class="nosort">Ad</th>${wd.map(d => `<th class="nosort c${d === td ? ' today' : ''}">${+d.slice(8)}<div class="sub">${['P','S','Ç','P','C'][(new Date(d + 'T00:00:00').getDay() + 6) % 7]}</div></th>`).join('')}</tr></thead><tbody>
     ${rows.map(r => `<tr style="cursor:default"><td>${esc(r.p.name)}</td>${wd.map(d => `<td class="c${d === td ? ' today' : ''}">${attBadge(code(r.p.id, d)) || (d <= td ? '<span class="sub">·</span>' : '')}</td>`).join('')}</tr>`).join('')}
   </tbody></table></div></section>`);
   q('#arm').onchange = e => { if (e.target.value) { s.month = e.target.value; viewAttReport(); } };
-  q('#arcsv').onclick = () => { const head = ['Ad', ...wd, 'Geldi', 'Geç', 'Uzaktan', 'Yarım', 'İzinli', 'Raporlu', 'Gelmedi', 'Boş', 'Katılım %'];
-    const lines = [head, ...rows.map(r => [r.p.name, ...wd.map(d => code(r.p.id, d)), r.x, r.G, r.U, r.h, r.I, r.R, r.no, r.bos, r.rate ?? ''])].map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+  q('#arcsv').onclick = () => { const head = ['Ad', ...wd, 'Geldi', 'Geç', 'Uzaktan', 'Yarım', 'İzinli', 'Raporlu', 'Gelmedi', 'Boş', 'Katılım %', 'Geç dk', 'Telafi dk', 'Net eksik dk'];
+    const lines = [head, ...rows.map(r => [r.p.name, ...wd.map(d => code(r.p.id, d)), r.x, r.G, r.U, r.h, r.I, r.R, r.no, r.bos, r.rate ?? '', lm(r.p.id, 'late_min'), lm(r.p.id, 'comp_min'), lm(r.p.id, 'net_min')])].map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `calisma-raporu-${s.month}.csv`; a.click(); };
+}
+
+// geç kalma / telafi (ay sonu eksik saat): yönetici + muhasebe herkesi, diğerleri kendini görür
+const fmtMin = m => { m = Math.round(+m || 0); if (!m) return '—'; const h = Math.floor(m / 60), r = m % 60; return h ? `${h} sa${r ? ' ' + r + ' dk' : ''}` : `${r} dk`; };
+const lateState = { month:'' };
+async function viewAttLate(arg){
+  const s = lateState, td = today(); if (arg && /^\d{4}-\d{2}$/.test(arg)) s.month = arg; if (!s.month) s.month = td.slice(0, 7);
+  const [y, m] = s.month.split('-').map(Number), all = can('admin', 'muhasebe');
+  const [rr, pr] = await Promise.all([sb.rpc('att_month', { p_month:s.month + '-01' }), sb.from('att_people').select('id,name,email,active,work_start,work_end').order('sort').order('name')]);
+  const P = pr.data || [], me = attMine(P), R = rr.data || [], mName = MONTHS_LONG[m - 1] + ' ' + y;
+  if (rr.error) return shell('gec-kalma', `<h1>Geç kalma / telafi</h1><div class="empty">${esc(dbErr(rr.error))}</div>`);
+  const tot = k => R.reduce((a, r) => a + (+r[k] || 0), 0);
+  const canAdd = all ? P.filter(p => p.active) : P.filter(p => p.id === me);
+  const dayRow = x => `<tr style="cursor:default"><td style="white-space:nowrap">${fmtD(x.day)} <span class="sub">${['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'][new Date(x.day + 'T00:00:00').getDay()]}</span></td><td>${attBadge(x.code) || '<span class="sub">—</span>'}</td><td class="mono">${hm(x.arrive) || (x.code === 'G' ? '<span class="warn-txt">saat yok</span>' : '—')}</td><td class="mono">${hm(x.leave) || '—'}</td><td class="num ${x.late ? 'late-txt' : ''}">${x.late ? fmtMin(x.late) : ''}</td><td class="num ${x.comp ? 'ok-txt' : ''}">${x.comp ? fmtMin(x.comp) : ''}</td><td class="sub">${esc(x.note || '')}</td></tr>`;
+  shell('gec-kalma', `<p><a href="#/calisma-plani">← Haftalık çalışma planı</a></p><div class="pagehead"><div><h1>Geç kalma / telafi</h1>
+    <p class="lede">${esc(mName)}. Geç = iş günü geliş saati − mesai başlangıcı. Telafi = mesai bitişinden sonra çalışılan süre, hafta sonu / tatil gününde çalışılan sürenin tamamı. <b>Net eksik = geç − telafi.</b> ${all ? 'Yönetici ve muhasebe herkesi görür.' : 'Bu sayfada yalnız kendi kaydını görürsün; muhasebe ve yöneticiler de görür.'}</p></div>
+    ${all ? '<button class="btn" id="lcsv">CSV indir</button>' : ''}</div>
+  <div class="toolbar"><label class="f" style="width:180px">Ay<input type="month" id="lm" value="${s.month}"></label></div>
+  ${all ? `<div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="kpi"><div class="l">Geç gün</div><div class="v">${tot('late_days')}</div><div class="d">toplam</div></div>
+    <div class="kpi"><div class="l">Geç süre</div><div class="v">${fmtMin(tot('late_min'))}</div><div class="d">telafi öncesi</div></div>
+    <div class="kpi"><div class="l">Telafi</div><div class="v">${fmtMin(tot('comp_min'))}</div><div class="d">geç çıkış + hafta sonu</div></div>
+    <div class="kpi ${tot('late_no_time') ? 'alert' : ''}"><div class="l">Saati girilmemiş</div><div class="v">${tot('late_no_time')}</div><div class="d">G yazılı ama saat yok</div></div></div>` : ''}
+  ${R.length ? `<div class="tablewrap mt"><table><thead><tr><th class="nosort">Ad</th><th class="nosort">Mesai</th><th class="nosort num">Geç gün</th><th class="nosort num">Geç süre</th><th class="nosort num">Telafi</th><th class="nosort num">Net eksik</th><th class="nosort num">Saati yok</th><th class="nosort"></th></tr></thead><tbody>
+    ${R.map(r => `<tr data-p="${r.person_id}" style="cursor:default" class="${r.person_id === me ? 'mine' : ''}"><td><b style="font-weight:600">${esc(r.name)}</b>${r.active ? '' : ' <span class="sub">(pasif)</span>'}</td><td class="mono sub">${hm(r.work_start)}–${hm(r.work_end)}</td>
+      <td class="num">${r.late_days || ''}</td><td class="num ${r.late_min ? 'late-txt' : ''}">${r.late_min ? fmtMin(r.late_min) : ''}</td><td class="num ${r.comp_min ? 'ok-txt' : ''}">${r.comp_min ? fmtMin(r.comp_min) : ''}</td>
+      <td class="num"><b class="${r.net_min ? 'late-txt' : ''}">${r.net_min ? fmtMin(r.net_min) : (r.late_min ? '0 ✓' : '')}</b></td><td class="num ${r.late_no_time ? 'warn-txt' : ''}">${r.late_no_time || ''}</td>
+      <td>${(r.days || []).length ? `<button type="button" class="linkbtn ldet">${(r.days || []).length} gün ▾</button>` : ''}</td></tr>
+      <tr class="ldrow" data-for="${r.person_id}" hidden><td colspan="8"><div class="tablewrap"><table><thead><tr><th class="nosort">Gün</th><th class="nosort">Kod</th><th class="nosort">Geliş</th><th class="nosort">Çıkış</th><th class="nosort num">Geç</th><th class="nosort num">Telafi</th><th class="nosort">Not</th></tr></thead><tbody>${(r.days || []).map(dayRow).join('')}</tbody></table></div></td></tr>`).join('')}
+  </tbody></table></div>` : `<div class="empty mt">${me == null && !all ? 'E-posta adresin çalışma planı listesinde yok; yöneticiden eklemesini iste.' : 'Bu ay kayıt yok.'}</div>`}
+  ${canAdd.length ? `<section class="panel mt" style="max-width:760px"><h2>Saat / telafi gir</h2><p class="note" style="margin-top:0">Geç geldiğin bir günün geliş saatini, geç çıktığın günün çıkış saatini ya da hafta sonu / tatilde telafi için çalıştığın saatleri gir. Aynı günü tekrar girersen kayıt güncellenir.</p>
+    <form id="ltf" class="fs plain" novalidate><div class="row r4">${all ? `<label class="f">Kişi<select name="pid">${canAdd.map(p => `<option value="${p.id}" ${p.id === me ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : `<input type="hidden" name="pid" value="${me}">`}
+      <label class="f">Gün<input type="date" name="day" max="${td}" value="${td}"></label><label class="f">Geliş<input type="time" name="arrive"></label><label class="f">Çıkış<input type="time" name="leave"></label></div>
+      <label class="f">Not <span class="hint">isteğe bağlı</span><input type="text" name="note" maxlength="300" placeholder="ör. Cumartesi telafi, doktor randevusu"></label>
+      <p><button class="btn primary">Kaydet</button></p></form></section>` : ''}`);
+  q('#lm').onchange = e => { if (e.target.value) { s.month = e.target.value; viewAttLate(); } };
+  qa('.ldet').forEach(b => b.onclick = () => { const r = q(`.ldrow[data-for="${b.closest('tr').dataset.p}"]`); r.hidden = !r.hidden; b.textContent = b.textContent.replace(/[▾▴]/, r.hidden ? '▾' : '▴'); });
+  q('#ltf') && (q('#ltf').onsubmit = async e => { e.preventDefault(); const f = e.target, a = f.arrive.value || null, l = f.leave.value || null;
+    if (!f.day.value) return toast('Gün seçin', true); if (!a && !l) return toast('Geliş ya da çıkış saati girin', true); if (a && l && l <= a) return toast('Çıkış, gelişten sonra olmalı', true);
+    const { error } = await sb.from('att_times').upsert({ person_id:+f.pid.value, day:f.day.value, arrive:a, leave:l, note:f.note.value.trim() || null });
+    if (error) return toast(dbErr(error), true); toast('Kaydedildi'); s.month = f.day.value.slice(0, 7); viewAttLate(); });
+  q('#lcsv') && (q('#lcsv').onclick = () => { const head = ['Ad', 'Mesai başlangıç', 'Mesai bitiş', 'Geç gün', 'Geç dk', 'Telafi dk', 'Net eksik dk', 'Saati girilmemiş G'];
+    const lines = [head, ...R.map(r => [r.name, hm(r.work_start), hm(r.work_end), r.late_days, r.late_min, r.comp_min, r.net_min, r.late_no_time])].map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `gec-kalma-${s.month}.csv`; a.click(); });
 }
 
 // kişiler (yöneticiler)
@@ -3576,10 +3707,10 @@ async function viewAttPeople(){
   const P = pr.data || [], acc = new Map((ur.data || []).map(u => [(u.email || '').toLowerCase(), u]));
   const st = p => { const u = p.email && acc.get(p.email.toLowerCase()); return !p.email ? '<span class="warn-txt">e-posta yok · hatırlatma gitmez</span>' : !u ? '<span class="sub">hesabı yok · tabloyu dolduramaz, hatırlatma gider</span>' : (u.roles || []).length ? '<span class="ok-txt">hesabı var</span>' : '<span class="warn-txt">hesabı var, rolü yok</span>'; };
   shell('calisma-kisiler', `<p><a href="#/calisma-plani">← Haftalık çalışma planı</a></p><div class="pagehead"><div><h1>Çalışma planı kişileri</h1><p class="lede">Tablodaki satırlar. Kişi kendi satırını doldurabilmek için bu e-postayla sitede hesap açmalı; hesabına Kullanıcılar sayfasından en az <b>Personel</b> rolü verilmeli (Personel yalnızca çalışma planını görür). Hatırlatma e-postası bu adrese gider.</p></div></div>
-  <div class="tablewrap"><table><thead><tr><th class="nosort">Sıra</th><th class="nosort">Ad</th><th class="nosort">E-posta</th><th class="nosort">Durum</th><th class="nosort">Aktif</th><th class="nosort"></th></tr></thead><tbody>
-    ${P.filter(p => p.active).map(p => `<tr data-p="${p.id}" style="cursor:default"><td><input type="number" class="ap-sort" value="${p.sort}" style="width:64px"></td><td><input type="text" class="ap-name" value="${esc(p.name)}"></td><td><input type="email" class="ap-mail" value="${esc(p.email || '')}" placeholder="ad@acrome.net"></td><td>${st(p)}</td>
+  <div class="tablewrap"><table><thead><tr><th class="nosort">Sıra</th><th class="nosort">Ad</th><th class="nosort">E-posta</th><th class="nosort">Mesai</th><th class="nosort">Durum</th><th class="nosort">Aktif</th><th class="nosort"></th></tr></thead><tbody>
+    ${P.filter(p => p.active).map(p => `<tr data-p="${p.id}" style="cursor:default"><td><input type="number" class="ap-sort" value="${p.sort}" style="width:64px"></td><td><input type="text" class="ap-name" value="${esc(p.name)}"></td><td><input type="email" class="ap-mail" value="${esc(p.email || '')}" placeholder="ad@acrome.net"></td><td style="white-space:nowrap"><input type="time" class="ap-ws" value="${hm(p.work_start) || '09:00'}" aria-label="Mesai başlangıcı" style="width:96px"> – <input type="time" class="ap-we" value="${hm(p.work_end) || '18:00'}" aria-label="Mesai bitişi" style="width:96px"></td><td>${st(p)}</td>
       <td><input type="checkbox" class="ap-act" ${p.active ? 'checked' : ''}></td><td><button class="btn sm ap-save">Kaydet</button></td></tr>`).join('')}
-    <tr style="cursor:default"><td><input type="number" id="apn-sort" value="${(P.filter(p => p.active).reduce((a, p) => Math.max(a, p.sort), 0) || 0) + 1}" style="width:64px"></td><td><input type="text" id="apn-name" placeholder="Yeni kişi adı"></td><td><input type="email" id="apn-mail" placeholder="ad@acrome.net"></td><td></td><td></td><td><button class="btn sm primary" id="apn-add">Ekle</button></td></tr>
+    <tr style="cursor:default"><td><input type="number" id="apn-sort" value="${(P.filter(p => p.active).reduce((a, p) => Math.max(a, p.sort), 0) || 0) + 1}" style="width:64px"></td><td><input type="text" id="apn-name" placeholder="Yeni kişi adı"></td><td><input type="email" id="apn-mail" placeholder="ad@acrome.net"></td><td></td><td></td><td></td><td><button class="btn sm primary" id="apn-add">Ekle</button></td></tr>
   </tbody></table></div>
   <p class="note">Ayrılan birinin "Aktif" işaretini kaldırıp Kaydet'e basın: tablodan, hatırlatmalardan ve bu listeden çıkar; geçmiş daily notları ve raporları korunur.</p>
   ${P.some(p => !p.active) ? `<details class="mt"><summary>Ayrılan / pasif kişiler (${P.filter(p => !p.active).length}) · tabloda ve hatırlatmalarda görünmezler</summary>
@@ -3593,7 +3724,7 @@ async function viewAttPeople(){
       b.dataset.ok = 1; b.textContent = `${count || 0} daily notuyla birlikte sil? Tekrar bas`; return; }
     const { error } = await sb.from('att_people').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Kişi ve kayıtları silindi'); viewAttPeople(); });
   qa('.ap-save').forEach(b => b.onclick = async () => { const tr = b.closest('tr'), name = q('.ap-name', tr).value.trim(); if (!name) return toast('Ad girin', true);
-    const { error } = await sb.from('att_people').update({ name, email:q('.ap-mail', tr).value.trim().toLowerCase() || null, sort:+q('.ap-sort', tr).value || 100, active:q('.ap-act', tr).checked }).eq('id', +tr.dataset.p);
+    const { error } = await sb.from('att_people').update({ name, email:q('.ap-mail', tr).value.trim().toLowerCase() || null, sort:+q('.ap-sort', tr).value || 100, active:q('.ap-act', tr).checked, work_start:q('.ap-ws', tr).value || '09:00', work_end:q('.ap-we', tr).value || '18:00' }).eq('id', +tr.dataset.p);
     if (error) return toast(dbErr(error), true); toast('Kaydedildi'); await loadAttToday(); viewAttPeople(); });
   q('#apn-add').onclick = async () => { const name = q('#apn-name').value.trim(); if (!name) return toast('Ad girin', true);
     const { error } = await sb.from('att_people').insert({ name, email:q('#apn-mail').value.trim().toLowerCase() || null, sort:+q('#apn-sort').value || 100 });
