@@ -221,3 +221,6 @@ begin
 end $function$;
 
 commit;
+
+-- tetikleyici fonksiyonları doğrudan çağrılamasın
+revoke all on function public.purchase_event_trg(), public.purchase_file_trg(), public.purchase_invoice_trg() from public, anon, authenticated;
