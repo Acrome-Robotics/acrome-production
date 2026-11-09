@@ -1,6 +1,6 @@
 -- 10 Kasım 2026
 --  A) PCB takip kayıtlarında aynı kişinin / yerin farklı yazımlarını tek ada çevirir (düzeltme izi bırakmadan).
---  B) Ay sonu geç kalma bildirimi: her ayın 1'inde 09:30'da geçen ayın net eksiği olan kişiye kendi özeti,
+--  B) Ay sonu geç kalma bildirimi: her ayın son günü 10:00'da o ayın net eksiği olan kişiye kendi özeti,
 --     yöneticilere ve muhasebeye tek özet bildirimi (yalnız sitede; e-posta ve telefon bildirimi yok).
 begin;
 
@@ -96,6 +96,9 @@ end $$;
 revoke all on function public.att_month_notify(date) from public, anon, authenticated;
 
 select cron.unschedule('gec-kalma-ay-sonu') where exists (select 1 from cron.job where jobname = 'gec-kalma-ay-sonu');
-select cron.schedule('gec-kalma-ay-sonu', '30 6 1 * *', 'select public.att_month_notify()');
+-- ayın son günü 10:00 (İstanbul = 07:00 UTC): o ayın özeti
+select cron.schedule('gec-kalma-ay-sonu', '0 7 28-31 * *',
+  $c$select public.att_month_notify(date_trunc('month', now() at time zone 'Europe/Istanbul')::date)
+     where (now() at time zone 'Europe/Istanbul')::date = (date_trunc('month', now() at time zone 'Europe/Istanbul') + interval '1 month - 1 day')::date$c$);
 
 commit;

@@ -152,6 +152,6 @@ Geri dönülebilir sabit nokta. Kapsam: satış/sipariş, support + RMA, stok (m
 - **Stok sayfaları:** "Mekanik sayım" / "Elektronik sayım" menüden kalktı; stok sayfasının içinde "Parça listesi | Sayım / giriş-çıkış" sekmesi oldu (adresler aynı).
 - **Mekanik / elektronik ayrımı:** Kullanıcının üretim bölümü yalnız Mekanik ise Bugün sayfasında ve sayım bildirimlerinde yalnız mekanik stok, yalnız Elektronik ise yalnız elektronik stok çıkar; ikisi ya da hiçbiri seçiliyse ikisi birden. SQL: `sql/2026-11-10_stok_bolum_ayrimi.sql`.
 - **PCB adları:** Aynı kişinin / yerin farklı yazımları tek ada çevrildi (ör. "Parsa Payedeh" → "Parsa Payandeh", "Stok(Q.C)" → "Stok (Q.C)").
-- **Ay sonu geç kalma bildirimi:** Her ayın 1'i 09:30'da geçen ayın net eksiği / saati girilmemiş geç günü olan kişiye kendi özeti, yöneticilere ve muhasebeye tek özet; yalnız sitede (e-posta yok). SQL: `sql/2026-11-10_pcb_ad_duzeltme_gec_bildirimi.sql`.
+- **Ay sonu geç kalma bildirimi:** Her ayın son günü 10:00'da o ayın net eksiği / saati girilmemiş geç günü olan kişiye kendi özeti, yöneticilere ve muhasebeye tek özet; yalnız sitede (e-posta yok). SQL: `sql/2026-11-10_pcb_ad_duzeltme_gec_bildirimi.sql`.
 - **Bildirimler:** Bugün sayfasının en altında son bildirimler listesi (okunmamışlar önce, tıklayınca okundu sayılır).
 - **Alım durumu:** Durum artık açılır listeden seçilir ("Talebin durumu"), "Durumu kaydet" ile kaydedilir.
