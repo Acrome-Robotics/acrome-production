@@ -339,6 +339,8 @@ function route(){
     case 'stok-guncelle': case 'mekanik-sayim': return viewStockUpdate('m', a);
     case 'elektronik-sayim': return viewStockUpdate('e', a);
     case 'alim-rapor': return viewPurchaseReport();
+    case 'fatura': return canInv() ? viewInvoice(+a) : viewPurchaseReport();
+    case 'fatura-yeni': return canInvEdit() ? viewInvoice(null) : viewPurchaseReport();
     case 'bom': return a === 'proje' ? viewBomList('proje') : a ? viewBom(+a) : viewBomList();
     case 'bom-yeni': return viewBomNew(a);
     case 'pcb': return viewPcb(a);
@@ -2264,6 +2266,7 @@ const SECT = { mekanik:'Mekanik', elektronik:'Elektronik', komponent:'Komponent'
 const num0 = v => v == null || v === '' ? null : +String(v).replace(',', '.');
 const fmtQ = n => n == null ? '—' : (+n).toLocaleString('tr-TR', { maximumFractionDigits: 2 });
 const fmtMoney = (n, cur) => n == null || n === '' ? '—' : (+n).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) + ' ' + ({ TRY:'₺', USD:'$', EUR:'€' }[cur || 'TRY'] || esc(cur));
+const PUR_PRE = ['talep','onaylandi','proforma','siparis_verildi','eft_bekliyor','reddedildi']; // "Alındı"dan bunlara dönülürse stok geri düşülür
 const purPill = st => `<span class="pill pu-${st}">${PUR_ST[st] || st}</span>`;
 const stkSel = (name, o, v, blank) => `<select name="${name}">${blank !== undefined ? `<option value="">${blank}</option>` : ''}${Object.entries(o).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
 const arrSel = (name, arr, v, blank) => `<select name="${name}">${blank !== undefined ? `<option value="">${blank}</option>` : ''}${[...new Set([...(v && !arr.includes(v) ? [v] : []), ...arr])].map(x => `<option ${v === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`;
@@ -2720,6 +2723,8 @@ async function viewPurchases(){
   await loadStock();
   const { data, error } = await fetchAll(() => sb.from('purchases').select('*').order('requested_at', { ascending:false, nullsFirst:false }).order('id', { ascending:false }));
   const P = error ? [] : data, s = purState, Y = new Date().getFullYear(), mon = today().slice(0, 7);
+  const { data: pf } = await fetchAll(() => sb.from('purchase_files').select('purchase_id').not('purchase_id', 'is', null));
+  const hasF = new Set((pf || []).map(x => x.purchase_id));
   { const qp = new URLSearchParams(location.hash.split('?')[1] || ''); if (qp.get('plan')) { s.pkg = 'plan:' + qp.get('plan'); s.tab = 'all'; } }
   const pkgOpts = [...new Map(P.filter(p => p.plan_id).map(p => [`${p.plan_id}|${p.package || ''}`, p])).values()].sort((a, b) => b.plan_id - a.plan_id || (a.package || '').localeCompare(b.package || '', 'tr'));
   const planIds = [...new Set(pkgOpts.map(p => p.plan_id))];
@@ -2753,7 +2758,7 @@ async function viewPurchases(){
       && (!ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id), p.note, p.purpose, p.requester_name].join(' ').toLocaleLowerCase('tr').includes(ql)));
     q('#ptbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Talep eden</th><th class="nosort">Tedarikçi</th><th class="nosort">Durum</th></tr></thead><tbody>
       ${rows.slice(0, 800).map(p => `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
-        <td><b style="font-weight:600">${esc(p.item_name)}</b>${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.package ? ` <span class="chip pkgchip" title="Tedarik planı #${p.plan_id} alım paketi">📦 ${esc(p.package)}</span>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
+        <td><b style="font-weight:600">${esc(p.item_name)}</b>${hasF.has(p.id) ? ' <span title="Proforma / belge var">📎</span>' : ''}${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.package ? ` <span class="chip pkgchip" title="Tedarik planı #${p.plan_id} alım paketi">📦 ${esc(p.package)}</span>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
         <td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(p.requester_name || '') || '<span class="sub">—</span>'}<div class="sub opt">${esc([p.unit, p.area].filter(Boolean).join(' · '))}</div></td>
         <td>${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.link ? `${supName(p.supplier_id) || p.supplier_text ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub stopprop">bağlantı ↗</a>` : (supName(p.supplier_id) || p.supplier_text ? '' : '<span class="sub">—</span>')}</td>
         <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}</td></tr>`).join('')}</tbody>
@@ -2787,7 +2792,8 @@ async function viewPurchase(id, preset){
   shell(id ? 'alimlar' : 'alim-yeni', `<p><a href="#/alimlar">← Alımlar</a></p>
   <div class="pagehead"><div><h1>${id ? esc(p.item_name) : 'Yeni alım talebi'}</h1>${id ? `<p class="lede">${esc(p.source || 'Sitede açıldı')}${p.requester_name ? ' · talep eden ' + esc(p.requester_name) : ''}</p>` : '<p class="lede">Talep açıldıktan sonra Satın alma (ya da Depo / Stok, Üretim, Sipariş, Yönetici) onaylayıp siparişini takip eder.</p>'}</div>
     ${id ? `<div style="display:flex;gap:8px;align-items:center">${purPill(p.status)}${(can('admin') || (mine && p.status === 'talep')) ? '<button class="btn danger" id="pdel">Sil</button>' : ''}</div>` : ''}</div>
-  ${id && canPurchase() ? `<div class="seg pstat" style="margin-bottom:14px;flex-wrap:wrap">${Object.entries(PUR_ST).map(([k, l]) => `<button data-s="${k}" class="${p.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
+  ${id && canPurchase() ? `<div class="pstatbox"><div class="seg pstat" style="flex-wrap:wrap" role="group" aria-label="Durum seç">${Object.entries(PUR_ST).map(([k, l]) => `<button type="button" data-s="${k}" class="${p.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <p class="note" style="margin:4px 0 0">Yeni durumu seçin, sonra <b>Durumu kaydet</b>'e basın.</p><div id="pstconf" class="pstconf" hidden></div></div>` : ''}
   <div class="grid sup-grid"><div><form id="puf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
     <div class="row">${'<label class="f">Tür' + stkSel('kind', { alim:'Alım', kontrol:'Kontrol / takip' }, p.kind) + '</label>'}<label class="f">Birim${arrSel('unit', PUR_UNIT, p.unit, '—')}</label><label class="f">Kullanım alanı${arrSel('area', PUR_AREA, p.area, '—')}</label></div>
     <div class="row r2">${tx('item_name', 'Ürün / iş adı')}<label class="f">Stoktaki parça <span class="hint">bağlarsanız "Alındı"da stoğa girer</span><input type="text" name="item_link" list="itemlist2" value="${esc(it ? it.name : '')}" autocomplete="off"></label></div>
@@ -2803,9 +2809,22 @@ async function viewPurchase(id, preset){
     ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Talebi aç'}</button></p>` : '<p class="note">Bu kaydı yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ya da Yönetici değiştirebilir.</p>'}
   </fieldset></form><datalist id="itemlist2">${S.items.map(i => `<option value="${esc(i.name)}">`).join('')}</datalist></div>
   <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Tutar</dt><dd><b>${fmtMoney(p.total, p.currency)}</b></dd><dt>Durum</dt><dd>${purPill(p.status)}</dd>${p.purchased_at ? `<dt>Alındı</dt><dd>${fmtD(p.purchased_at)}</dd>` : ''}${p.received_into_stock ? '<dt>Stok</dt><dd class="ok-txt">Stoğa girdi</dd>' : ''}${p.link ? `<dt>Bağlantı</dt><dd><a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener">aç ↗</a></dd>` : ''}${p.bom_id && bomById(p.bom_id) ? `<dt>Ürün / proje</dt><dd><a href="#/bom/${p.bom_id}">${esc(bomById(p.bom_id).name)}</a></dd>` : ''}${it ? `<dt>Parça</dt><dd><a href="#/stok/${it.id}">${esc(it.name)}</a> · stok ${fmtQ(it.qty)}</dd>` : ''}</dl></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Aynı tedarikçiden birden fazla parça istiyorsanız her parçayı ayrı talep olarak açın; böylece her biri ayrı takip edilir ve stoğa ayrı girer.</p></section>`}
+    ${id ? `<section class="panel mt"><h2>Belgeler</h2><div id="pfl"><p class="sub">Yükleniyor…</p></div></section>
+      <div id="pinv"></div>` : ''}
     ${id ? `<section class="panel mt"><h2>Yorumlar</h2><div id="pcl"><p class="sub">Yükleniyor…</p></div>
       <textarea id="pct" rows="2" maxlength="2000" placeholder="Yorum yaz (talep sahibi ve Satın alma görür, bildirim alır)" style="width:100%;margin-top:8px"></textarea>
-      <p style="margin:6px 0 0"><button class="btn sm primary" id="pcadd" type="button">Yorum ekle</button></p></section>` : ''}</aside></div>`);
+      <p style="margin:6px 0 0"><button class="btn sm primary" id="pcadd" type="button">Yorum ekle</button></p></section>
+      <section class="panel mt"><h2>Durum geçmişi</h2><div id="pev"><p class="sub">Yükleniyor…</p></div></section>` : ''}</aside></div>`);
+  if (id) {
+    const canAdd = canPurchase() || can('muhasebe') || mine, loadF = async () => {
+      const { data } = await sb.from('purchase_files').select('*').eq('purchase_id', id).order('created_at');
+      fileList(q('#pfl'), data || [], { canAdd, canDel: f => f.uploaded_by === S.profile.id || can('admin'), prefix:'p/' + id, link:{ purchase_id:id }, kind:'proforma', reload:loadF }); };
+    loadF();
+    sb.from('purchase_events').select('*').eq('purchase_id', id).order('at').then(({ data }) => { const ev = (data || []).slice(-15).reverse();
+      q('#pev') && (q('#pev').innerHTML = ev.length ? `<ul class="pclist">${ev.map(e => `<li><div>${e.old_status ? purPill(e.old_status) + ' → ' : ''}${purPill(e.new_status)}</div><div class="sub">${esc(e.actor_name || '')} · ${fmtDT(e.at)}${e.note ? ' · ' + esc(e.note) : ''}</div></li>`).join('')}</ul>` : '<p class="sub" style="margin:0">Bu özellik eklendikten sonraki durum değişiklikleri burada görünür.</p>'); });
+    if (p.invoice_id && canInv()) sb.from('purchase_invoices').select('id,period,inv_date,supplier_name,invoice_no,total_try').eq('id', p.invoice_id).maybeSingle().then(({ data: iv }) => {
+      if (iv && q('#pinv')) q('#pinv').innerHTML = `<section class="panel mt"><h2>Fatura</h2><dl class="kv"><dt>Fatura</dt><dd><a href="#/fatura/${iv.id}">${esc(iv.invoice_no || 'numarasız')}</a></dd><dt>Tarih</dt><dd>${fmtD(iv.inv_date)} · ${MONTHS_LONG[+iv.period.slice(5, 7) - 1]} ${iv.period.slice(0, 4)} raporunda</dd><dt>Tedarikçi</dt><dd>${esc(iv.supplier_name || '')}</dd><dt>Genel toplam</dt><dd>${fmtTL2(iv.total_try)}</dd></dl></section>`; });
+  }
   if (id) { const loadC = async () => { const { data } = await sb.from('purchase_comments').select('*').eq('purchase_id', id).order('created_at');
       q('#pcl').innerHTML = (data || []).length ? `<ul class="pclist">${data.map(c => `<li><div><b>${esc(c.author_name || '')}</b> <span class="sub">${fmtDT(c.created_at)}</span>${c.author === S.profile.id || can('admin') ? ` <button class="linkbtn pcdel" data-c="${c.id}" type="button">sil</button>` : ''}</div><div style="white-space:pre-wrap">${esc(c.body)}</div></li>`).join('')}</ul>` : '<p class="sub" style="margin:0">Henüz yorum yok.</p>';
       qa('.pcdel').forEach(b => b.onclick = async () => { const { error } = await sb.from('purchase_comments').delete().eq('id', +b.dataset.c); if (error) return toast(dbErr(error), true); loadC(); }); };
@@ -2829,8 +2848,23 @@ async function viewPurchase(id, preset){
       toast('Talep açıldı'); location.hash = '#/alimlar/' + data.id; return; }
     const { error } = await sb.from('purchases').update(o).eq('id', id); if (error) return toast(dbErr(error), true); toast('Kaydedildi'); viewPurchase(id);
   };
-  qa('.pstat button').forEach(b => b.onclick = async () => { const { error } = await sb.from('purchases').update({ status:b.dataset.s }).eq('id', id); if (error) return toast(dbErr(error), true);
-    toast('Durum: ' + PUR_ST[b.dataset.s]); S.stockLoaded = false; loadPurCount(); viewPurchase(id); });
+  // durum tek tıkla değişmez: seç → "Durumu kaydet"
+  qa('.pstat button').forEach(b => b.onclick = () => {
+    const ns = b.dataset.s, box = q('#pstconf'), clear = () => { box.hidden = true; box.innerHTML = ''; qa('.pstat button').forEach(x => x.classList.remove('pend')); };
+    if (ns === p.status) return clear();
+    qa('.pstat button').forEach(x => x.classList.toggle('pend', x === b));
+    const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
+    const warn = ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
+      : back ? `Kaydedince stoğa girmiş ${fmtQ(p.qty)} adet geri düşülür.` : '';
+    box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)}</div>${warn ? `<div class="sub">${warn}</div>` : ''}
+      <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm primary" id="pstok" type="button">Durumu kaydet</button><button class="btn sm" id="pstno" type="button">Vazgeç</button></div>`;
+    box.hidden = false; q('#pstok').focus();
+    q('#pstno').onclick = clear;
+    q('#pstok').onclick = async () => { q('#pstok').disabled = true;
+      const { error } = await sb.from('purchases').update({ status:ns }).eq('id', id);
+      if (error) { q('#pstok').disabled = false; return toast(dbErr(error), true); }
+      toast('Durum kaydedildi: ' + PUR_ST[ns]); S.stockLoaded = false; loadPurCount(); viewPurchase(id); };
+  });
   q('#pdel') && (q('#pdel').onclick = async () => { if (!confirmTwice(q('#pdel'), 'Emin misin? Tekrar bas')) return;
     const { error } = await sb.from('purchases').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/alimlar'; });
 }
@@ -3104,8 +3138,11 @@ function viewAccounts(sups, ACC){
 }
 
 // ---------------------------------------------------------------- AYLIK ALIM RAPORU
-const prState = { year:'', month:'' };
-async function viewPurchaseReport(){
+const prState = { year:'', month:'', mode:'' };
+function viewPurchaseReport(){ return canInv() && prState.mode !== 'talep' ? viewInvoiceReport() : viewPurchaseItemReport(); }
+const repTabs = on => canInv() ? `<div class="seg" id="prmode" style="margin-bottom:12px"><button type="button" data-md="fatura" class="${on === 'fatura' ? 'on' : ''}">Faturalara göre (muhasebe)</button><button type="button" data-md="talep" class="${on === 'talep' ? 'on' : ''}">Alım taleplerine göre (ürün / proje dağılımı)</button></div>` : '';
+const bindRepTabs = () => qa('#prmode button').forEach(b => b.onclick = () => { prState.mode = b.dataset.md; viewPurchaseReport(); });
+async function viewPurchaseItemReport(){
   await loadStock();
   const { data, error } = await fetchAll(() => sb.from('purchases').select('id,kind,unit,status,item_name,qty,total,currency,purchased_at,requested_at,supplier_id,supplier_text,bom_id,project,urgency').eq('status', 'alindi').order('id'));
   const P = (error ? [] : data || []).filter(p => p.kind !== 'kontrol').map(p => ({ ...p, d:(p.purchased_at && (!p.requested_at || p.purchased_at >= p.requested_at) ? p.purchased_at : p.requested_at || p.purchased_at || '') })).filter(p => p.d);
@@ -3121,7 +3158,7 @@ async function viewPurchaseReport(){
   const grp = (a, key) => { const m = new Map(); a.forEach(p => { const k = key(p) || '—'; const o = m.get(k) || { n:0, t:0 }; o.n++; o.t += +p.total || 0; m.set(k, o); }); return [...m].sort((x, y) => y[1].t - x[1].t); };
   const tbl = (head, rows, tot) => rows.length ? `<table><thead><tr>${head.map((h, i) => `<th class="nosort${i ? ' num' : ''}">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr style="cursor:default">${r.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('')}</tr>`).join('')}</tbody>${tot ? `<tfoot><tr class="tfoot">${tot.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('')}</tr></tfoot>` : ''}</table>` : '<div class="empty">Kayıt yok.</div>';
   const top = Math.max(...mVal), topI = mVal.indexOf(top);
-  shell('alim-rapor', `<div class="pagehead"><div><h1>Aylık alım raporu</h1><p class="lede">"Alındı" durumundaki alımlar, alım tarihine göre (alım tarihi yoksa ya da talepten önceyse talep tarihine göre). Tutarlar KDV dahil, TL.</p></div><button class="btn" id="pcsv">CSV indir</button></div>
+  shell('alim-rapor', `${repTabs('talep')}<div class="pagehead"><div><h1>Aylık alım raporu</h1><p class="lede">"Alındı" durumundaki alım talepleri (kalem bazında), alım tarihine göre (alım tarihi yoksa ya da talepten önceyse talep tarihine göre). Tutarlar KDV dahil, TL.</p></div><button class="btn" id="pcsv">CSV indir</button></div>
   <div class="toolbar"><label class="f" style="width:120px">Yıl<select id="pry">${years.map(y => `<option ${y === st.year ? 'selected' : ''}>${y}</option>`).join('')}</select></label>
     <label class="f" style="width:150px">Ay<select id="prm"><option value="">Tüm yıl</option>${MONTHS_LONG.map((m, i) => `<option value="${i + 1}" ${+st.month === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}</select></label></div>
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
@@ -3139,6 +3176,7 @@ async function viewPurchaseReport(){
     <section class="panel"><h2>Tedarikçi grubuna göre — ${per}</h2><div class="tablewrap">${tbl(['Grup', 'Kalem', 'Tutar'], grp(R, p => { const s = (S.suppliers || []).find(x => x.id === p.supplier_id); return s ? SUP_GRP[s.grp] || 'Grupsuz' : 'Tedarikçi seçilmemiş'; }).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div>
       <h2 class="mt">Tedarikçiye göre — ${per}</h2><div class="tablewrap">${tbl(['Tedarikçi', 'Kalem', 'Tutar'], grp(R, p => supName(p.supplier_id) || p.supplier_text).slice(0, 25).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div></section></div>
   <section class="mt"><h2>En yüksek tutarlı alımlar — ${per}</h2><div class="tablewrap">${tbl(['Ürün / iş', 'Tarih', 'Adet', 'Tutar'], [...R].sort((a, b) => (+b.total || 0) - (+a.total || 0)).slice(0, 20).map(p => [`<a href="#/alimlar/${p.id}">${esc(p.item_name)}</a>${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}`, fmtD(p.d), p.qty == null ? '—' : fmtQ(p.qty), fmtTRY(p.total)]))}</div></section>`);
+  bindRepTabs();
   q('#pry').onchange = e => { st.year = e.target.value; st.month = ''; viewPurchaseReport(); };
   q('#prm').onchange = e => { st.month = e.target.value; viewPurchaseReport(); };
   qa('.bars [data-m], [data-m2]').forEach(b => b.onclick = e => { e.preventDefault(); const m = b.dataset.m || b.dataset.m2; st.month = +st.month === +m ? '' : m; viewPurchaseReport(); });
@@ -3146,6 +3184,220 @@ async function viewPurchaseReport(){
     const lines = [head, ...R.map(p => [p.d, p.item_name, p.unit || '', bomName(p.bom_id) || '', p.project || '', supName(p.supplier_id) || p.supplier_text || '', p.qty ?? '', p.total ?? ''])]
       .map(r => r.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `alimlar-${st.year}${st.month ? '-' + String(st.month).padStart(2, '0') : ''}.csv`; a.click(); };
+}
+
+// ---------------------------------------------------------------- FATURALAR (muhasebenin "Alımların Raporu" Excel'inin karşılığı)
+// Her satır bir fatura: muhasebe ayı (period), tarih, faturadaki unvan, genel toplam (KDV dahil, TL), fatura no, açıklama.
+// Aylık toplam = faturalar − iade faturaları (Excel'deki SUM − iade satırı). Alım talepleri faturaya bağlanabilir.
+const canInv = () => can('admin', 'muhasebe', 'purchasing');
+const canInvEdit = () => can('admin', 'muhasebe');
+const invNet = i => (i.is_return ? -1 : 1) * (+i.total_try || 0);
+const fmtTL2 = n => n == null || n === '' || isNaN(n) ? '—' : (+n).toLocaleString('tr-TR', { minimumFractionDigits:2, maximumFractionDigits:2 }) + ' ₺';
+const FILE_KIND = { proforma:'Proforma', fatura:'Fatura', irsaliye:'İrsaliye', diger:'Diğer' };
+const monName = per => MONTHS_LONG[+per.slice(5, 7) - 1] + ' ' + per.slice(0, 4);
+
+async function openAlimFile(path){
+  const w = window.open('', '_blank');
+  const { data, error } = await sb.storage.from('alim').createSignedUrl(path, 300);
+  if (error || !data) { w && w.close(); return toast('Dosya açılamadı: ' + (error ? error.message : ''), true); }
+  if (w) w.location = data.signedUrl; else location.href = data.signedUrl;
+}
+// Belge listesi + yükleme (alım: p/<id>, fatura: f/<id>)
+function fileList(box, files, o){
+  if (!box) return;
+  box.innerHTML = `${files.length ? `<ul class="flist">${files.map(f => `<li><button type="button" class="linkbtn" data-fo="${esc(f.path)}">📎 ${esc(f.name || 'dosya')}</button> <span class="chip">${FILE_KIND[f.kind] || f.kind}</span>
+      <div class="sub">${esc(f.uploaded_by_name || '')} · ${fmtDT(f.created_at)}${o.canDel(f) ? ` · <button type="button" class="linkbtn" data-fd="${f.id}">sil</button>` : ''}</div></li>`).join('')}</ul>` : '<p class="sub" style="margin:0">Henüz belge yok.</p>'}
+    ${o.canAdd ? `<div class="fup"><select aria-label="Belge türü">${Object.entries(FILE_KIND).map(([k, l]) => `<option value="${k}" ${k === o.kind ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="btn sm">Dosya seç (PDF / foto)<input type="file" accept="application/pdf,image/*" hidden></label></div><p class="note" style="margin:4px 0 0">En fazla 10 MB. Telefondan fotoğraf çekebilirsiniz.</p>` : ''}`;
+  qa('[data-fo]', box).forEach(b => b.onclick = () => openAlimFile(b.dataset.fo));
+  qa('[data-fd]', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'emin misin? tekrar bas')) return;
+    const f = files.find(x => x.id === +b.dataset.fd);
+    const { error } = await sb.from('purchase_files').delete().eq('id', f.id); if (error) return toast(dbErr(error), true);
+    sb.storage.from('alim').remove([f.path]).catch(() => {}); toast('Belge silindi'); o.reload(); });
+  const inp = q('.fup input[type=file]', box);
+  inp && (inp.onchange = async () => {
+    const file = inp.files[0]; if (!file) return;
+    const lab = inp.closest('label'), kind = q('.fup select', box).value; lab.classList.add('busy');
+    let path = null;
+    try {
+      const fl = await shrinkReceipt(file);
+      if (fl.size > 10e6) throw new Error('Dosya 10 MB\'tan büyük; daha küçük bir PDF ya da fotoğraf seçin.');
+      const safe = (fl.name || 'dosya').normalize('NFKD').replace(/[^\w.-]+/g, '_').replace(/^\.+/, '').slice(-80) || 'dosya';
+      path = `${o.prefix}/${Date.now()}${Math.random().toString(36).slice(2, 6)}-${safe}`;
+      const { error: ue } = await sb.storage.from('alim').upload(path, fl, { contentType:fl.type || 'application/octet-stream', upsert:false });
+      if (ue) { path = null; throw new Error('Dosya yüklenemedi: ' + ue.message); }
+      const { error } = await sb.from('purchase_files').insert({ ...o.link, kind, path, name:file.name.slice(0, 200), size_bytes:fl.size });
+      if (error) throw error;
+      toast('Belge eklendi'); o.reload();
+    } catch (x) { if (path) sb.storage.from('alim').remove([path]).catch(() => {}); lab.classList.remove('busy'); toast(dbErr(x), true); }
+  });
+}
+
+async function viewInvoiceReport(){
+  shell('alim-rapor', `${repTabs('fatura')}<div class="empty">Yükleniyor…</div>`);
+  const [r1, r2, r3] = await Promise.all([
+    fetchAll(() => sb.from('purchase_invoices').select('*').order('period').order('inv_date').order('id')),
+    fetchAll(() => sb.from('purchases').select('id,invoice_id').not('invoice_id', 'is', null)),
+    fetchAll(() => sb.from('purchase_files').select('invoice_id').not('invoice_id', 'is', null))]);
+  if (r1.error) return shell('alim-rapor', `${repTabs('fatura')}<h1>Aylık alım raporu</h1><div class="banner">${esc(dbErr(r1.error))}</div>`);
+  const I = r1.data || [], st = prState, nowY = String(new Date().getFullYear());
+  const cnt = (a, k) => a.reduce((m, x) => (x[k] && (m[x[k]] = (m[x[k]] || 0) + 1), m), {});
+  const nLink = cnt(r2.data || [], 'invoice_id'), nFile = cnt(r3.data || [], 'invoice_id');
+  const dupNo = cnt(I.filter(i => i.invoice_no), 'invoice_no');
+  const years = [...new Set(I.map(i => i.period.slice(0, 4)))].sort().reverse();
+  if (!st.year || !years.includes(st.year)) st.year = years.includes(nowY) ? nowY : years[0] || nowY;
+  const Y = I.filter(i => i.period.startsWith(st.year)), net = a => a.reduce((x, i) => x + invNet(i), 0);
+  const byM = MONTHS.map((_, k) => Y.filter(i => +i.period.slice(5, 7) === k + 1)), mVal = byM.map(net), mMax = Math.max(1, ...mVal);
+  if (st.month === '' || st.month == null) { const last = byM.map((a, k) => a.length ? k + 1 : 0).filter(Boolean).pop(); st.month = last ? String(last) : ''; }
+  const nM = st.year === nowY ? new Date().getMonth() + 1 : 12;
+  const prev = I.filter(i => i.period.startsWith(String(+st.year - 1)) && +i.period.slice(5, 7) <= nM);
+  const top = Math.max(...mVal), topI = mVal.indexOf(top), allY = [...years].sort();
+  const M = st.month ? [...byM[+st.month - 1]].sort((a, b) => (a.is_return - b.is_return) || (a.inv_date || '').localeCompare(b.inv_date || '') || a.id - b.id) : [];
+  const per = st.month ? MONTHS_LONG[+st.month - 1] + ' ' + st.year : '';
+  const grp = new Map(); M.filter(i => !i.is_return).forEach(i => { const k = i.supplier_name || supName(i.supplier_id) || '—'; const o = grp.get(k) || { n:0, t:0 }; o.n++; o.t += +i.total_try || 0; grp.set(k, o); });
+  const mTot = M.filter(i => !i.is_return).reduce((x, i) => x + (+i.total_try || 0), 0), mRet = M.filter(i => i.is_return).reduce((x, i) => x + (+i.total_try || 0), 0);
+  const ymKey = st.year + '-' + String(st.month || 1).padStart(2, '0');
+  shell('alim-rapor', `${repTabs('fatura')}<div class="pagehead"><div><h1>Aylık alım raporu</h1><p class="lede">Muhasebenin fatura listesi: her ay o aya işlenen faturaların genel toplamı (KDV dahil, TL), iade faturaları düşülerek. Bir aya tıklayınca o ay neyi nereden aldığımız görünür.</p></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="ixlsx">Excel indir (${st.year})</button>${canInvEdit() ? `<a class="btn primary" href="#/fatura-yeni?ay=${ymKey}">Fatura ekle</a>` : ''}</div></div>
+  <div class="toolbar"><label class="f" style="width:120px">Yıl<select id="iry">${(years.length ? years : [nowY]).map(y => `<option ${y === st.year ? 'selected' : ''}>${y}</option>`).join('')}</select></label></div>
+  ${I.length ? '' : `<div class="banner">Henüz fatura kaydı yok.${canInvEdit() ? ' <a href="#/fatura-yeni">İlk faturayı ekle</a>' : ''}</div>`}
+  <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="kpi"><div class="l">${st.year} toplam alım</div><div class="v">${fmtTRY(net(Y))}</div><div class="d">${Y.filter(i => !i.is_return).length} fatura${Y.some(i => i.is_return) ? ` · ${Y.filter(i => i.is_return).length} iade` : ''}</div></div>
+    <div class="kpi"><div class="l">Aylık ortalama</div><div class="v">${fmtTRY(net(Y) / nM)}</div><div class="d">${nM} ay üzerinden</div></div>
+    <div class="kpi"><div class="l">En yüksek ay</div><div class="v">${top ? fmtTRY(top) : '—'}</div><div class="d">${top ? MONTHS_LONG[topI] : ''}</div></div>
+    <div class="kpi"><div class="l">Geçen yılın aynı dönemi</div><div class="v">${fmtTRY(net(prev))}</div><div class="d">${+st.year - 1} · ${nM < 12 ? 'Oca–' + MONTHS[nM - 1] : 'tüm yıl'}${net(prev) ? ` · ${net(Y) >= net(prev) ? '+' : ''}${Math.round((net(Y) / net(prev) - 1) * 100)}%` : ''}</div></div></div>
+  <section class="panel"><h2>${st.year} aylık alım tutarı</h2>
+    <div class="bars" style="height:200px">${mVal.map((v, k) => `<button class="m" data-m="${k + 1}" style="border:0;background:${+st.month === k + 1 ? 'var(--brand-soft)' : 'none'};cursor:pointer;border-radius:4px;padding:2px 0" title="${MONTHS_LONG[k]}: ${byM[k].length} fatura, ${fmtTRY(v)}" aria-label="${MONTHS_LONG[k]}: ${fmtTRY(v)}"><span style="font-size:11px;color:var(--muted)">${v ? Math.round(v / 1000) + 'K' : ''}</span><div class="pair"><div class="b" style="height:${Math.max(0, v) / mMax * 100}%;width:60%;max-width:28px"></div></div><div class="lbl">${MONTHS[k]}</div></button>`).join('')}</div></section>
+  ${st.month ? `<section class="mt" id="imon"><div class="pagehead" style="margin-bottom:8px"><h2 style="margin:0">${per} faturaları</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="icsv">CSV indir</button>${canInvEdit() ? `<a class="btn sm primary" href="#/fatura-yeni?ay=${ymKey}">${per} için fatura ekle</a>` : ''}</div></div>
+    <div class="tablewrap">${M.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Tedarikçi</th><th class="nosort num">Genel toplam (TL)</th><th class="nosort">Fiş / fatura no</th><th class="nosort">Açıklama</th><th class="nosort num" title="Bu faturaya bağlı alım talepleri">Kalem</th></tr></thead><tbody>
+      ${M.map(i => `<tr data-inv="${i.id}" class="${i.is_return ? 'ret' : ''}"><td style="white-space:nowrap">${fmtD(i.inv_date)}</td><td>${i.is_return ? '<span class="pill pu-reddedildi">İade</span> ' : ''}${esc(i.supplier_name || supName(i.supplier_id) || '')}</td>
+        <td class="num">${i.is_return ? '−' : ''}${fmtTL2(i.total_try)}</td><td style="white-space:nowrap">${esc(i.invoice_no || '')}${i.invoice_no && dupNo[i.invoice_no] > 1 ? ' <span class="chip dupchip" title="Aynı fatura numarası başka bir satırda da var">2 kez</span>' : ''}${nFile[i.id] ? ' 📎' : ''}</td>
+        <td>${esc(i.description || '')}${i.note ? `<div class="sub">${esc(i.note)}</div>` : ''}</td><td class="num">${nLink[i.id] || ''}</td></tr>`).join('')}</tbody>
+      <tfoot><tr class="tfoot"><td colspan="2">${M.filter(i => !i.is_return).length} fatura</td><td class="num">${fmtTL2(mTot)}</td><td colspan="3"></td></tr>
+      ${mRet ? `<tr class="tfoot"><td colspan="2">İade</td><td class="num">−${fmtTL2(mRet)}</td><td colspan="3"></td></tr><tr class="tfoot"><td colspan="2"><b>Net</b></td><td class="num"><b>${fmtTL2(mTot - mRet)}</b></td><td colspan="3"></td></tr>` : ''}</tfoot></table>` : '<div class="empty">Bu ay için fatura yok.</div>'}</div></section>
+  ${grp.size ? `<section class="panel mt"><h2>Tedarikçiye göre — ${per}</h2><div class="tablewrap"><table><thead><tr><th class="nosort">Tedarikçi</th><th class="nosort num">Fatura</th><th class="nosort num">Tutar</th></tr></thead><tbody>
+    ${[...grp].sort((a, b) => b[1].t - a[1].t).map(([k, o]) => `<tr style="cursor:default"><td>${esc(k)}</td><td class="num">${o.n}</td><td class="num">${fmtTRY(o.t)}</td></tr>`).join('')}</tbody></table></div></section>` : ''}` : ''}
+  <section class="mt"><h2>Özet (cari hesap) — yıllara göre</h2><div class="tablewrap"><table><thead><tr><th class="nosort">Ay</th>${allY.map(y => `<th class="nosort num">${y}</th>`).join('')}</tr></thead><tbody>
+    ${MONTHS_LONG.map((m, k) => `<tr style="cursor:default"><td>${m}</td>${allY.map(y => { const a = I.filter(i => i.period.startsWith(y + '-' + String(k + 1).padStart(2, '0'))); return `<td class="num">${a.length ? `<a href="#" data-ym="${y}|${k + 1}">${fmtTL2(net(a))}</a>` : ''}</td>`; }).join('')}</tr>`).join('')}</tbody>
+    <tfoot><tr class="tfoot"><td>Toplam</td>${allY.map(y => `<td class="num"><b>${fmtTL2(net(I.filter(i => i.period.startsWith(y))))}</b></td>`).join('')}</tr></tfoot></table></div></section>`);
+  bindRepTabs();
+  q('#iry').onchange = e => { st.year = e.target.value; st.month = ''; viewPurchaseReport(); };
+  qa('.bars [data-m]').forEach(b => b.onclick = e => { e.preventDefault(); st.month = b.dataset.m; viewPurchaseReport(); setTimeout(() => q('#imon') && q('#imon').scrollIntoView({ block:'start' }), 50); });
+  qa('[data-ym]').forEach(a => a.onclick = e => { e.preventDefault(); const [y, m] = a.dataset.ym.split('|'); st.year = y; st.month = m; viewPurchaseReport(); setTimeout(() => q('#imon') && q('#imon').scrollIntoView({ block:'start' }), 50); });
+  qa('tr[data-inv]').forEach(r => r.onclick = () => location.hash = '#/fatura/' + r.dataset.inv);
+  q('#icsv') && (q('#icsv').onclick = () => {
+    const rows = [['Tarih', 'Tedarikçi', 'Genel Toplam (TL)', 'Fiş/Fatura No', 'Açıklama'], ...M.filter(i => !i.is_return).map(i => [fmtD(i.inv_date), i.supplier_name || supName(i.supplier_id) || '', String(i.total_try).replace('.', ','), i.invoice_no || '', i.description || '']),
+      ['', 'Toplam', String(Math.round(mTot * 100) / 100).replace('.', ','), '', ''], ...M.filter(i => i.is_return).map(i => ['', 'İade', String(i.total_try).replace('.', ','), i.description || '', '']),
+      ...(mRet ? [['', 'Net', String(Math.round((mTot - mRet) * 100) / 100).replace('.', ','), '', '']] : [])];
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + rows.map(r => r.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n')], { type:'text/csv;charset=utf-8' }));
+    a.download = `alimlar-faturalar-${ymKey}.csv`; a.click(); });
+  q('#ixlsx').onclick = () => exportInvXlsx(I, st.year);
+}
+
+// Muhasebenin Excel düzeni: her ay bir sayfa (Tarih, Tedarikçi, Genel Toplam, Fiş/Fatura No, Açıklama; altta toplam, iade, net) + Özet
+let XLSX_P = null;
+const loadXlsx = () => XLSX_P || (XLSX_P = new Promise((ok, no) => { if (window.XLSX) return ok(window.XLSX);
+  const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => { XLSX_P = null; no(new Error('Excel kütüphanesi yüklenemedi')); }; document.head.appendChild(s); }));
+async function exportInvXlsx(I, year){
+  let X; try { X = await loadXlsx(); } catch (e) { return toast(e.message, true); }
+  const wb = X.utils.book_new(), d = s => s ? { t:'n', v:(Date.parse(s + 'T00:00:00Z') - Date.UTC(1899, 11, 30)) / 864e5, z:'dd.mm.yyyy' } : null, oz = [['Ay', 'Fatura', 'İade', 'Net (TL)']];
+  for (let k = 1; k <= 12; k++) {
+    const per = `${year}-${String(k).padStart(2, '0')}`, a = I.filter(i => i.period.startsWith(per));
+    if (!a.length) continue;
+    const f = a.filter(i => !i.is_return).sort((x, y) => (x.inv_date || '').localeCompare(y.inv_date || '') || x.id - y.id), r = a.filter(i => i.is_return);
+    const aoa = [['Tarih', 'Tedarikçi', 'Genel Toplam (TL)', 'Fiş/Fatura No', 'Açıklama'], ...f.map(i => [d(i.inv_date), i.supplier_name || supName(i.supplier_id) || '', +i.total_try, i.invoice_no || '', i.description || ''])];
+    const n = aoa.length; aoa.push([null, 'Toplam', { f:`SUM(C2:C${n})` }]);
+    r.forEach(i => aoa.push([d(i.inv_date), 'İade', +i.total_try, i.description || '']));
+    if (r.length) aoa.push([null, 'Net', { f:`C${n + 1}-SUM(C${n + 2}:C${n + 1 + r.length})` }]);
+    const ws = X.utils.aoa_to_sheet(aoa.map(row => row.map(c => c && c.f ? { t:'n', f:c.f } : c)));
+    ws['!cols'] = [{ wch:12 }, { wch:48 }, { wch:16 }, { wch:20 }, { wch:50 }];
+    for (let rr = 2; rr <= aoa.length; rr++) { const c = ws['C' + rr]; if (c) c.z = '#,##0.00'; }
+    X.utils.book_append_sheet(wb, ws, MONTHS_LONG[k - 1] + ' ' + year);
+    const tf = f.reduce((x, i) => x + +i.total_try, 0), tr = r.reduce((x, i) => x + +i.total_try, 0);
+    oz.push([MONTHS_LONG[k - 1], Math.round(tf * 100) / 100, Math.round(tr * 100) / 100, Math.round((tf - tr) * 100) / 100]);
+  }
+  if (oz.length === 1) return toast(year + ' için fatura yok', true);
+  oz.push(['Toplam', ...[1, 2, 3].map(c => Math.round(oz.slice(1).reduce((x, r) => x + r[c], 0) * 100) / 100)]);
+  const wo = X.utils.aoa_to_sheet(oz); wo['!cols'] = [{ wch:12 }, { wch:16 }, { wch:14 }, { wch:16 }];
+  X.utils.book_append_sheet(wb, wo, 'Özet');
+  X.writeFile(wb, `Alimlarin_Raporu_${year}.xlsx`);
+}
+
+async function viewInvoice(id){
+  await loadStock();
+  const ed = canInvEdit(), qp = new URLSearchParams(location.hash.split('?')[1] || '');
+  shell('alim-rapor', `<div class="empty">Yükleniyor…</div>`);
+  const iv = id ? (await sb.from('purchase_invoices').select('*').eq('id', id).maybeSingle()).data
+    : { period:(/^\d{4}-\d{2}$/.test(qp.get('ay') || '') ? qp.get('ay') : today().slice(0, 7)) + '-01', inv_date:today(), is_return:false };
+  if (!iv) return shell('alim-rapor', `<h1>Fatura bulunamadı</h1><p><a href="#/alim-rapor">Aylık alım raporuna dön</a></p>`);
+  const [{ data: lk }, { data: dups }, { data: names }] = await Promise.all([
+    id ? sb.from('purchases').select('id,item_name,qty,total,currency,status,purchased_at,requested_at,supplier_id,supplier_text,project').eq('invoice_id', id) : Promise.resolve({ data:[] }),
+    id && iv.invoice_no ? sb.from('purchase_invoices').select('id,period,supplier_name,total_try').eq('invoice_no', iv.invoice_no) : Promise.resolve({ data:[] }),
+    ed ? fetchAll(() => sb.from('purchase_invoices').select('supplier_name')) : Promise.resolve({ data:[] })]);
+  const L = lk || [], D = (dups || []).filter(x => x.id !== id), sumL = L.reduce((x, p) => x + (p.currency === 'TRY' || !p.currency ? +p.total || 0 : 0), 0);
+  const nm = [...new Set((names || []).map(x => x.supplier_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
+  const v = k => esc(iv[k] ?? ''), back = `#/alim-rapor`;
+  shell('alim-rapor', `<p><a href="${back}" id="ivback">← Aylık alım raporu</a></p>
+  <div class="pagehead"><div><h1>${id ? esc(iv.supplier_name || 'Fatura') : 'Yeni fatura'}</h1><p class="lede">${id ? `${monName(iv.period)} raporunda · ${iv.is_return ? 'iade faturası' : 'fatura'}${iv.created_by_name ? ' · ekleyen ' + esc(iv.created_by_name) : ''}` : 'Muhasebenin aylık fatura listesine yeni satır.'}</p></div>
+    ${id && ed ? '<button class="btn danger" id="ivdel">Sil</button>' : ''}</div>
+  ${D.length ? `<div class="banner">Aynı fatura numarası başka satırda da var: ${D.map(x => `<a href="#/fatura/${x.id}">${monName(x.period)} · ${esc(x.supplier_name || '')} · ${fmtTL2(x.total_try)}</a>`).join(', ')}. Mükerrerse birini silin.</div>` : ''}
+  <div class="grid sup-grid"><div><form id="ivf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
+    <div class="row"><label class="f">Muhasebe ayı <span class="hint">raporda bu ayda görünür</span><input type="month" name="period" value="${iv.period.slice(0, 7)}" required></label>
+      <label class="f">Fatura tarihi<input type="date" name="inv_date" value="${v('inv_date')}" min="${MIN_DATE}"></label>
+      <label class="f">Genel toplam (TL, KDV dahil)<input type="number" step="0.01" min="0" name="total_try" value="${v('total_try')}" required inputmode="decimal"></label></div>
+    <div class="row r2"><label class="f">Tedarikçi (faturadaki unvan)<input name="supplier_name" list="ivnames" value="${v('supplier_name')}" maxlength="200" autocomplete="off"></label>
+      <label class="f">Tedarikçi listesinde <span class="hint">isteğe bağlı</span><select name="supplier_id"><option value="">—</option>${S.suppliers.map(s => `<option value="${s.id}" ${iv.supplier_id === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label></div>
+    <div class="row r2"><label class="f">Fiş / fatura no<input name="invoice_no" value="${v('invoice_no')}" maxlength="60" autocomplete="off"></label>
+      <label class="f chk" style="align-self:end"><input type="checkbox" name="is_return" ${iv.is_return ? 'checked' : ''}> İade faturası <span class="hint">aylık toplamdan düşülür</span></label></div>
+    <label class="f">Açıklama<input name="description" value="${v('description')}" maxlength="1000" placeholder="ör. Stewart elektronik parçaları"></label>
+    <label class="f">Not<input name="note" value="${v('note')}" maxlength="1000"></label>
+    ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Faturayı ekle'}</button></p>` : '<p class="note">Faturaları Muhasebe ve yöneticiler değiştirebilir.</p>'}
+  </fieldset></form><datalist id="ivnames">${nm.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+  ${id ? `<section class="mt"><h2>Bağlı alım talepleri <span class="sub">${L.length}</span></h2>
+    <div class="tablewrap">${L.length ? `<table><thead><tr><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Durum</th><th class="nosort"></th></tr></thead><tbody>
+      ${L.map(p => `<tr data-pid="${p.id}"><td><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a>${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}</td><td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${purPill(p.status)}</td>
+        <td><button type="button" class="linkbtn ivun" data-u="${p.id}">çıkar</button></td></tr>`).join('')}</tbody>
+      <tfoot><tr class="tfoot"><td colspan="2">Kalemlerin toplamı (TL)</td><td class="num">${fmtTL2(sumL)}</td><td colspan="2" class="sub">${Math.abs(sumL - (+iv.total_try || 0)) > 1 ? 'fatura ile fark: ' + fmtTL2((+iv.total_try || 0) - sumL) : 'faturayla aynı'}</td></tr></tfoot></table>` : '<div class="empty">Bu faturaya bağlı alım talebi yok. Aşağıdan bağlayabilirsiniz.</div>'}</div>
+    <section class="panel mt"><h2>Alım talebi bağla</h2><p class="note" style="margin-top:-6px">Faturadaki kalemleri alım talepleriyle eşleştirin; talep sayfasında da bu fatura görünür.</p>
+      <input type="search" id="ivq" placeholder="Ara: ürün, proje, tedarikçi…" style="width:100%"><div id="ivcand" class="mt"><p class="sub">Yükleniyor…</p></div>
+      <p style="margin:8px 0 0"><button class="btn sm primary" id="ivlink" type="button" disabled>Seçilenleri bağla</button></p></section></section>` : ''}</div>
+  <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Genel toplam</dt><dd><b>${iv.is_return ? '−' : ''}${fmtTL2(iv.total_try)}</b></dd><dt>Ay</dt><dd><a href="#" id="ivmon">${monName(iv.period)}</a></dd>${iv.invoice_no ? `<dt>Fatura no</dt><dd>${esc(iv.invoice_no)}</dd>` : ''}${iv.source && iv.source !== 'site' ? `<dt>Kaynak</dt><dd class="sub">${esc(iv.source.replace(/^excel:/, 'Excel · '))}</dd>` : ''}</dl></section>
+    <section class="panel mt"><h2>Belgeler</h2><div id="ivfl"><p class="sub">Yükleniyor…</p></div></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Faturayı ekledikten sonra PDF'ini yükleyebilir ve ilgili alım taleplerini bağlayabilirsiniz.</p></section>`}</aside></div>`);
+  const goMonth = e => { e && e.preventDefault(); prState.mode = 'fatura'; prState.year = iv.period.slice(0, 4); prState.month = String(+iv.period.slice(5, 7)); location.hash = '#/alim-rapor'; };
+  q('#ivback').onclick = goMonth; q('#ivmon') && (q('#ivmon').onclick = goMonth);
+  q('#ivf').onsubmit = async e => {
+    e.preventDefault(); const f = e.target, g = n => f[n].value.trim();
+    const o = { period:g('period') + '-01', inv_date:g('inv_date') || null, total_try:num0(g('total_try')), supplier_name:g('supplier_name') || null, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
+      invoice_no:g('invoice_no') || null, is_return:f.is_return.checked, description:g('description') || null, note:g('note') || null };
+    if (!/^\d{4}-\d{2}-01$/.test(o.period)) return toast('Muhasebe ayını seçin', true);
+    if (o.total_try == null || !(o.total_try >= 0)) return toast('Genel toplamı girin', true);
+    if (!o.supplier_name && !o.supplier_id && !o.is_return) return toast('Tedarikçiyi yazın', true);
+    if (!id) { const { data, error } = await sb.from('purchase_invoices').insert({ ...o, source:'site' }).select('id').single(); if (error) return toast(dbErr(error), true);
+      toast('Fatura eklendi'); location.hash = '#/fatura/' + data.id; return; }
+    const { error } = await sb.from('purchase_invoices').update(o).eq('id', id); if (error) return toast(dbErr(error), true); toast('Kaydedildi'); viewInvoice(id);
+  };
+  q('#ivdel') && (q('#ivdel').onclick = async () => { if (!confirmTwice(q('#ivdel'), 'Emin misin? Tekrar bas')) return;
+    const { data: fl } = await sb.from('purchase_files').select('path').eq('invoice_id', id);
+    const { error } = await sb.from('purchase_invoices').delete().eq('id', id); if (error) return toast(dbErr(error), true);
+    if ((fl || []).length) sb.storage.from('alim').remove(fl.map(x => x.path)).catch(() => {});
+    toast('Fatura silindi'); goMonth(); });
+  if (!id) return;
+  const loadF = async () => { const { data } = await sb.from('purchase_files').select('*').eq('invoice_id', id).order('created_at');
+    fileList(q('#ivfl'), data || [], { canAdd:ed, canDel: f => ed || f.uploaded_by === S.profile.id, prefix:'f/' + id, link:{ invoice_id:id }, kind:'fatura', reload:loadF }); };
+  loadF();
+  qa('.ivun').forEach(b => b.onclick = async () => { const { error } = await sb.rpc('purchase_invoice_link', { p_invoice:id, p_add:[], p_remove:[+b.dataset.u] }); if (error) return toast(dbErr(error), true); toast('Çıkarıldı'); viewInvoice(id); });
+  // aday talepler: bağlı olmayan, sipariş verilmiş / alınmış; önce aynı tedarikçi ve faturaya yakın tarih
+  const { data: cd } = await fetchAll(() => sb.from('purchases').select('id,item_name,qty,total,currency,status,purchased_at,requested_at,supplier_id,supplier_text,project,invoice_id,kind')
+    .in('status', ['onaylandi', 'proforma', 'siparis_verildi', 'eft_bekliyor', 'alindi']).is('invoice_id', null).order('id', { ascending:false }).limit(3000));
+  const ref = Date.parse(iv.inv_date || iv.period), C = (cd || []).filter(p => p.kind !== 'kontrol' && !p.invoice_id).map(p => ({ ...p, sc:(iv.supplier_id && p.supplier_id === iv.supplier_id ? 0 : 1) * 1e12 + Math.abs(Date.parse(p.purchased_at || p.requested_at || '2000-01-01') - ref) }))
+    .sort((a, b) => a.sc - b.sc), sel = new Set();
+  const draw = () => { const ql = (q('#ivq').value || '').trim().toLocaleLowerCase('tr');
+    const rows = C.filter(p => !ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id)].join(' ').toLocaleLowerCase('tr').includes(ql)).slice(0, 40);
+    q('#ivcand').innerHTML = rows.length ? `<div class="tablewrap"><table><tbody>${rows.map(p => `<tr style="cursor:default"><td style="width:28px"><input type="checkbox" data-c="${p.id}" ${sel.has(p.id) ? 'checked' : ''} aria-label="Seç"></td>
+      <td><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a><div class="sub">${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.project ? ' · ' + esc(p.project) : ''}</div></td><td class="num">${fmtMoney(p.total, p.currency)}</td><td style="white-space:nowrap">${fmtD(p.purchased_at || p.requested_at)}<div>${purPill(p.status)}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Eşleşen alım talebi yok.</div>';
+    qa('#ivcand [data-c]').forEach(c => c.onchange = () => { c.checked ? sel.add(+c.dataset.c) : sel.delete(+c.dataset.c); q('#ivlink').disabled = !sel.size; q('#ivlink').textContent = sel.size ? `Seçilen ${sel.size} talebi bağla` : 'Seçilenleri bağla'; }); };
+  draw(); q('#ivq').oninput = draw;
+  q('#ivlink').onclick = async () => { const { error } = await sb.rpc('purchase_invoice_link', { p_invoice:id, p_add:[...sel], p_remove:[] }); if (error) return toast(dbErr(error), true); toast(sel.size + ' talep bağlandı'); viewInvoice(id); };
 }
 
 // ---------------------------------------------------------------- İÇE AKTARMA (yönetici, tek sefer)

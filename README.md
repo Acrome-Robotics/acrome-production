@@ -133,3 +133,12 @@ Geri dönülebilir sabit nokta. Kapsam: satış/sipariş, support + RMA, stok (m
 - **Kod:** `git checkout milestone-1-2026-11-07` (GitHub'da `milestone-1-2026-11-07` dalı; etiket gönderimi kapalı olduğu için dal olarak saklandı).
 - **Veri:** Supabase'te `snap_20261107` şemasında tüm public tabloların kopyası var. Tek tablo geri yükleme: `truncate public.X cascade; insert into public.X select * from snap_20261107.X;` (yalnızca yönetici, önce yeni bir yedek alın).
 - **Şema:** Supabase migration geçmişinde son kayıt `milestone_snapshot_20261107`.
+
+## Faturalar, alım belgeleri ve durum geçmişi (9 Kasım 2026)
+- **Aylık alım raporu** artık muhasebenin "Alımların Raporu" Excel'iyle aynı: fatura bazında (`purchase_invoices`), muhasebe ayına (`period`) göre, iade faturaları düşülerek. Temmuz 2025 – Kasım 2026 Excel'den aktarıldı (676 fatura + 4 iade; 17 ayın toplamı Özet sayfasıyla birebir).
+- Bir aya tıklayınca o ayın faturaları (tarih, tedarikçi, genel toplam, fatura no, açıklama) ve tedarikçiye göre dağılım görünür. "Excel indir" muhasebenin düzeninde (her ay bir sayfa + Özet) dosya üretir.
+- Faturaları Muhasebe ve Yönetici ekler / değiştirir; Satın alma görür. Faturaya alım talepleri bağlanabilir (`purchase_invoice_link`).
+- Eski kalem bazlı rapor "Alım taleplerine göre" sekmesinde (ürün / proje dağılımı).
+- **Belgeler**: alım talebine proforma / fatura / irsaliye (PDF veya foto, en fazla 10 MB) eklenir; `alim` deposu, `purchase_files`.
+- **Durum**: alım sayfasında durum seçilir ve "Durumu kaydet" ile onaylanır. Her değişiklik `purchase_events`'e yazılır. "Alındı"dan sipariş öncesi bir duruma dönülürse stoğa girmiş adet geri düşülür ("Eski / kapandı"da düşülmez).
+- Veritabanı: `sql/2026-11-09_faturalar_belgeler.sql`.
