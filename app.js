@@ -119,7 +119,11 @@ async function loadAll(){
 const isCountDay = (d = new Date()) => d.getDay() === 5 && d.getDate() <= 7;
 const nextCountDay = () => { const d = new Date(); d.setHours(0, 0, 0, 0); for (let i = 0; i < 40; i++, d.setDate(d.getDate() + 1)) if (isCountDay(d)) return d; return null; };
 const countDayTxt = () => { const d = nextCountDay(); return d ? d.toLocaleDateString('tr-TR', { day:'numeric', month:'long', weekday:'long' }) : ''; };
-const countBanner = () => isCountDay() && can('stock', 'production', 'admin') ? `<div class="banner countday"><b>Bugün aylık stok sayımı günü.</b> Rafları sayıp girin: <a href="#/mekanik-sayim">Mekanik sayım</a> · <a href="#/elektronik-sayim">Elektronik sayım</a></div>` : '';
+// kişinin stok alanı: üretim bölümü yalnız mekanik ise mekanik, yalnız elektronik ise elektronik, diğer durumlarda ikisi
+// (sunucudaki stock_groups_of ile aynı kural; sayım bildirimleri de buna göre gider)
+const myStkGroups = () => { const d = myDeps(), m = d.includes('mekanik'), e = d.includes('elektronik'); return m && !e ? ['m'] : e && !m ? ['e'] : ['m', 'e']; };
+const countBanner = () => { if (!(isCountDay() && can('stock', 'production', 'admin'))) return ''; const g = myStkGroups();
+  return `<div class="banner countday"><b>Bugün aylık stok sayımı günü.</b> Rafları sayıp girin: ${g.map(x => x === 'm' ? '<a href="#/mekanik-sayim">Mekanik sayım</a>' : '<a href="#/elektronik-sayim">Elektronik sayım</a>').join(' · ')}</div>`; };
 
 // ---------------------------------------------------------------- oturum
 // sayfa içi küçük işleyiciler (satır içi onclick yok; güvenlik başlığı CSP buna izin vermez)
@@ -255,9 +259,7 @@ function shell(active, html){
     ]],
     ['Stok', 'box', [
       ['mekanik-stok','Mekanik stok', (S.items||[]).filter(i => critical(i) && grpOfCat(i.category) === 'm').length || ''],
-      ...(canStock() ? [['mekanik-sayim','Mekanik sayım', '', '', 'sub']] : []),
       ['elektronik-stok','Elektronik stok', (S.items||[]).filter(i => critical(i) && grpOfCat(i.category) === 'e').length || ''],
-      ...(canStock() ? [['elektronik-sayim','Elektronik sayım', '', '', 'sub']] : []),
       ['bom','BOM listesi'],
       ...(/^bom/.test(active) ? [
         ...(S.boms||[]).filter(b => b.kind === 'product').map(b => ['bom/' + b.id, esc(b.name), '', '', 'sub', 'bom-p' + b.id]),
@@ -387,7 +389,7 @@ function todaySections(){
     const fol = tk.filter(t => mine(t) && t.status === 'customer' && supWait(t));
     S_.push({ id:'fol', title:'Müşteride 7+ gün · takip maili atılmalı', link:'#/support', rows: fol.map(tRow), empty:'Takip bekleyen yok.' });
   }
-  if (S.unread) S_.push({ id:'not', title:'Okunmamış bildirimler', link:'#/bildirimler', count:S.unread, rows:[{ href:'#/bildirimler', main:`${S.unread} okunmamış bildirim`, sub:'', meta:'', hot:true }], alert:true });
+  if (S.unread) S_.push({ id:'not', bottom:true, title:'Okunmamış bildirimler', link:'#/bildirimler', count:S.unread, rows:[{ href:'#/bildirimler', main:`${S.unread} okunmamış bildirim`, sub:'', meta:'', hot:true }], alert:true });
   if (can('production','orders','admin') && prod.length) {
     const deps = myDeps(), ks = deps.length ? deps : can('production','admin') ? STG.map(x => x[0]) : ['gonderim'];
     const sq = prod.filter(d => ks.includes((curStage(d.id) || [])[0])).sort((a,b) => (due(a)||'9999').localeCompare(due(b)||'9999'));
@@ -427,8 +429,10 @@ function todaySections(){
     S_.push({ id:'myp', title:'Açık alım taleplerim', link:'#/alimlar', rows: mineP.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:esc(p.project || ''), meta:`<span class="pill pu-${p.status}">${PUR_ST[p.status]}</span>`, hot:false })), empty:'Açık alım talebiniz yok.', max:5 });
   }
   if (can('stock', 'production', 'admin')) {
-    const out = (S.items || []).filter(i => i.qty != null && +i.qty <= 0 && (S.prodItemIds || new Set()).has(i.id));
-    S_.push({ max:5, foot: out.length ? `${out.filter(i => grpOfCat(i.category) === 'm').length} mekanik · ${out.filter(i => grpOfCat(i.category) === 'e').length} elektronik` : '', id:'out', title:'Stokta biten parçalar (ürünlerde kullanılan)', link:'#/mekanik-stok', rows: out.map(i => ({ href:'#/stok/' + i.id, main:esc(i.name), sub:esc(i.supplier_text || ''), meta:'<span class="amber-txt">stok 0</span>', hot:false })), empty:'Ürünlerde kullanılan parçalarda biten yok.' });
+    const sg = myStkGroups(), one = sg.length === 1 ? sg[0] : null;
+    const out = (S.items || []).filter(i => i.qty != null && +i.qty <= 0 && (S.prodItemIds || new Set()).has(i.id) && sg.includes(grpOfCat(i.category)));
+    S_.push({ max:5, foot: out.length && !one ? `${out.filter(i => grpOfCat(i.category) === 'm').length} mekanik · ${out.filter(i => grpOfCat(i.category) === 'e').length} elektronik` : '', id:'out',
+      title:`Stokta biten ${one === 'm' ? 'mekanik ' : one === 'e' ? 'elektronik ' : ''}parçalar (ürünlerde kullanılan)`, link: one === 'e' ? '#/elektronik-stok' : '#/mekanik-stok', rows: out.map(i => ({ href:'#/stok/' + i.id, main:esc(i.name), sub:esc(i.supplier_text || ''), meta:'<span class="amber-txt">stok 0</span>', hot:false })), empty:'Ürünlerde kullanılan parçalarda biten yok.' });
   }
   if (canAcc() && (S.expPendingList || []).length) S_.push({ id:'exp', title:'Onay bekleyen masraf formları', link:'#/masraf-liste', alert:true,
     rows: S.expPendingList.map(r => ({ href:'#/masraf/' + r.id, main:esc(r.user_name || ''), sub:esc(r.title), meta:`<span class="sub">${sumByCur(r.expense_items)}</span>`, hot:true })) });
@@ -449,8 +453,19 @@ function viewToday(){
       ${x.rows.length ? `<ul class="tlist">${x.rows.slice(0, MAX).map(r => `<li><a href="${r.href}"><span class="tm">${r.main}${r.sub ? `<span class="sub">${r.sub}</span>` : ''}</span><span class="tmeta">${r.meta}</span></a></li>`).join('')}</ul>${x.rows.length > MAX ? `<a class="tmore" href="${x.link}">+${x.rows.length - MAX} tane daha</a>` : ''}` : `<p class="tok">✓ ${x.empty}</p>`}</section>`; };
   shell('bugun', `<div class="pagehead"><div><h1>${hi}, ${esc(name)}</h1><p class="lede">${dstr} · ${esc(roleLabel(S.profile))} görünümü · ${hotN ? `<b class="late-txt">${hotN} iş dikkat istiyor</b>` : 'Acil bekleyen iş yok'}</p></div></div>
     ${countBanner()}
-    <div class="tgrid">${secs.filter(x => x.rows.length).map(panel).join('')}</div>
-    ${secs.some(x => !x.rows.length) ? `<div class="tclear">${secs.filter(x => !x.rows.length).map(x => `<span>✓ ${x.empty}</span>`).join('')}</div>` : ''}`);
+    <div class="tgrid">${secs.filter(x => x.rows.length && !x.bottom).map(panel).join('')}</div>
+    ${secs.some(x => !x.rows.length) ? `<div class="tclear">${secs.filter(x => !x.rows.length).map(x => `<span>✓ ${x.empty}</span>`).join('')}</div>` : ''}
+    ${notifPanel()}`);
+  qa('.tnotif li[data-nid] a').forEach(el => el.onclick = async e => { e.preventDefault(); const li = el.closest('li'), n = (S.notifList || []).find(x => x.id === +li.dataset.nid); if (!n) return;
+    if (!n.read_at) { n.read_at = new Date().toISOString(); S.unread = Math.max(0, (S.unread || 0) - 1); await sb.from('support_notifications').update({ read_at:n.read_at }).eq('id', n.id).is('read_at', null); }
+    location.hash = n.ticket_id ? '#/support/' + n.ticket_id : n.link || '#/bildirimler'; });
+}
+// Bugün sayfasının altında son bildirimler (okunmamışlar önce)
+function notifPanel(){
+  const L = S.notifList || []; if (!L.length) return '';
+  const rows = [...L.filter(n => !n.read_at), ...L.filter(n => n.read_at)].slice(0, 8);
+  return `<section class="panel tday tnotif mt${S.unread ? ' is-hot' : ''}"><header><h2>Bildirimler</h2><span class="tcount${S.unread ? ' hot' : ''}">${S.unread || 0}</span><a class="more" href="#/bildirimler">Tümü →</a></header>
+    <ul class="tlist">${rows.map(n => `<li data-nid="${n.id}" class="${n.read_at ? '' : 'unread'}"><a href="${esc(n.ticket_id ? '#/support/' + n.ticket_id : n.link || '#/bildirimler')}"><span class="tm">${notifText(n)}</span><span class="tmeta">${n.read_at ? `<span class="sub">${ago(n.created_at)}</span>` : '<b class="late-txt">yeni</b>'}</span></a></li>`).join('')}</ul></section>`;
 }
 
 // ---------------------------------------------------------------- RAPOR
@@ -1609,6 +1624,8 @@ async function loadSupport(){
   S.tickets = data; S.supErr = null;
   const n = await sb.from('support_notifications').select('id', { count:'exact', head:true }).is('read_at', null);
   S.unread = n.error ? 0 : (n.count || 0);
+  const nl = await sb.from('support_notifications').select('id,ticket_id,kind,title,link,created_at,read_at').order('created_at', { ascending:false }).limit(30);
+  S.notifList = nl.error ? [] : (nl.data || []);
   const ss = await sb.from('support_sync_state').select('key,updated_at');
   S.syncAt = Object.fromEntries((ss.data||[]).map(r => [r.key, r.updated_at]));
   const st = await sb.from('support_settings').select('key,value');
@@ -1954,6 +1971,9 @@ async function enablePush(btn){
     toast('Bu cihazda bildirimler açıldı'); viewNotifications();
   } catch(e) { btn.disabled = false; toast(e.message || String(e), true); }
 }
+const NOTIF_KIND = { sayim:'Stok sayımı', sayim_rapor:'Stok sayımı', masraf:'Masraf', asama:'Üretim aşaması', alim:'Alım', mesai:'Geç kalma' };
+const notifText = n => { if (n.ticket_id) { const t = (S.tickets || []).find(x => x.id === n.ticket_id); return `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}`; }
+  return n.title ? `${NOTIF_KIND[n.kind] ? `<b>${NOTIF_KIND[n.kind]}</b> · ` : ''}${esc(n.title)}` : 'Test bildirimi'; };
 async function viewNotifications(){
   shell('bildirimler', `<div class="empty">Yükleniyor…</div>`);
   const [nr, sr] = await Promise.all([
@@ -2305,6 +2325,8 @@ const lowStock = i => i.qty != null && ((i.min_qty != null && +i.qty < +i.min_qt
 
 // ---------------------------------------------------------------- PARÇALAR
 // Mekanik ve elektronik stok ayrı sayfalar
+// stok sayfası sekmeleri: liste ile sayım / giriş-çıkış aynı menü öğesinin altında
+const stkTabs = (g, on) => canStock() ? `<div class="seg" style="margin-bottom:14px"><a class="segl ${on === 'l' ? 'on' : ''}" href="#/${STK_GRP[g].key}">Parça listesi</a><a class="segl ${on === 'u' ? 'on' : ''}" href="#/${STK_GRP[g].upd}">Sayım / giriş-çıkış</a></div>` : '';
 const STK_GRP = { m:{ key:'mekanik-stok', upd:'mekanik-sayim', title:'Mekanik stok', cats:['mekanik','diger'], newCat:'mekanik' },
                   e:{ key:'elektronik-stok', upd:'elektronik-sayim', title:'Elektronik stok', cats:['elektronik','komponent','hazir'], newCat:'elektronik' } };
 const grpOfCat = c => STK_GRP.e.cats.includes(c) ? 'e' : 'm';
@@ -2324,8 +2346,8 @@ async function viewStock(g){
   const nCrit = I.filter(critical).length;
   const boms = S.boms.filter(b => b.kind !== 'pcb' || g === 'e');
   shell(G.key, `<div class="pagehead"><div><h1>${G.title}</h1><p class="lede">${g === 'm' ? 'Mekanik parçalar (talaşlı imalat, lazer, pleksi, rulman, bağlantı elemanı…).' : 'Elektronik parçalar, PCB komponentleri ve hazır alınan ürünler.'} Kod biçimi: TÜR-ÜRÜN-SIRA (ör. ${g === 'm' ? 'M-BBT-004' : 'E-STW-002, K-PCB-031'}). Sayım günü: her ayın ilk cuması${isCountDay() ? ' (bugün)' : ' · sonraki: ' + countDayTxt()}.</p></div>
-    <div style="display:flex;gap:8px">${canStock() ? `<a class="btn" href="#/${G.upd}">Sayım / giriş-çıkış</a><a class="btn primary" href="#/stok-yeni/${g}">Yeni parça</a>` : ''}</div></div>
-  ${countBanner()}
+    <div style="display:flex;gap:8px">${canStock() ? `<a class="btn primary" href="#/stok-yeni/${g}">Yeni parça</a>` : ''}</div></div>
+  ${stkTabs(g, 'l')}${countBanner()}
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
     <div class="kpi"><div class="v">${I.length}</div><div class="l">Parça kalemi</div><div class="d">${I.filter(i => i.qty == null).length} kalemde stok girilmemiş</div></div>
     <div class="kpi ${nCrit ? 'alert' : ''} kpi-click" id="kcrit" title="Kritik stokları göster"><div class="v">${nCrit}</div><div class="l">Kritik stok</div><div class="d">minimumun altında · göstermek için tıkla</div></div>
@@ -2461,8 +2483,8 @@ async function viewStockUpdate(g, arg){
   const I = S.items.filter(i => G.cats.includes(i.category)), changed = new Map();
   const cats = Object.fromEntries(G.cats.filter(c => I.some(i => i.category === c)).map(c => [c, STK_CAT[c]]));
   const MODES = { sayim:['Sayım', 'Sayılan gerçek adet'], giris:['Giriş', 'Gelen adet'], cikis:['Çıkış', 'Çıkan adet'] };
-  shell(G.upd, `<p><a href="#/${G.key}">← ${G.title}</a></p><div class="pagehead"><div><h1>${G.title} — sayım / giriş-çıkış</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}. Depo sorumlularına (Depo / Stok rolü) e-posta ile: bir gün önce 14:00'te hatırlatma, sayım günü 09:00'da bildirim, 18:00'de sayılmayan parça özeti.</p></div></div>
-  ${countBanner()}
+  shell(G.key, `<div class="pagehead"><div><h1>${G.title}</h1><p class="lede">Yalnızca doldurduğunuz satırlar kaydedilir; her biri parçanın hareket geçmişine işlenir. Bu sayfada yalnızca ${g === 'm' ? 'mekanik' : 'elektronik, komponent ve hazır alınan'} parçalar var. Sayım günü her ayın ilk cuması${isCountDay() ? ' — <b>bugün</b>' : ' · sonraki: ' + countDayTxt()}. Depo sorumlularına (Depo / Stok rolü) e-posta ile: bir gün önce 14:00'te hatırlatma, sayım günü 09:00'da bildirim, 18:00'de sayılmayan parça özeti.</p></div></div>
+  ${stkTabs(g, 'u')}${countBanner()}
   <div class="toolbar"><div class="seg" id="sgm">${Object.entries(MODES).map(([k, v]) => `<button data-m="${k}" class="${s.mode === k ? 'on' : ''}">${v[0]}</button>`).join('')}</div>
     ${Object.keys(cats).length > 1 ? `<div class="seg" id="sgc">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
     <div class="seg" id="sgo">${[['', 'Hepsi'], ['uncounted', 'Bu ay sayılmadı'], ['crit', 'Kritik'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
@@ -2844,8 +2866,10 @@ async function viewPurchase(id, preset){
   shell(id ? 'alimlar' : 'alim-yeni', `<p><a href="#/alimlar">← Alımlar</a></p>
   <div class="pagehead"><div><h1>${id ? esc(p.item_name) : 'Yeni alım talebi'}</h1>${id ? `<p class="lede">${esc(p.source || 'Sitede açıldı')}${p.requester_name ? ' · talep eden ' + esc(p.requester_name) : ''}</p>` : '<p class="lede">Talep açıldıktan sonra Satın alma (ya da Depo / Stok, Üretim, Sipariş, Yönetici) onaylayıp siparişini takip eder.</p>'}</div>
     ${id ? `<div style="display:flex;gap:8px;align-items:center">${purPill(p.status)}${(can('admin') || (mine && p.status === 'talep')) ? '<button class="btn danger" id="pdel">Sil</button>' : ''}</div>` : ''}</div>
-  ${id && canPurchase() ? `<div class="pstatbox"><div class="seg pstat" style="flex-wrap:wrap" role="group" aria-label="Durum seç">${Object.entries(PUR_ST).map(([k, l]) => `<button type="button" data-s="${k}" class="${p.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <p class="note" style="margin:4px 0 0">Yeni durumu seçin, sonra <b>Durumu kaydet</b>'e basın.</p><div id="pstconf" class="pstconf" hidden></div></div>` : ''}
+  ${id && canPurchase() ? `<div class="pstatbox"><div class="pstatrow"><label class="f pstatf" for="pstsel">Talebin durumu</label>
+      <select id="pstsel">${Object.entries(PUR_ST).map(([k, l]) => `<option value="${k}" ${p.status === k ? 'selected' : ''}>${l}${p.status === k ? ' (şu anki)' : ''}</option>`).join('')}</select>
+      <button class="btn primary" id="pstok" type="button" disabled>Durumu kaydet</button><button class="btn" id="pstno" type="button" hidden>Vazgeç</button></div>
+    <div id="pstconf" class="pstconf" hidden></div></div>` : ''}
   <div class="grid sup-grid"><div><form id="puf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
     <div class="row">${'<label class="f">Tür' + stkSel('kind', { alim:'Alım', kontrol:'Kontrol / takip' }, p.kind) + '</label>'}<label class="f">Birim${arrSel('unit', PUR_UNIT, p.unit, '—')}</label><label class="f">Kullanım alanı${arrSel('area', PUR_AREA, p.area, '—')}</label></div>
     <div class="row r2">${tx('item_name', 'Ürün / iş adı')}<label class="f">Stoktaki parça <span class="hint">bağlarsanız "Alındı"da stoğa girer</span><input type="text" name="item_link" list="itemlist2" value="${esc(it ? it.name : '')}" autocomplete="off"></label></div>
@@ -2900,23 +2924,20 @@ async function viewPurchase(id, preset){
       toast('Talep açıldı'); location.hash = '#/alimlar/' + data.id; return; }
     const { error } = await sb.from('purchases').update(o).eq('id', id); if (error) return toast(dbErr(error), true); toast('Kaydedildi'); viewPurchase(id);
   };
-  // durum tek tıkla değişmez: seç → "Durumu kaydet"
-  qa('.pstat button').forEach(b => b.onclick = () => {
-    const ns = b.dataset.s, box = q('#pstconf'), clear = () => { box.hidden = true; box.innerHTML = ''; qa('.pstat button').forEach(x => x.classList.remove('pend')); };
-    if (ns === p.status) return clear();
-    qa('.pstat button').forEach(x => x.classList.toggle('pend', x === b));
-    const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
-    const warn = ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
-      : back ? `Kaydedince stoğa girmiş ${fmtQ(p.qty)} adet geri düşülür.` : '';
-    box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)}</div>${warn ? `<div class="sub">${warn}</div>` : ''}
-      <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm primary" id="pstok" type="button">Durumu kaydet</button><button class="btn sm" id="pstno" type="button">Vazgeç</button></div>`;
-    box.hidden = false; q('#pstok').focus();
-    q('#pstno').onclick = clear;
-    q('#pstok').onclick = async () => { q('#pstok').disabled = true;
+  // durum tek tıkla değişmez: listeden seç → "Durumu kaydet"
+  if (q('#pstsel')) { const sel = q('#pstsel'), box = q('#pstconf'), ok = q('#pstok'), no = q('#pstno');
+    const clear = () => { sel.value = p.status; box.hidden = true; box.innerHTML = ''; ok.disabled = true; no.hidden = true; sel.classList.remove('pend'); };
+    sel.onchange = () => { const ns = sel.value; if (ns === p.status) return clear();
+      const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
+      const warn = ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
+        : back ? `Kaydedince stoğa girmiş ${fmtQ(p.qty)} adet geri düşülür.` : '';
+      box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}`;
+      box.hidden = false; ok.disabled = false; no.hidden = false; sel.classList.add('pend'); };
+    no.onclick = clear;
+    ok.onclick = async () => { const ns = sel.value; if (ns === p.status) return; ok.disabled = true;
       const { error } = await sb.from('purchases').update({ status:ns }).eq('id', id);
-      if (error) { q('#pstok').disabled = false; return toast(dbErr(error), true); }
-      toast('Durum kaydedildi: ' + PUR_ST[ns]); S.stockLoaded = false; loadPurCount(); viewPurchase(id); };
-  });
+      if (error) { ok.disabled = false; return toast(dbErr(error), true); }
+      toast('Durum kaydedildi: ' + PUR_ST[ns]); S.stockLoaded = false; loadPurCount(); viewPurchase(id); }; }
   q('#pdel') && (q('#pdel').onclick = async () => { if (!confirmTwice(q('#pdel'), 'Emin misin? Tekrar bas')) return;
     const { error } = await sb.from('purchases').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/alimlar'; });
 }
