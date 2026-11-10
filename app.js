@@ -80,6 +80,7 @@ const csvSafe = v => { v = v == null ? '' : String(v); return /^[=+\-@\t\r]/.tes
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ymd = x => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
 const today = () => ymd(new Date());
+const localYmd = ts => ymd(new Date(ts));
 const fmtUSD = n => n == null ? '—' : '$' + Math.round(n).toLocaleString('tr-TR');
 const fmtK = n => n == null ? '—' : (Math.abs(n) >= 1e6 ? '$' + (n/1e6).toLocaleString('tr-TR',{maximumFractionDigits:2}) + ' milyon' : Math.abs(n) >= 1e3 ? '$' + Math.round(n/1e3).toLocaleString('tr-TR') + ' bin' : '$' + Math.round(n));
 const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'short',year:'numeric'}) : '—';
@@ -381,7 +382,7 @@ function route(){
 // Her rol kendi işini görür: support → kendi konuları + RMA, üretim → sevk takvimi + ürün bizde RMA'lar,
 // satış → fırsatlar + yaklaşan sevkler, yönetici → hepsi.
 function todaySections(){
-  const me = S.profile.id, role = S.profile.role, T = today(), in14 = new Date(Date.now() + 14*864e5).toISOString().slice(0,10);
+  const me = S.profile.id, role = S.profile.role, T = today(), in14 = addDays(T,14);
   const isAdmin = role === 'admin';
   const tk = (S.tickets || []).filter(t => t.category !== 'other');
   const mine = t => isAdmin || t.assignee === me || (t.watchers || []).includes(me);
@@ -389,7 +390,7 @@ function todaySections(){
   const due = d => d.planned_ship_date || d.requested_ship_date;
   const R = (S.rmas || []).filter(r => !r.is_draft);
   const tRow = t => { const w = supWait(t); return { href:'#/support/' + t.id, main:`<span class="mono">#${t.id}</span> ${esc(t.subject)}`, sub:esc(t.organization || t.customer_name || ''), meta: w ? `<span class="${w.cls}">${w.txt.replace(' · takip et','')}</span>` : `<span class="sub">${ago(t.last_activity_at)}</span>`, hot: !!w && (t.status === 'new' || t.status === 'ours') }; };
-  const dRow = (d, late) => ({ href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub:esc(d.description || ''), meta: due(d) ? `<span class="${late ? 'late-txt' : ''}">${late ? Math.floor((Date.now() - new Date(due(d))) / 864e5) + ' gün gecikti' : fmtD(due(d))}</span>` : '<span class="sub">tarih yok</span>', hot: late });
+  const dRow = (d, late) => ({ href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub:esc(d.description || ''), meta: due(d) ? `<span class="${late ? 'late-txt' : ''}">${late ? days(due(d), T) + ' gün gecikti' : fmtD(due(d))}</span>` : '<span class="sub">tarih yok</span>', hot: late });
   const rRow = r => ({ href:'#/rma/' + r.id, main:`<span class="mono">${esc(r.code)}</span> ${esc(r.customer || r.customer_name || '')}`, sub:[r.product ? prodName(r.product) : '', r.failed_component].filter(Boolean).map(esc).join(' · '), meta: rmaLate(r) ? '<span class="late-txt">süre aşıldı</span>' : rmaPill(r.status), hot: rmaLate(r) });
   const S_ = [];
   { const a = attTodaySection(); if (a) S_.push(a); }
@@ -599,7 +600,7 @@ function board(prod){
   const T = today(), from = addDays(T, -45), to = addDays(T, 120), span = days(from, to);
   const pos = d => Math.max(0, Math.min(100, days(from, d)/span*100));
   const rows = [...prod].sort((a,b) => (a.requested_ship_date||'9999') < (b.requested_ship_date||'9999') ? -1 : 1);
-  const ticks = []; { const d = new Date(from+'T00:00:00'); d.setDate(1); d.setMonth(d.getMonth()+1); while (d.toISOString().slice(0,10) < to) { const s = d.toISOString().slice(0,10); ticks.push(`<span style="left:${pos(s)}%">${MONTHS[d.getMonth()]}${d.getMonth()===0?' '+d.getFullYear():''}</span>`); d.setMonth(d.getMonth()+1);} }
+  const ticks = []; { const d = new Date(from+'T00:00:00'); d.setDate(1); d.setMonth(d.getMonth()+1); while (ymd(d) < to) { const s = ymd(d); ticks.push(`<span style="left:${pos(s)}%">${MONTHS[d.getMonth()]}${d.getMonth()===0?' '+d.getFullYear():''}</span>`); d.setMonth(d.getMonth()+1);} }
   return `<section class="board"><div class="board-head"><h2>Sevkiyat takvimi — üretimdeki siparişler</h2>
     <div class="legend"><span><i style="background:var(--data-soft);border:1px solid var(--data)"></i>Sipariş → istenen sevk</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>14 gün içinde</span><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>Gecikmiş</span><span><i style="background:var(--violet);transform:rotate(45deg)"></i>Planlanan sevk</span></div></div>
     ${rows.length ? `<div class="tl" style="--lab:260px">
@@ -963,7 +964,7 @@ async function viewExpense(){
       <div class="err-box" id="exerr"></div>
       <button class="btn primary" type="submit" id="exsend">Muhasebeye gönder</button></form>
     <section class="mt"><h2>Gönderdiğim formlar</h2><div class="tablewrap">${mine.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Başlık</th><th class="nosort num">Tutar</th><th class="nosort">Durum</th></tr></thead><tbody>
-      ${mine.map(r => `<tr data-ex="${r.id}"><td style="white-space:nowrap">${fmtD(r.created_at.slice(0, 10))}</td><td>${esc(r.title)}<div class="sub">${(r.expense_items || []).length} kalem${r.review_note ? ' · ' + esc(r.review_note) : ''}</div></td><td class="num">${sumByCur(r.expense_items)}</td><td>${expPill(r.status)}${r.paid_at ? `<div class="sub">${fmtD(r.paid_at)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Henüz form göndermedin.</div>'}</div></section>`);
+      ${mine.map(r => `<tr data-ex="${r.id}"><td style="white-space:nowrap">${fmtD(localYmd(r.created_at))}</td><td>${esc(r.title)}<div class="sub">${(r.expense_items || []).length} kalem${r.review_note ? ' · ' + esc(r.review_note) : ''}</div></td><td class="num">${sumByCur(r.expense_items)}</td><td>${expPill(r.status)}${r.paid_at ? `<div class="sub">${fmtD(r.paid_at)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Henüz form göndermedin.</div>'}</div></section>`);
   const box = q('#exitems'); let n = 1;
   const tot = () => { const its = qa('.exitem', box).map(el => ({ amount:+q('[name=amount]', el).value || 0, currency:q('[name=currency]', el).value })).filter(x => x.amount > 0); q('#extot').textContent = its.length ? 'Toplam: ' + sumByCur(its) : ''; };
   const bind = () => { qa('.exdel', box).forEach(b => b.onclick = () => { if (qa('.exitem', box).length > 1) { b.closest('.exitem').remove(); tot(); } else toast('En az bir kalem olmalı', true); });
@@ -1052,8 +1053,8 @@ async function viewExpenseList(){
   shell('masraf-liste', `<div class="empty">Yükleniyor…</div>`);
   const { data } = await sb.from('expense_reports').select('*,expense_items(*)').order('created_at', { ascending:false }).limit(1000);
   const all = data || [], st = expState;
-  const months = [...new Set(all.map(r => r.created_at.slice(0, 7)))].sort().reverse(), people = [...new Set(all.map(r => r.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
-  const rows = all.filter(r => (!st.st || r.status === st.st) && (!st.month || r.created_at.startsWith(st.month)) && (!st.person || r.user_name === st.person));
+  const months = [...new Set(all.map(r => localYmd(r.created_at).slice(0, 7)))].sort().reverse(), people = [...new Set(all.map(r => r.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
+  const rows = all.filter(r => (!st.st || r.status === st.st) && (!st.month || localYmd(r.created_at).startsWith(st.month)) && (!st.person || r.user_name === st.person));
   const items = rows.flatMap(r => (r.expense_items || []).map(i => ({ ...i, r })));
   const pend = all.filter(r => r.status === 'gonderildi'), appr = all.filter(r => r.status === 'onaylandi');
   const tabs = { gonderildi:'Onay bekleyen', onaylandi:'Onaylanan (ödenecek)', odendi:'Ödenen', reddedildi:'Reddedilen', '':'Tümü' };
@@ -1068,7 +1069,7 @@ async function viewExpenseList(){
       <select id="xp" aria-label="Kişi"><option value="">Tüm kişiler</option>${people.map(p => `<option ${st.person === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>
     <div class="tablewrap">${rows.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Kişi</th><th class="nosort">Başlık</th><th class="nosort num">Tutar</th><th class="nosort">Fiş</th><th class="nosort">Durum</th></tr></thead><tbody>
       ${rows.map(r => { const its = r.expense_items || [], miss = its.filter(i => !i.receipt_path).length;
-        return `<tr data-ex="${r.id}"><td style="white-space:nowrap">${fmtD(r.created_at.slice(0, 10))}</td><td>${esc(r.user_name || '')}</td><td>${esc(r.title)}<div class="sub">${its.length} kalem</div></td><td class="num" style="white-space:nowrap">${sumByCur(its)}</td><td>${miss ? `<span class="amber-txt">${miss} eksik</span>` : '<span class="sub">tam</span>'}</td><td>${expPill(r.status)}${r.paid_at ? `<div class="sub">${fmtD(r.paid_at)}</div>` : ''}</td></tr>`; }).join('')}
+        return `<tr data-ex="${r.id}"><td style="white-space:nowrap">${fmtD(localYmd(r.created_at))}</td><td>${esc(r.user_name || '')}</td><td>${esc(r.title)}<div class="sub">${its.length} kalem</div></td><td class="num" style="white-space:nowrap">${sumByCur(its)}</td><td>${miss ? `<span class="amber-txt">${miss} eksik</span>` : '<span class="sub">tam</span>'}</td><td>${expPill(r.status)}${r.paid_at ? `<div class="sub">${fmtD(r.paid_at)}</div>` : ''}</td></tr>`; }).join('')}
       </tbody></table>` : '<div class="empty">Bu filtrelerle form yok.</div>'}</div>`);
   qa('[data-xs]').forEach(b => b.onclick = () => { st.st = b.dataset.xs; viewExpenseList(); });
   q('#xm').onchange = e => { st.month = e.target.value; viewExpenseList(); };
@@ -1076,7 +1077,7 @@ async function viewExpenseList(){
   qa('tr[data-ex]').forEach(tr => tr.onclick = () => location.hash = '#/masraf/' + tr.dataset.ex);
   q('#excsv').onclick = () => {
     const head = ['Form no', 'Gönderim', 'Kişi', 'Form', 'Durum', 'Masraf tarihi', 'Tür', 'Açıklama', 'Proje', 'Tutar', 'Para birimi', 'Fiş', 'Ödeme tarihi'];
-    const lines = [head, ...items.map(i => [i.r.id, i.r.created_at.slice(0, 10), i.r.user_name || '', i.r.title, EXP_ST[i.r.status], i.day, i.category, i.description, i.project || '', String(i.amount).replace('.', ','), i.currency, i.receipt_path ? 'var' : 'yok', i.r.paid_at || ''])]
+    const lines = [head, ...items.map(i => [i.r.id, localYmd(i.r.created_at), i.r.user_name || '', i.r.title, EXP_ST[i.r.status], i.day, i.category, i.description, i.project || '', String(i.amount).replace('.', ','), i.currency, i.receipt_path ? 'var' : 'yok', i.r.paid_at || ''])]
       .map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `masraflar-${st.month || 'tum'}.csv`; a.click();
   };
@@ -1396,7 +1397,7 @@ async function viewUsers(){
   const multi = data.length && Array.isArray(data[0].roles);
   q('#us').innerHTML = `<table><thead><tr><th class="nosort">Ad</th><th class="nosort">E-posta</th><th class="nosort">Kayıt</th><th class="nosort">Roller</th></tr></thead><tbody>${data.map(u => {
     const mine = u.id === S.profile.id, ur = userRoles(u);
-    return `<tr style="cursor:default" data-u="${u.id}"><td>${esc(u.full_name||'')}</td><td>${esc(u.email)}</td><td style="white-space:nowrap">${fmtD(u.created_at.slice(0,10))}</td>
+    return `<tr style="cursor:default" data-u="${u.id}"><td>${esc(u.full_name||'')}</td><td>${esc(u.email)}</td><td style="white-space:nowrap">${fmtD(localYmd(u.created_at))}</td>
     <td>${multi ? `<div class="rolechk">${R.map(k => `<label class="chk"><input type="checkbox" value="${k}" ${ur.includes(k)?'checked':''} ${mine?'disabled':''}> ${ROLES[k]}</label>`).join('')}</div>${mine ? '<div class="sub">Kendi rollerini değiştiremezsin</div>' : ''}
       ${Array.isArray(u.departments) ? `<div class="depchk"><span class="sub">Üretim bölümü:</span>${STG.map(([k, n]) => `<label class="chk"><input type="checkbox" data-dep="${k}" ${u.departments.includes(k)?'checked':''}> ${n}</label>`).join('')}<span class="sub">(boş = tüm aşamalar)</span></div>` : ''}`
       : `<select ${mine?'disabled':''} aria-label="${esc(u.email)} rolü">${Object.entries({ pending:ROLES.pending, viewer:ROLES.viewer, sales:ROLES.sales, production:ROLES.production, support:'Sipariş + Support', admin:ROLES.admin }).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v}</option>`).join('')}</select>`}</td></tr>`; }).join('')}</tbody></table>
@@ -1758,12 +1759,12 @@ async function viewSupport(){
   const tabs = { ours:'Yeni + Bizde', customer:'Müşteride', open:'Tüm açık', closed:'Kapanan', all:'Tümü' };
   const T = S.tickets || [];
   const sup = T.filter(t => t.category === 'support');
-  const mon = new Date().toISOString().slice(0,7);
+  const mon = today().slice(0,7);
   const kOurs = sup.filter(t => t.status === 'new' || t.status === 'ours');
   const kLate = kOurs.filter(t => supWait(t));
   const kCust = sup.filter(t => t.status === 'customer');
-  const kNewM = sup.filter(t => (t.opened_at||'').slice(0,7) === mon);
-  const kClosedM = sup.filter(t => (t.closed_at||'').slice(0,7) === mon);
+  const kNewM = sup.filter(t => t.opened_at && localYmd(t.opened_at).slice(0,7) === mon);
+  const kClosedM = sup.filter(t => t.closed_at && localYmd(t.closed_at).slice(0,7) === mon);
   const prods = [...new Set(T.map(t => t.product).filter(Boolean))];
 
   const draw = () => {
@@ -3810,7 +3811,7 @@ async function viewAttReport(){
     const c = k => wd.filter(d => code(p.id, d) === k).length;
     const o = { p, x:c('x'), G:c('G'), U:c('U'), h:c('/'), I:c('İ'), R:c('R'), no:c('-'), C:c('T'), bos:upto.filter(d => !code(p.id, d)).length };
     const base = upto.filter(d => !['T', 'İ', 'R'].includes(code(p.id, d))).length;
-    o.work = wd.length - o.C; o.rate = base ? Math.round(((o.x + o.G + o.U + o.h * 0.5) / base) * 100) : null; return o; });
+    o.work = wd.length - o.C; o.rate = base ? Math.round(((upto.filter(d => ['x', 'G', 'U'].includes(code(p.id, d))).length + upto.filter(d => code(p.id, d) === '/').length * 0.5) / base) * 100) : null; return o; });
   const tot = k => rows.reduce((a, r) => a + r[k], 0);
   const mName = MONTHS_LONG[m - 1] + ' ' + y;
   shell('calisma-raporu', `<p><a href="#/calisma-plani">← Haftalık yoklama</a></p><div class="pagehead"><div><h1>Aylık yoklama raporu</h1><p class="lede">${esc(mName)} · ${wd.length} iş günü (bugüne kadar ${upto.length}). Katılım = (geldi + geç + uzaktan + yarım gün × ½) ÷ (geçen iş günü − izin − rapor − tatil).</p></div>
