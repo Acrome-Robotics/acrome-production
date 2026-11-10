@@ -140,7 +140,7 @@ const countBanner = () => { if (!(isCountDay() && can('stock', 'production', 'ad
 // sayfa içi küçük işleyiciler (satır içi onclick yok; güvenlik başlığı CSP buna izin vermez)
 document.addEventListener('click', e => { const t = e.target.closest && e.target.closest('[data-print], .stopprop'); if (!t) return;
   if (t.dataset.print) window.print(); else e.stopPropagation(); }, true);
-window.addEventListener('unhandledrejection', e => toast(dbErr(e.reason), true));
+window.addEventListener('unhandledrejection', e => e.reason && toast(dbErr(e.reason), true));
 async function boot(){
   const { data } = await sb.auth.getSession();
   S.session = data.session;
@@ -1996,7 +1996,7 @@ async function viewTicket(id){
       from_name: S.profile.full_name || S.profile.email, from_email: S.profile.email });
     if (error) return toast(dbErr(error), true);
     if (f.st.value && f.st.value !== t.status) return upd({ status:f.st.value }, 'Not eklendi');
-    toast('Not eklendi'); await loadSupport(); viewTicket(id);
+    toast('Not eklendi'); await loadSupport(); await viewTicket(id);
   }); };
   qa('[data-delm]').forEach(b => b.onclick = async () => {
     if (!confirmInline(b, 'Silmek için tekrar bas')) return;
@@ -2430,7 +2430,7 @@ async function viewRmaForm(id, preset){
     const row = { rma_id:id, kind:f.kind.value, direction:f.direction.value, amount:amt, currency:f.currency.value, fx_rate: f.fx_rate.value ? +f.fx_rate.value : null, doc_no:f.doc_no.value.trim()||null, doc_date:f.doc_date.value||null, note:f.note.value.trim()||null };
     if (row.currency !== 'TRY' && !row.fx_rate) toast('Kur girilmedi; TL toplamına sonra eklenecek', false);
     const { error } = await sb.from('rma_costs').insert(row); if (error) return toast(dbErr(error), true);
-    toast('Masraf eklendi'); await loadRma(); viewRmaForm(id); });
+    toast('Masraf eklendi'); await loadRma(); await viewRmaForm(id); });
   });
   qa('[data-delc]').forEach(b => b.onclick = async () => { if (!confirmInline(b, 'Silmek için tekrar bas')) return; const { error } = await sb.from('rma_costs').delete().eq('id', +b.dataset.delc); if (error) return toast(dbErr(error), true); await loadRma(); viewRmaForm(id); });
 }
@@ -2620,7 +2620,7 @@ async function viewStockItem(id, g){
     if (mk === 'set') args.p_new_qty = n; else args.p_delta = mk === 'in' ? n : -n;
     const { error } = await sb.rpc('stock_move', args);
     if (error) return toast(dbErr(error), true);
-    toast('Stok güncellendi'); S.stockLoaded = false; viewStockItem(id); });
+    toast('Stok güncellendi'); S.stockLoaded = false; await viewStockItem(id); });
   });
   q('#idel') && (q('#idel').onclick = async () => { const b = q('#idel'); if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = 'Emin misin? Tekrar bas'; return; }
     const { error } = await sb.from('stock_items').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); S.stockLoaded = false; location.hash = '#/' + G.key; });
@@ -2820,8 +2820,8 @@ async function viewBom(id){
     const { error } = await sb.from('boms').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); S.stockLoaded = false; location.hash = '#/bom'; });
 }
 // ikinci tık/Enter istek sürerken yutulur; x: düğme ya da submit olayı
-function busy(x, fn){ const b = x instanceof Event ? x.submitter || x.target.querySelector('button:not([type=button])') : x; if (b && b.disabled) return; if (b) b.disabled = true; return Promise.resolve().then(fn).finally(() => { if (b) b.disabled = false; }); }
-function confirmTwice(btn, msg){ if (btn.dataset.ok) { delete btn.dataset.ok; return true; } btn.dataset.ok = 1; btn.dataset.orig = btn.textContent; btn.textContent = msg; setTimeout(() => { if (btn.isConnected) { delete btn.dataset.ok; btn.textContent = btn.dataset.orig; } }, 6000); return false; }
+function busy(x, fn){ const b = x instanceof Event ? x.submitter || x.target.querySelector('button:not([type=button])') : x; if (b && b.disabled) return; if (b) b.disabled = true; const h = location.hash; return Promise.resolve().then(fn).finally(() => { if (b && location.hash === h) b.disabled = false; }); } // sayfa değiştiyse düğme zaten gidiyor; açma
+function confirmTwice(btn, msg){ if (btn.dataset.ok) { delete btn.dataset.ok; clearTimeout(btn._ct); btn.textContent = btn.dataset.orig; return true; } btn.dataset.ok = 1; btn.dataset.orig = btn.textContent; btn.textContent = msg; btn._ct = setTimeout(() => { if (btn.isConnected) { delete btn.dataset.ok; btn.textContent = btn.dataset.orig; } }, 6000); return false; }
 
 async function viewBomNew(a){
   if (!canStock()) return viewBomList();
@@ -3081,7 +3081,7 @@ async function viewPurchase(id, preset){
     if (!id) { o.requester = S.profile.id; o.status = 'talep'; o.source = 'Sitede açıldı';
       const { data, error } = await sb.from('purchases').insert(o).select('id').single(); if (error) return toast(dbErr(error), true);
       toast('Talep açıldı'); location.hash = '#/alimlar/' + data.id; return; }
-    const { error } = await sb.from('purchases').update(o).eq('id', id); if (error) return toast(dbErr(error), true); toast('Kaydedildi'); viewPurchase(id);
+    const { error } = await sb.from('purchases').update(o).eq('id', id); if (error) return toast(dbErr(error), true); toast('Kaydedildi'); await viewPurchase(id);
   }); };
   // durum tek tıkla değişmez: listeden seç → "Durumu kaydet"
   if (q('#pstsel')) { const sel = q('#pstsel'), box = q('#pstconf'), ok = q('#pstok'), no = q('#pstno');
