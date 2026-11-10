@@ -608,3 +608,37 @@ tr.ldrow > td{background:var(--soft);padding:8px 10px}
 .pstatrow label.pstatf{font-weight:600;margin:0}
 .pstatrow select{width:auto;min-width:220px;font-weight:600}
 .pstatrow select.pend{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}
+/* 10 Kasım 2026 · arayüz düzeltmeleri */
+/* üretim panosu: kart sütun genişliğinde kalır, uzun metin kırılır */
+.bcol{grid-template-columns:minmax(0,1fr)}
+.bcard{min-width:0;overflow-wrap:anywhere}
+.bcard .items span{white-space:normal}
+/* Bugün: bildirimler en üstte */
+.tnotif{margin-bottom:16px}
+.tnotif li.unread .tm{font-weight:600}
+.tnotif.is-calm .tm{color:var(--muted)}
+.tnotif header .sub{font-size:12.5px}
+/* kutu başlığı: "Tümü →" tek satır, uzun başlık kendi içinde kırılır */
+.tday header h2{min-width:0;overflow-wrap:anywhere}
+.tday .more{white-space:nowrap;flex:none}
+.tday .tcount{flex:none}
+/* belge bağlantıları site bağlantı renginde */
+.linkbtn.flink{color:var(--link);text-decoration:none;text-align:left}
+.linkbtn.flink:hover{text-decoration:underline}
+/* support: olası sipariş satırları */
+ul.sugg:has(.sg-t){list-style:none;padding-left:0}
+ul.sugg li:has(.sg-t){display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--soft)}
+ul.sugg li:has(.sg-t):first-child{border-top:0}
+ul.sugg .sg-t{min-width:0}
+/* yoklama alt sayfaları */
+.subnav{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width:600px){.subnav{flex-wrap:nowrap;overflow-x:auto;width:100%;padding-bottom:2px}}
+/* telefonda dokunma alanı en az 44 px */
+@media (pointer:coarse),(max-width:600px){
+  .btn,.btn.sm{min-height:44px}
+  .seg button,.seg a.segl{min-height:44px}
+  .seg a.segl{display:inline-flex;align-items:center}
+  .attcell{min-height:44px}
+  .bc-act .btn{min-width:64px;justify-content:center}
+  .linkbtn{min-height:32px}
+}

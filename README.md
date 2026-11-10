@@ -85,7 +85,7 @@ Yeni adresi Supabase panelinde **Authentication → URL Configuration → Redire
 - Alımlarda "İlgili ürün / proje" (`purchases.bom_id`), listede hızlı "Acil" işareti ve filtreler; `#/alim-rapor` aylık alım raporu.
 - Tedarikçi site hesapları `supplier_accounts` tablosunda; RLS `can_purchase()` (Satın alma, Depo / Stok, Üretim, Sipariş, Yönetici). Kimlik no / kart bilgisi tutulmaz.
 
-### Haftalık çalışma planı (6 Kasım 2026; kodda att_*, eski #/yoklama adresleri de açılır)
+### Haftalık yoklama (6 Kasım 2026; 7–10 Kasım arası adı "çalışma planı" idi; kodda att_*, adres #/calisma-plani)
 - `#/calisma-plani`: ortak haftalık tablo (Pzt–Cum). Herkes tabloyu görür; kişi yalnızca kendi satırını (e-posta eşleşmesiyle, `att_me()`), yöneticiler tüm satırları düzenler. Kodlar: x geldi, G geç geldi, - gelmedi, İ izinli, R raporlu, U uzaktan, / yarım gün, T tatil / çalışma günü değil.
 - `#/calisma-raporu` (yönetici): aylık kişi bazında sayılar, katılım oranı, gün gün tablo, CSV.
 - `#/calisma-kisiler` (yönetici): satırlar ve e-postalar. Hesabı olmayanlar için yeni rol **Personel**: yalnızca yoklamayı görür.
@@ -155,3 +155,4 @@ Geri dönülebilir sabit nokta. Kapsam: satış/sipariş, support + RMA, stok (m
 - **Ay sonu geç kalma bildirimi:** Her ayın son günü 10:00'da o ayın net eksiği / saati girilmemiş geç günü olan kişiye kendi özeti, yöneticilere ve muhasebeye tek özet; yalnız sitede (e-posta yok). SQL: `sql/2026-11-10_pcb_ad_duzeltme_gec_bildirimi.sql`.
 - **Bildirimler:** Bugün sayfasının en altında son bildirimler listesi (okunmamışlar önce, tıklayınca okundu sayılır).
 - **Alım durumu:** Durum artık açılır listeden seçilir ("Talebin durumu"), "Durumu kaydet" ile kaydedilir.
+- **10 Kasım arayüz düzeltmeleri:** "Haftalık yoklama / Aylık yoklama raporu / Yoklama kişileri" adları geri geldi; bildirimler Bugün sayfasının en üstünde (Bildirimler menüden kalktı, "Tümü →" ile açılır; Personel rolü yoklama sayfasının üstünde görür); üretim panosunda kart taşması giderildi; telefonda düğmeler en az 44 px; sayfanın kendi "← …" bağlantısı varsa genel "Geri" düğmesi çıkmaz; Bugün ekip kutusu düzeni, telefonda kutu başlıkları, belge bağlantı rengi, support olası sipariş satırları düzeltildi.
