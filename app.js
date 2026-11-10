@@ -1985,8 +1985,8 @@ async function viewTicket(id){
       customer_name:v('customer_name'), organization:v('organization'), country:v('country'), contact_email:v('contact_email'),
       tags: f.tags.value.split(',').map(x => x.trim()).filter(Boolean), summary:v('summary'), resolution:v('resolution') });
   };
-  q('#nf').onsubmit = async e => {
-    e.preventDefault(); const f = e.target; const body = f.body.value.trim();
+  q('#nf').onsubmit = e => {
+    e.preventDefault(); return busy(e, async () => { const f = e.target; const body = f.body.value.trim();
     if (!body) return toast('Not boş olamaz', true);
     const at = f.at.value ? new Date(f.at.value).toISOString() : new Date().toISOString();
     const { error } = await sb.from('support_messages').insert({ ticket_id:id, source:f.src.value, direction:'internal', sent_at:at, body,
@@ -1994,7 +1994,7 @@ async function viewTicket(id){
     if (error) return toast(dbErr(error), true);
     if (f.st.value && f.st.value !== t.status) return upd({ status:f.st.value }, 'Not eklendi');
     toast('Not eklendi'); await loadSupport(); viewTicket(id);
-  };
+  }); };
   qa('[data-delm]').forEach(b => b.onclick = async () => {
     if (!confirmInline(b, 'Silmek için tekrar bas')) return;
     const { error } = await sb.from('support_messages').delete().eq('id', +b.dataset.delm);
@@ -2094,15 +2094,15 @@ async function viewTicketNew(){
     <label class="f">Talep / ilk not<textarea name="body" rows="5"></textarea></label>
     <p><button class="btn primary">Konuyu aç</button></p>
   </form>`);
-  q('#tn').onsubmit = async e => {
-    e.preventDefault(); const f = e.target; const v = n => f[n].value.trim() || null;
+  q('#tn').onsubmit = e => {
+    e.preventDefault(); return busy(e, async () => { const f = e.target; const v = n => f[n].value.trim() || null;
     if (!v('subject')) return toast('Konu boş olamaz', true);
     const { data, error } = await sb.from('support_tickets').insert({ subject:v('subject'), category:f.category.value, product:v('product'), customer_name:v('customer_name'),
       organization:v('organization'), country:v('country'), contact_email:v('contact_email'), assignee:v('assignee'), status:'ours' }).select('id').single();
     if (error) return toast(dbErr(error), true);
     if (v('body')) await sb.from('support_messages').insert({ ticket_id:data.id, source:f.src.value, direction:'internal', body:v('body'), from_name:S.profile.full_name || S.profile.email, from_email:S.profile.email });
     await loadSupport(); toast('Konu açıldı'); location.hash = '#/support/' + data.id;
-  };
+  }); };
 }
 
 // ================================================================ RMA
@@ -2412,22 +2412,22 @@ async function viewRmaForm(id, preset){
     if (on) { const dd = S.deals.find(x => (x.order_no||'').toUpperCase() === on || (x.order_no||'').toUpperCase() === 'ACRPO-' + on.replace(/^ACRPO[- ]?/,'')); if (!dd) throw new Error('Bu numarada sipariş bulunamadı: ' + on); o.deal_id = dd.id; } else o.deal_id = null;
     return o;
   };
-  q('#rf').onsubmit = async e => {
-    e.preventDefault(); let o; try { o = collect(e.target); } catch (err) { return toast(err.message, true); }
+  q('#rf').onsubmit = e => {
+    e.preventDefault(); return busy(e, async () => { let o; try { o = collect(e.target); } catch (err) { return toast(err.message, true); }
     const res = id ? await sb.from('rma').update(o).eq('id', id).select('id').single() : await sb.from('rma').insert(o).select('id').single();
     if (res.error) return toast(dbErr(res.error), true);
     toast(id ? 'Kaydedildi' : 'RMA açıldı'); await loadRma(); location.hash = '#/rma/' + res.data.id; if (id) viewRmaForm(id);
-  };
+  }); };
   q('#rnext') && (q('#rnext').onclick = async () => { const { error } = await sb.from('rma').update({ status: nextSt }).eq('id', id); if (error) return toast(dbErr(error), true); toast(RMA_ST[nextSt]); await loadRma(); viewRmaForm(id); });
   q('#rconfirm') && (q('#rconfirm').onclick = async () => { const { error } = await sb.from('rma').update({ is_draft:false }).eq('id', id); if (error) return toast(dbErr(error), true); toast('Taslak onaylandı'); await loadRma(); viewRmaForm(id); });
   q('#rdel') && (q('#rdel').onclick = async e => { if (!confirmInline(e.target, 'Silmek için tekrar bas')) return; const { error } = await sb.from('rma').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('RMA silindi'); await loadRma(); location.hash = '#/rma'; });
-  q('#cf') && (q('#cf').onsubmit = async e => {
-    e.preventDefault(); const f = e.target; const amt = +f.amount.value;
+  q('#cf') && (q('#cf').onsubmit = e => {
+    e.preventDefault(); return busy(e, async () => { const f = e.target; const amt = +f.amount.value;
     if (!f.amount.value || isNaN(amt)) return toast('Tutar gir', true);
     const row = { rma_id:id, kind:f.kind.value, direction:f.direction.value, amount:amt, currency:f.currency.value, fx_rate: f.fx_rate.value ? +f.fx_rate.value : null, doc_no:f.doc_no.value.trim()||null, doc_date:f.doc_date.value||null, note:f.note.value.trim()||null };
     if (row.currency !== 'TRY' && !row.fx_rate) toast('Kur girilmedi; TL toplamına sonra eklenecek', false);
     const { error } = await sb.from('rma_costs').insert(row); if (error) return toast(dbErr(error), true);
-    toast('Masraf eklendi'); await loadRma(); viewRmaForm(id);
+    toast('Masraf eklendi'); await loadRma(); viewRmaForm(id); });
   });
   qa('[data-delc]').forEach(b => b.onclick = async () => { if (!confirmInline(b, 'Silmek için tekrar bas')) return; const { error } = await sb.from('rma_costs').delete().eq('id', +b.dataset.delc); if (error) return toast(dbErr(error), true); await loadRma(); viewRmaForm(id); });
 }
@@ -2610,14 +2610,14 @@ async function viewStockItem(id, g){
   qa('#mvk button').forEach(b => b.onclick = () => { mk = b.dataset.k; qa('#mvk button').forEach(x => x.classList.toggle('on', x === b));
     q('#mvl').textContent = { in:'Gelen adet', out:'Çıkan adet', set:'Sayılan gerçek stok' }[mk];
     q('#mvf').reason.value = { in:'alim', out:'uretim', set:'sayim' }[mk]; });
-  q('#mvf') && (q('#mvf').onsubmit = async e => {
-    e.preventDefault(); const f = e.target, n = num0(f.n.value);
+  q('#mvf') && (q('#mvf').onsubmit = e => {
+    e.preventDefault(); return busy(e, async () => { const f = e.target, n = num0(f.n.value);
     if (n == null || n < 0) return toast('Geçerli bir adet girin', true);
     const args = { p_item:id, p_reason:f.reason.value, p_note:f.note.value.trim() || null };
     if (mk === 'set') args.p_new_qty = n; else args.p_delta = mk === 'in' ? n : -n;
     const { error } = await sb.rpc('stock_move', args);
     if (error) return toast(dbErr(error), true);
-    toast('Stok güncellendi'); S.stockLoaded = false; viewStockItem(id);
+    toast('Stok güncellendi'); S.stockLoaded = false; viewStockItem(id); });
   });
   q('#idel') && (q('#idel').onclick = async () => { const b = q('#idel'); if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = 'Emin misin? Tekrar bas'; return; }
     const { error } = await sb.from('stock_items').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); S.stockLoaded = false; location.hash = '#/' + G.key; });
@@ -2784,14 +2784,14 @@ async function viewBom(id){
     qa('.ldel').forEach(btn => btn.onclick = async () => { const lid = +btn.closest('tr').dataset.lid;
       if (!btn.dataset.ok) { btn.dataset.ok = 1; btn.textContent = 'Emin?'; return; }
       const { error } = await sb.from('bom_lines').delete().eq('id', lid); if (error) return toast(dbErr(error), true); L.splice(L.findIndex(x => x.id === lid), 1); toast('Çıkarıldı'); draw(); });
-    q('#mkpur') && (q('#mkpur').onclick = async e => { e.preventDefault();
+    q('#mkpur') && (q('#mkpur').onclick = e => { e.preventDefault(); return busy(e.currentTarget, async () => {
       const miss = rows.filter(r => r.short > 0 && (!r.alt_group || !rows.filter(x => x.alt_group === r.alt_group).some(x => !x.short)));
       const pick = miss.filter((r, i, a) => !r.alt_group || a.findIndex(x => x.alt_group === r.alt_group) === i);
       if (!confirmTwice(e.target, `${pick.length} kalem için talep açılacak — tekrar tıkla`)) return;
       const rowsIns = pick.map(r => ({ item_name:r.name, item_id:r.item_id, qty:r.short, unit_price:r.price, unit:secG(r.section) === 'm' ? 'Mekanik' : 'Elektronik', area:'Üretim',
         project:b.name + (deal ? ' · ' + refNo(deal) : ''), deal_id:b.deal_id, bom_id:b.id, status:'talep', requester:S.profile.id, requester_name:S.profile.full_name || S.profile.email, note:`BOM eksiği (${N} adet için)` }));
       const { error } = await sb.from('purchases').insert(rowsIns); if (error) return toast(dbErr(error), true);
-      toast(`${rowsIns.length} alım talebi açıldı`); location.hash = '#/alimlar'; });
+      toast(`${rowsIns.length} alım talebi açıldı`); location.hash = '#/alimlar'; }); });
   };
   draw();
   qa('#btab button').forEach(bt => bt.onclick = () => { tab = bomTabs[id] = bt.dataset.t; qa('#btab button').forEach(x => x.classList.toggle('on', x === bt)); if (q('#blf')) q('#blf').sec.value = b.kind === 'pcb' ? 'komponent' : tab === 'e' ? 'elektronik' : 'mekanik'; draw(); });
@@ -2806,17 +2806,19 @@ async function viewBom(id){
       unit_price:num0(f.pr.value), notes:f.nt.value.trim() || null, sort:L.length });
     if (error) return toast(dbErr(error), true); toast(it ? 'Stoktaki parça eklendi' : 'Yeni kalem eklendi (stok takibi yok)'); viewBom(id); });
   if (q('#altpick')) q('#altpick').innerHTML = groups.map((g, gi) => `<label class="f">${esc(g)}<select name="alt${gi}">${L.filter(l => l.alt_group === g).map(l => `<option value="${l.id}">${esc(l.name)} (stok ${fmtQ(l.stock_qty)})</option>`).join('')}</select></label>`).join('');
-  q('#bpf') && (q('#bpf').onsubmit = async e => { e.preventDefault(); const f = e.target, n = Math.round(+f.n.value || 0); if (n < 1) return toast('Adet girin', true);
+  q('#bpf') && (q('#bpf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const f = e.target, n = Math.round(+f.n.value || 0); if (n < 1) return toast('Adet girin', true);
     const chosen = new Set(groups.map((g, gi) => +f['alt' + gi].value));
     const use = L.filter(l => l.item_id && (!l.alt_group || chosen.has(l.id)));
     if (!confirmTwice(f.querySelector('button'), `${use.length} kalem stoktan düşülecek — tekrar bas`)) return;
     const { data:k, error } = await sb.rpc('bom_consume', { p_bom:id, p_n:n, p_alts:[...chosen], p_note:f.note.value.trim() || null });
     if (error) { toast(dbErr(error) + ' — hiçbir kalem düşülmedi', true); return viewBom(id); }
-    toast(`${k} kalem stoktan düşüldü`); S.stockLoaded = false; viewBom(id); });
+    toast(`${k} kalem stoktan düşüldü`); S.stockLoaded = false; viewBom(id); }); });
   q('#bdel') && (q('#bdel').onclick = async () => { if (!confirmTwice(q('#bdel'), 'Emin misin? Tekrar bas')) return;
     const { error } = await sb.from('boms').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); S.stockLoaded = false; location.hash = '#/bom'; });
 }
-function confirmTwice(btn, msg){ if (btn.dataset.ok) return true; btn.dataset.ok = 1; btn.dataset.orig = btn.textContent; btn.textContent = msg; setTimeout(() => { if (btn.isConnected) { delete btn.dataset.ok; btn.textContent = btn.dataset.orig; } }, 6000); return false; }
+// ikinci tık/Enter istek sürerken yutulur; x: düğme ya da submit olayı
+function busy(x, fn){ const b = x instanceof Event ? x.submitter || x.target.querySelector('button:not([type=button])') : x; if (b && b.disabled) return; if (b) b.disabled = true; return Promise.resolve().then(fn).finally(() => { if (b) b.disabled = false; }); }
+function confirmTwice(btn, msg){ if (btn.dataset.ok) { delete btn.dataset.ok; return true; } btn.dataset.ok = 1; btn.dataset.orig = btn.textContent; btn.textContent = msg; setTimeout(() => { if (btn.isConnected) { delete btn.dataset.ok; btn.textContent = btn.dataset.orig; } }, 6000); return false; }
 
 async function viewBomNew(a){
   if (!canStock()) return viewBomList();
@@ -3063,8 +3065,8 @@ async function viewPurchase(id, preset){
     q('#pcadd').onclick = async () => { const t = q('#pct').value.trim(); if (!t) return toast('Yorum yaz', true);
       const { error } = await sb.rpc('purchase_comment_add', { p_purchase:id, p_body:t }); if (error) return toast(dbErr(error), true);
       q('#pct').value = ''; toast('Yorum eklendi'); loadC(); }; }
-  q('#puf').onsubmit = async e => {
-    e.preventDefault(); const f = e.target, g = n => f[n] ? f[n].value.trim() : '';
+  q('#puf').onsubmit = e => {
+    e.preventDefault(); return busy(e, async () => { const f = e.target, g = n => f[n] ? f[n].value.trim() : '';
     if (!g('item_name')) return toast('Ürün / iş adı girin', true);
     const link = g('item_link'), li = link ? S.items.find(i => i.name.toLocaleLowerCase('tr') === link.toLocaleLowerCase('tr')) : null;
     if (link && !li) return toast('Stoktaki parça listede yok; listeden seçin ya da boş bırakın', true);
@@ -3078,7 +3080,7 @@ async function viewPurchase(id, preset){
       const { data, error } = await sb.from('purchases').insert(o).select('id').single(); if (error) return toast(dbErr(error), true);
       toast('Talep açıldı'); location.hash = '#/alimlar/' + data.id; return; }
     const { error } = await sb.from('purchases').update(o).eq('id', id); if (error) return toast(dbErr(error), true); toast('Kaydedildi'); viewPurchase(id);
-  };
+  }); };
   // durum tek tıkla değişmez: listeden seç → "Durumu kaydet"
   if (q('#pstsel')) { const sel = q('#pstsel'), box = q('#pstconf'), ok = q('#pstok'), no = q('#pstno');
     const clear = () => { sel.value = p.status; box.hidden = true; box.innerHTML = ''; ok.disabled = true; no.hidden = true; sel.classList.remove('pend'); };
