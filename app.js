@@ -121,6 +121,7 @@ async function loadAll(){
   S.deals = d.data; S.customers = c.data; S.products = p.data; S.countries = k.data; S.issues = i.data; S.loaded = true;
   await loadSupport();
   await loadRma();
+  await loadPrefs().catch(() => { S.prefs = {}; });
   await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadPlanCount().catch(() => {}), loadAttToday().catch(() => {})]);
   if (isCountDay() && can('stock')) sb.rpc('stock_count_notify_me').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
@@ -449,21 +450,66 @@ function todaySections(){
   return S_;
 }
 const todayCount = () => { try { return todaySections().reduce((n, x) => n + (x.alert ? x.rows.filter(r => r.hot).length : 0), 0); } catch { return 0; } };
+// Bugün sayfası düzeni: her kullanıcı kutuları küçültebilir ve iki sütun arasında yerini değiştirebilir (user_prefs: bugun_layout)
+const TL_KEY = 'bugun_layout';
+const todayLayout = () => { const v = (S.prefs || {})[TL_KEY] || {}; return { cols: Array.isArray(v.cols) ? v.cols : null, min: Array.isArray(v.min) ? v.min : [] }; };
+async function savePref(key, value){
+  S.prefs = { ...(S.prefs || {}), [key]: value };
+  const { error } = await sb.from('user_prefs').upsert({ key, value, updated_at: new Date().toISOString() });
+  if (error) toast('Düzen kaydedilemedi: ' + dbErr(error), true);
+}
+async function loadPrefs(){ const { data } = await sb.from('user_prefs').select('key,value'); S.prefs = Object.fromEntries((data || []).map(r => [r.key, r.value])); }
+let todayEdit = false;
 function viewToday(){
   const secs = todaySections(), name = (S.profile.full_name || S.profile.email || '').split(' ')[0];
   const h = new Date().getHours(), hi = h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : 'İyi akşamlar';
   const dstr = new Date().toLocaleDateString('tr-TR', { weekday:'long', day:'numeric', month:'long' });
   const hotOf = x => x.alert ? (x.count ?? x.rows.filter(r => r.hot).length) : 0;
   const hotN = secs.reduce((n, x) => n + hotOf(x), 0);
-  const panel = x => { const hot = hotOf(x), MAX = x.max || 6, n = x.count ?? x.rows.length;
-    return `<section class="panel tday${hot ? ' is-hot' : ''}${x.rows.length ? '' : ' is-empty'}"><header><h2>${x.title}</h2><span class="tcount${hot ? ' hot' : ''}">${n}</span><a class="more" href="${x.link}">Tümü →</a></header>
-      ${x.foot ? `<p class="tfoot-note">${x.foot}</p>` : ''}
-      ${x.rows.length ? `<ul class="tlist">${x.rows.slice(0, MAX).map(r => `<li><a href="${r.href}"><span class="tm">${r.main}${r.sub ? `<span class="sub">${r.sub}</span>` : ''}</span><span class="tmeta">${r.meta}</span></a></li>`).join('')}</ul>${x.rows.length > MAX ? `<a class="tmore" href="${x.link}">+${x.rows.length - MAX} tane daha</a>` : ''}` : `<p class="tok">✓ ${x.empty}</p>`}</section>`; };
-  shell('bugun', `<div class="pagehead"><div><h1>${hi}, ${esc(name)}</h1><p class="lede">${dstr} · ${esc(roleLabel(S.profile))} görünümü · ${hotN ? `<b class="late-txt">${hotN} iş dikkat istiyor</b>` : 'Acil bekleyen iş yok'}</p></div></div>
+  const L = todayLayout(), minSet = new Set(L.min);
+  const show = secs.filter(x => x.rows.length && !x.bottom && x.id);
+  // sütunlar: kayıtlı düzen + yeni çıkan kutular daha kısa sütuna; kayıt yoksa yüksekliğe göre dengeli dağıtım
+  const est = x => minSet.has(x.id) ? 1 : 2 + Math.min(x.rows.length, x.max || 6);
+  const byId = Object.fromEntries(show.map(x => [x.id, x])), cols = [[], []], used = new Set();
+  if (L.cols) L.cols.slice(0, 2).forEach((c, i) => (c || []).forEach(id => { if (byId[id] && !used.has(id)) { cols[i].push(byId[id]); used.add(id); } }));
+  const hgt = c => c.reduce((n, x) => n + est(x), 0);
+  show.filter(x => !used.has(x.id)).forEach(x => (hgt(cols[0]) <= hgt(cols[1]) ? cols[0] : cols[1]).push(x));
+  const panel = x => { const hot = hotOf(x), MAX = x.max || 6, n = x.count ?? x.rows.length, mini = minSet.has(x.id);
+    return `<section class="panel tday${hot ? ' is-hot' : ''}${mini ? ' is-min' : ''}" data-sec="${x.id}" ${todayEdit ? 'draggable="true"' : ''}><header>
+      ${todayEdit ? '<span class="tgrip" aria-hidden="true" title="Sürükleyip bırakın">⠿</span>' : ''}<h2>${x.title}</h2><span class="tcount${hot ? ' hot' : ''}">${n}</span>
+      ${todayEdit ? `<span class="tmove"><button type="button" class="iconbtn" data-mv="up" aria-label="Yukarı taşı" title="Yukarı">↑</button><button type="button" class="iconbtn" data-mv="down" aria-label="Aşağı taşı" title="Aşağı">↓</button><button type="button" class="iconbtn" data-mv="side" aria-label="Diğer sütuna taşı" title="Diğer sütuna">⇄</button></span>`
+        : `<a class="more" href="${x.link}">Tümü →</a>`}
+      <button type="button" class="iconbtn tmin" aria-expanded="${!mini}" aria-label="${mini ? 'Kutuyu aç' : 'Kutuyu küçült'}" title="${mini ? 'Aç' : 'Küçült'}">${mini ? '▸' : '▾'}</button></header>
+      ${mini ? '' : `${x.foot ? `<p class="tfoot-note">${x.foot}</p>` : ''}
+      <ul class="tlist">${x.rows.slice(0, MAX).map(r => `<li><a href="${r.href}"><span class="tm">${r.main}${r.sub ? `<span class="sub">${r.sub}</span>` : ''}</span><span class="tmeta">${r.meta}</span></a></li>`).join('')}</ul>${x.rows.length > MAX ? `<a class="tmore" href="${x.link}">+${x.rows.length - MAX} tane daha</a>` : ''}`}</section>`; };
+  shell('bugun', `<div class="pagehead"><div><h1>${hi}, ${esc(name)}</h1><p class="lede">${dstr} · ${esc(roleLabel(S.profile))} görünümü · ${hotN ? `<b class="late-txt">${hotN} iş dikkat istiyor</b>` : 'Acil bekleyen iş yok'}</p></div>
+      <div class="tlayout">${todayEdit ? `<button class="btn sm" id="treset" type="button" title="Kutuların yerini ve açık/küçük durumunu varsayılana döndürür">Varsayılana dön</button><button class="btn sm primary" id="tedit" type="button">Bitti</button>` : `<button class="btn sm" id="tedit" type="button" title="Kutuları sürükleyerek ya da oklarla yerleştirin; düzen hesabınıza kaydedilir">Düzeni değiştir</button>`}</div></div>
     ${notifPanel()}${countBanner()}
-    <div class="tgrid">${secs.filter(x => x.rows.length && !x.bottom).map(panel).join('')}</div>
+    ${todayEdit ? '<p class="note tedit-note">Kutuları tutup sürükleyin ya da ↑ ↓ ⇄ ile taşıyın. ▾ ile kutuyu küçültün. Düzen hesabınıza kaydedilir, her cihazda aynı görünür.</p>' : ''}
+    <div class="tcols${todayEdit ? ' editing' : ''}">${cols.map((c, i) => `<div class="tcol" data-col="${i}">${c.map(panel).join('')}${todayEdit ? '<div class="tdrop" aria-hidden="true">Buraya bırakın</div>' : ''}</div>`).join('')}</div>
     ${secs.some(x => !x.rows.length) ? `<div class="tclear">${secs.filter(x => !x.rows.length).map(x => `<span>✓ ${x.empty}</span>`).join('')}</div>` : ''}`);
   bindNotifPanel();
+  // mevcut ekrandaki düzeni oku ve kaydet
+  const current = () => qa('.tcols .tcol').map(c => qa('.tday[data-sec]', c).map(p => p.dataset.sec));
+  const persist = async (re = true) => { await savePref(TL_KEY, { cols: current(), min: [...minSet] }); if (re) viewToday(); };
+  qa('.tday .tmin').forEach(b => b.onclick = () => { const id = b.closest('.tday').dataset.sec; minSet.has(id) ? minSet.delete(id) : minSet.add(id); persist(); });
+  q('#tedit').onclick = async () => { if (todayEdit) { todayEdit = false; await persist(false); toast('Düzen kaydedildi'); return viewToday(); } todayEdit = true; viewToday(); };
+  q('#treset') && (q('#treset').onclick = async () => { todayEdit = false; S.prefs = { ...(S.prefs || {}) }; delete S.prefs[TL_KEY];
+    await sb.from('user_prefs').delete().eq('key', TL_KEY); toast('Varsayılan düzene dönüldü'); viewToday(); });
+  if (!todayEdit) return;
+  qa('.tday [data-mv]').forEach(b => b.onclick = () => { const p = b.closest('.tday'), col = p.parentNode, mv = b.dataset.mv;
+    if (mv === 'up' && p.previousElementSibling) col.insertBefore(p, p.previousElementSibling);
+    else if (mv === 'down' && p.nextElementSibling && p.nextElementSibling.classList.contains('tday')) col.insertBefore(p.nextElementSibling, p);
+    else if (mv === 'side') { const other = qa('.tcols .tcol').find(c => c !== col); other.insertBefore(p, q('.tdrop', other)); }
+    persist(false); b.focus(); });
+  let drag = null;
+  qa('.tcols .tday').forEach(p => { p.ondragstart = e => { drag = p; p.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', p.dataset.sec); } catch {} };
+    p.ondragend = () => { p.classList.remove('dragging'); qa('.tday.dropbefore').forEach(x => x.classList.remove('dropbefore')); if (drag) persist(false); drag = null; }; });
+  qa('.tcols .tcol').forEach(c => { c.ondragover = e => { if (!drag) return; e.preventDefault();
+      const after = qa('.tday:not(.dragging)', c).find(p => e.clientY < p.getBoundingClientRect().top + p.offsetHeight / 2);
+      qa('.tday.dropbefore').forEach(x => x.classList.remove('dropbefore'));
+      if (after) { after.classList.add('dropbefore'); c.insertBefore(drag, after); } else c.insertBefore(drag, q('.tdrop', c)); };
+    c.ondrop = e => e.preventDefault(); });
 }
 function bindNotifPanel(){
   qa('.tnotif li[data-nid] a').forEach(el => el.onclick = async e => { e.preventDefault(); const li = el.closest('li'), n = (S.notifList || []).find(x => x.id === +li.dataset.nid); if (!n) return;
