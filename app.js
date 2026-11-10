@@ -65,6 +65,15 @@ const $app = document.getElementById('app');
 const normUrl = u => { u = String(u || '').trim(); return !u ? null : /^https?:\/\//i.test(u) ? u : /^[\w.-]+\.[a-z]{2,}([\/?#].*)?$/i.test(u) ? 'https://' + u : u; };
 // Supabase en fazla 1000 satır döndürür; hepsini sayfa sayfa al
 async function fetchAll(mk){ const out = []; for (let k = 0; ; k += 1000) { const { data, error } = await mk().range(k, k + 999); if (error) return { data:out, error }; out.push(...(data || [])); if (!data || data.length !== 1000) return { data:out, error:null }; } }
+// Gmail bağlantıları: senkron tek bir kutudan okunur; o kutunun mesaj numarası başka hesaplarda açılmaz.
+// Kutu sahibine doğrudan bağlantı, diğerlerine kendi Gmail'inde konu + tarih aramasıyla bulma bağlantısı (support@ grubuna gelen kopyalar).
+const gmailOwner = u => { const m = /[?&]authuser=([^#&]+)/.exec(String(u || '')); return m ? decodeURIComponent(m[1]).toLowerCase() : ''; };
+const gmailDay = (d, add) => { const x = new Date(d); x.setDate(x.getDate() + add); return `${x.getFullYear()}/${x.getMonth() + 1}/${x.getDate()}`; };
+const gmailSubj = t => String(t || '').replace(/^\s*((re|fw|fwd|ynt|ilt|yan|wg|aw|tr)\s*:\s*)+/i, '').replace(/["()]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+const gmailFind = (subject, at) => 'https://mail.google.com/mail/u/0/#search/' + encodeURIComponent([gmailSubj(subject) && `subject:"${gmailSubj(subject)}"`, at && `after:${gmailDay(at, -1)} before:${gmailDay(at, 2)}`].filter(Boolean).join(' '));
+const gmailLink = (url, subject, at) => url && gmailOwner(url) && gmailOwner(url) === String(S.profile.email || '').toLowerCase()
+  ? `<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener">aç ↗</a>`
+  : `<a href="${esc(gmailFind(subject, at))}" target="_blank" rel="noopener" title="Kendi Gmail kutunda konu ve tarihe göre arar (support@ grubuna gelen mailler). Mailin tamamı burada da okunabilir.">Gmail'imde bul ↗</a>`;
 const safeUrl = u => /^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '#';
 // CSV hücresi Excel'de formül olarak çalışmasın (=, +, -, @ ile başlayan metin)
 const csvSafe = v => { v = v == null ? '' : String(v); return /^[=+\-@\t\r]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v) ? "'" + v : v; };
@@ -1788,7 +1797,7 @@ async function viewTicket(id){
     return `<article class="msg msg-${m.direction} src-${m.source}">
       <header><span class="who">${who(m)}</span> <b>${esc(m.from_name || m.from_email || personName(m.created_by) || '')}</b>
         ${m.from_email && m.from_name ? `<span class="sub">&lt;${esc(m.from_email)}&gt;</span>` : ''}
-        <span class="when">${fmtDT(m.sent_at)} · ${SUP_SRC[m.source]||m.source}${m.url?` · <a href="${esc(safeUrl(m.url))}" target="_blank" rel="noopener">aç ↗</a>`:''}
+        <span class="when">${fmtDT(m.sent_at)} · ${SUP_SRC[m.source]||m.source}${m.source === 'gmail' ? ` · ${gmailLink(m.url, m.subject || t.subject, m.sent_at)}` : m.url ? ` · <a href="${esc(safeUrl(m.url))}" target="_blank" rel="noopener">aç ↗</a>` : ''}
         ${mine(m)?` · <button class="linkbtn" data-delm="${m.id}">sil</button>`:''}</span></header>
       ${m.to_emails ? `<div class="sub">Kime: ${esc(m.to_emails)}</div>` : ''}
       <div class="body ${long?'clip':''}">${esc(m.body || '(boş)')}</div>
@@ -1856,7 +1865,7 @@ async function viewTicket(id){
           <dt>Son müşteri</dt><dd>${fmtDT(t.last_inbound_at)}</dd>
           <dt>Son Acrome</dt><dd>${fmtDT(t.last_outbound_at)}</dd>
           ${t.closed_at?`<dt>Kapandı</dt><dd>${fmtDT(t.closed_at)}</dd>`:''}
-          ${(t.gmail_thread_ids||[]).length?`<dt>Gmail</dt><dd>${t.gmail_thread_ids.map(g=>`<a href="https://mail.google.com/mail/u/0/#all/${esc(g)}" target="_blank" rel="noopener">${esc(g)}</a>`).join('<br>')}</dd>`:''}
+          ${(t.gmail_thread_ids||[]).length?`<dt>Gmail</dt><dd><a href="${esc(gmailFind(t.subject))}" target="_blank" rel="noopener" title="Kendi Gmail kutunda bu konunun maillerini arar">Gmail'imde ara ↗</a> <span class="sub">${t.gmail_thread_ids.length} yazışma</span></dd>`:''}
           ${(t.basecamp_urls||[]).length?`<dt>Basecamp</dt><dd>${t.basecamp_urls.map(u=>`<a href="${esc(safeUrl(u))}" target="_blank" rel="noopener">bağlantı ↗</a>`).join('<br>')}</dd>`:''}
         </dl>
       </section>
