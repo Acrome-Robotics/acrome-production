@@ -1687,6 +1687,20 @@ function mailState(t){
 }
 const supOpenCount = () => (S.tickets||[]).filter(t => t.category === 'support' && (t.status === 'new' || t.status === 'ours')).length;
 
+// "Şimdi güncelle": mail (Apps Script) + Basecamp senkronunu hemen çalıştırır; 10 dakikada bir
+const REFRESH_GAP = 10 * 60e3;
+const refreshLeft = () => { const t = (S.syncAt || {}).manual; return t ? Math.max(0, new Date(t).getTime() + REFRESH_GAP - Date.now()) : 0; };
+const refreshBtn = () => { const left = refreshLeft(), m = Math.ceil(left / 60e3);
+  return `<button class="btn" id="srefresh" ${left ? 'disabled' : ''} title="${left ? `Son elle güncellemeden sonra 10 dakika beklenir; ${m} dk sonra basılabilir` : 'Support mailleri ve Basecamp kartları şimdi okunur (≈1 dk)'}">⟳ ${left ? `${m} dk sonra güncellenebilir` : 'Şimdi güncelle'}</button>`; };
+async function runRefresh(btn){
+  btn.disabled = true; btn.textContent = '⟳ Güncelleniyor… (≈1 dk)';
+  const { data, error } = await sb.functions.invoke('support-refresh', { body:{} });
+  if (error || !data || data.error) { toast('Güncellenemedi: ' + ((data && data.error) || (error && error.message) || 'bilinmeyen hata'), true); await loadSupport(); return viewSupport(); }
+  if (data.wait) { toast(`Az önce güncellendi; ${Math.ceil(data.wait / 60)} dk sonra tekrar basılabilir`); await loadSupport(); return viewSupport(); }
+  const fail = [!data.gmail.ok && 'mail' + (typeof data.gmail.body === 'string' ? ` (${data.gmail.body.slice(0, 80)})` : ''), !data.basecamp.ok && 'Basecamp'].filter(Boolean);
+  toast(fail.length ? `Kısmen güncellendi; okunamayan: ${fail.join(', ')}` : `Güncellendi · ${data.yeni_mesaj ? data.yeni_mesaj + ' yeni mesaj' : 'yeni mesaj yok'}`, !!fail.length);
+  await loadSupport(); viewSupport();
+}
 async function viewSupport(){
   if (!S.tickets) await loadSupport();
   await people();
@@ -1732,7 +1746,7 @@ async function viewSupport(){
   };
 
   shell('support', `<div class="pagehead"><div><h1>Support</h1><p class="lede">support@acrome.net konuları, cevaplar ve notlar tek yerde. Yeni mailler otomatik eklenir; arama mail içeriklerinde de yapılır.</p>${syncLine()}</div>
-    <div style="display:flex;gap:8px"><button class="btn" id="scsv">CSV indir</button>${canSup()?'<a class="btn primary" href="#/support-yeni">Yeni konu</a>':''}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${canSup() ? refreshBtn() : ''}<button class="btn" id="scsv">CSV indir</button>${canSup()?'<a class="btn primary" href="#/support-yeni">Yeni konu</a>':''}</div></div>
     ${S.supErr ? `<div class="banner">Support verisi okunamadı: ${esc(S.supErr)}</div>` : ''}
     <div class="kpis">
       <div class="kpi ${kOurs.length?'alert':''}"><div class="v">${kOurs.length}</div><div class="l">Bizde bekleyen</div><div class="d">${kLate.length?kLate.length+' konu 2+ gündür bekliyor':'Geciken yok'}</div></div>
@@ -1762,6 +1776,7 @@ async function viewSupport(){
   q('#sp').onchange = e => { s.product = e.target.value; draw(); };
   q('#sw').onchange = e => { s.who = e.target.value; draw(); };
   q('#so').onchange = e => { s.sort = e.target.value; draw(); };
+  q('#srefresh') && (q('#srefresh').onclick = e => runRefresh(e.currentTarget));
   q('#scsv').onclick = () => {
     const cols = ['id','subject','category','status','product','customer_name','organization','country','contact_email','assignee','opened_at','last_activity_at','closed_at','summary','resolution','tags'];
     const val = (t,c) => c === 'assignee' ? personName(t.assignee) : c === 'tags' ? (t.tags||[]).join('; ') : t[c] ?? '';
