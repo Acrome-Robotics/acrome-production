@@ -151,7 +151,7 @@ td .sub{color:var(--muted);font-size:12px}
 .mono{font-feature-settings:"tnum";font-stretch:88%;font-weight:600;white-space:nowrap}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:650;white-space:nowrap;line-height:1.5}
 .st-production{background:var(--data-soft);color:var(--data)}
-.st-shipped{background:var(--green-soft);color:var(--green)}
+.st-shipped{background:var(--green-soft);color:#276B43}
 .st-pipeline{background:var(--violet-soft);color:var(--violet)}
 .st-lost{background:var(--red-soft);color:var(--red)}
 .st-archived{background:var(--grey-soft);color:var(--muted)}
@@ -386,8 +386,7 @@ tr:hover .qpin,tr:hover .pcin,.qpin:focus,.pcin:focus{border-color:var(--line) !
 /* stok ayrımı · alım aciliyeti · ürün/proje etiketi */
 .kpi-click{cursor:pointer}
 .kpi-click:hover{background:var(--brand-soft)}
-.urgbtn{font:inherit;font-size:11px;font-weight:650;line-height:1;padding:3px 7px;border-radius:999px;border:1px dashed var(--line);background:none;color:var(--muted);cursor:pointer;opacity:.55;vertical-align:1px}
-tr:hover .urgbtn,.urgbtn:focus-visible{opacity:1}
+.urgbtn{font:inherit;font-size:11px;font-weight:650;line-height:1;padding:3px 7px;border-radius:999px;border:1px dashed var(--line);background:none;color:var(--muted);cursor:pointer;vertical-align:1px}
 .urgbtn.on{opacity:1;border:1px solid var(--red,#c62828);background:var(--red,#c62828);color:#fff}
 .chip.bomchip{font-size:11px;padding:1px 8px;vertical-align:1px}
 .pwv{letter-spacing:.04em}
@@ -418,8 +417,9 @@ label.f span.hint{order:2;font-size:12px}
 .clamp1{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:240px}
 .compact .clamp1{-webkit-line-clamp:1}
 .urgbtn{opacity:1;border-style:solid;color:var(--muted)}
-.urgbtn:not(.on){opacity:.75}
 .nowrap{white-space:nowrap}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .st-shipped{color:var(--green)}}
+:root[data-theme="dark"] .st-shipped{color:var(--green)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .nav .count.hot,:root:not([data-theme="light"]) .tday .tcount.hot,:root:not([data-theme="light"]) .nhead .gcount,:root:not([data-theme="light"]) .urgbtn.on{color:#1A0D0B}}
 :root[data-theme="dark"] .nav .count.hot,:root[data-theme="dark"] .tday .tcount.hot,:root[data-theme="dark"] .nhead .gcount,:root[data-theme="dark"] .urgbtn.on{color:#1A0D0B}
 .grid>*{min-width:0}
@@ -457,7 +457,8 @@ table.attm th.c,table.attm td.c{min-width:30px;padding-left:2px!important;paddin
 .attpop{position:fixed;z-index:80;min-width:250px;padding:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18);display:grid;gap:2px}
 .attpop button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--ink);font:inherit;font-size:14px;text-align:left;cursor:pointer}
 .attpop button .attb{min-width:28px;height:24px;font-size:13px}
-.attpop button:hover,.attpop button:focus-visible{background:var(--paper);outline:none}
+.attpop button:hover{background:var(--paper)}
+.attpop button:focus-visible{background:var(--paper);outline:2px solid var(--link);outline-offset:-2px}
 .attpop button.on{background:var(--data-soft);font-weight:600}
 .attpop .ck{margin-left:auto;color:var(--link);font-weight:700}
 .attpop .clr{margin-top:4px;border-top:1px solid var(--line);border-radius:0 0 8px 8px;color:var(--muted);justify-content:center}
@@ -640,7 +641,10 @@ ul.sugg .sg-t{min-width:0}
   .seg a.segl{display:inline-flex;align-items:center}
   .attcell{min-height:44px}
   .bc-act .btn{min-width:64px;justify-content:center}
-  .linkbtn{min-height:32px}
+  .linkbtn{min-height:44px}
+  .iconbtn,.urgbtn,.backbtn,.nav a,.qpin,.pcin,.shipin{min-height:44px !important}
+  .iconbtn{min-width:44px}
+  .iconbtn,.urgbtn{display:inline-flex;align-items:center;justify-content:center}
 }
 .syncline > .sub{align-self:center}
 /* Bugün: kullanıcıya özel düzen (iki sütun, küçültme, sürükle-bırak) */
@@ -660,7 +664,7 @@ ul.sugg .sg-t{min-width:0}
 .tgrip{color:var(--muted);cursor:grab;font-size:16px;line-height:1}
 .tdrop{border:1px dashed var(--line);border-radius:var(--radius);padding:14px;text-align:center;color:var(--muted);font-size:12.5px}
 .tedit-note{margin:0 0 10px}
-@media (pointer:coarse),(max-width:600px){.iconbtn{min-width:40px;height:40px}}
+@media (pointer:coarse),(max-width:600px){.iconbtn{min-width:44px;height:44px}}
 /* support raporu */
 .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
 @media (max-width:900px){.grid2{grid-template-columns:minmax(0,1fr)}}
