@@ -139,6 +139,7 @@ const countBanner = () => { if (!(isCountDay() && can('stock', 'production', 'ad
 // sayfa içi küçük işleyiciler (satır içi onclick yok; güvenlik başlığı CSP buna izin vermez)
 document.addEventListener('click', e => { const t = e.target.closest && e.target.closest('[data-print], .stopprop'); if (!t) return;
   if (t.dataset.print) window.print(); else e.stopPropagation(); }, true);
+window.addEventListener('unhandledrejection', e => toast(dbErr(e.reason), true));
 async function boot(){
   const { data } = await sb.auth.getSession();
   S.session = data.session;
@@ -659,7 +660,7 @@ function viewList(tab){
         ${tab==='all'?`<td>${pill(d.status)}</td>`:''}
         <td>${fmtD(d.order_date || d.lead_date)}</td><td class="${lt?'late-txt':''}">${fmtD(d.requested_ship_date)}${lt?`<div class="sub late-txt">${days(d.requested_ship_date,T)} gün gecikti</div>`:''}</td>
         ${tab==='shipped'?`<td>${fmtShip(d)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}${tab==='production'?`<td style="white-space:nowrap">${stgDots(d.id)}<div class="sub">${esc(stgNow(d.id))}</div></td>`:''}
-        <td class="num">${fmtUSD(d.amount_usd)}${d.currency!=='USD'&&d.amount_orig?`<div class="sub">${fmtN(d.amount_orig)} ${d.currency}</div>`:''}</td></tr>`; }).join('')}
+        <td class="num">${fmtUSD(d.amount_usd)}${d.currency!=='USD'&&d.amount_orig?`<div class="sub">${fmtN(d.amount_orig)} ${esc(d.currency)}</div>`:''}</td></tr>`; }).join('')}
       <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'||tab==='production'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
       </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${can('sales','orders','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
     qa('#tbl th[data-s]').forEach(th => th.onclick = () => { const k = th.dataset.s; if (s.sort===k) s.dir*=-1; else { s.sort=k; s.dir = k==='cust'||k==='ref'||k==='due' ? 1 : -1; } draw(); });
@@ -1276,7 +1277,7 @@ function viewForm(id){
     if (error) { btn.disabled = false; btn.textContent = ex ? 'Değişiklikleri kaydet' : 'Kaydı oluştur'; return toast(dbErr(error), true); }
     const ri = q('#resolveIss');
     if (ex && ri && ri.checked) { const ids = S.issues.filter(i => i.deal_id === ex.id && !i.resolved).map(i => i.id); if (ids.length) await sb.from('import_issues').update({ resolved:true }).in('id', ids); }
-    await loadAll();
+    await loadAll().catch(() => {}); // kayıt yazıldı; yenileme hatası düğmeyi kilitli bırakmasın
     toast(ex ? 'Değişiklikler kaydedildi' : 'Kayıt oluşturuldu');
     location.hash = '#/kayit/' + data;
   }
@@ -1687,7 +1688,7 @@ async function loadSupport(){
   if (error) { S.tickets = S.tickets || []; S.supErr = error.message; return; }
   S.tickets = data; S.supErr = null;
   await loadNotifs();
-  const ss = await sb.from('support_sync_state').select('key,updated_at');
+  const ss = await sb.from('support_sync_state').select('key,value,updated_at');
   S.syncAt = Object.fromEntries((ss.data||[]).map(r => [r.key, r.updated_at])); S.syncVal = Object.fromEntries((ss.data||[]).map(r => [r.key, r.value || {}]));
   const st = await sb.from('support_settings').select('key,value');
   S.supSet = Object.fromEntries((st.data||[]).map(r => [r.key, r.value]));
