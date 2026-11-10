@@ -284,6 +284,7 @@ function shell(active, html){
       ['rapor','Üretim ve satış raporu'],
       ['gonderim','Aylık gönderim raporu'],
       ['rma-rapor','RMA 3 aylık rapor'],
+      ['support-rapor','Support raporu'],
       ['alim-rapor','Aylık alım raporu'],
     ]],
     ['Veri', 'db', [
@@ -348,6 +349,7 @@ function route(){
     case 'bildirimler': return viewNotifications();
     case 'rma': return a ? viewRmaForm(+a) : viewRma();
     case 'rma-rapor': return viewRmaReport(a);
+    case 'support-rapor': return viewSupportReport();
     case 'rma-yeni': { if (!canRma()) return viewRma(); const m = /^([td])(\d+)$/.exec(a||''); return viewRmaForm(null, m ? (m[1]==='t' ? { ticket_id:+m[2] } : { deal_id:+m[2] }) : {}); }
       case 'bugun': return viewToday();
     case 'stok': return a && /^\d+$/.test(a) ? viewStockItem(+a) : viewStock('m');
@@ -1794,7 +1796,7 @@ async function viewSupport(){
   };
 
   shell('support', `<div class="pagehead"><div><h1>Support</h1><p class="lede">support@acrome.net konuları, cevaplar ve notlar tek yerde. Yeni mailler otomatik eklenir; arama mail içeriklerinde de yapılır.</p>${syncLine()}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">${canSup() ? refreshBtn() : ''}<button class="btn" id="scsv">CSV indir</button>${canSup()?'<a class="btn primary" href="#/support-yeni">Yeni konu</a>':''}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${canSup() ? refreshBtn() : ''}<a class="btn" href="#/support-rapor">Rapor</a><button class="btn" id="scsv">CSV indir</button>${canSup()?'<a class="btn primary" href="#/support-yeni">Yeni konu</a>':''}</div></div>
     ${S.supErr ? `<div class="banner">Support verisi okunamadı: ${esc(S.supErr)}</div>` : ''}
     <div class="kpis">
       <div class="kpi ${kOurs.length?'alert':''}"><div class="v">${kOurs.length}</div><div class="l">Bizde bekleyen</div><div class="d">${kLate.length?kLate.length+' konu 2+ gündür bekliyor':'Geciken yok'}</div></div>
@@ -2178,6 +2180,83 @@ async function viewRma(){
 
 // 3 aylık RMA raporu (çeyrek: talep tarihine göre)
 const quarterOf = d => `${d.slice(0,4)}-Ç${Math.floor((+d.slice(5,7) - 1) / 3) + 1}`;
+// ---------------------------------------------------------------- SUPPORT RAPORU
+// Aylık gelen / kapanan konu, kapanma ve ilk cevap süreleri, ürün ve sorumlu kırılımı, açık konuların yaşı
+const srState = { per:'12', cat:'support' };
+const medianOf = a => { const v = a.filter(x => x != null && isFinite(x)).sort((x, y) => x - y); if (!v.length) return null; const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+const fmtDur = h => h == null ? '—' : h < 1 ? `${Math.max(1, Math.round(h * 60))} dk` : h < 48 ? `${Math.round(h)} sa` : `${Math.round(h / 24)} gün`;
+async function viewSupportReport(){
+  const st = srState, { data, error } = await sb.rpc('support_report_rows');
+  if (error) return shell('support-rapor', `<h1>Support raporu</h1><div class="empty">${esc(dbErr(error))}</div>`);
+  const all = (data || []).filter(r => st.cat === 'all' ? r.category !== 'other' : r.category === 'support');
+  const now = new Date(), years = [...new Set(all.map(r => new Date(r.opened_at).getFullYear()))].sort((a, b) => b - a);
+  // dönem: son 12 ay ya da bir yıl ya da tümü
+  let from, to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  if (st.per === '12') from = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  else if (st.per === 'all') from = new Date(Math.min(...all.map(r => +new Date(r.opened_at)), +now)); else { from = new Date(+st.per, 0, 1); to = new Date(+st.per + 1, 0, 1); }
+  from = new Date(from.getFullYear(), from.getMonth(), 1);
+  const inP = d => d && new Date(d) >= from && new Date(d) < to;
+  const hrs = (a, b) => (new Date(b) - new Date(a)) / 36e5;
+  const opened = all.filter(r => inP(r.opened_at)), closed = all.filter(r => inP(r.closed_at));
+  const open = all.filter(r => r.status !== 'closed'), ours = open.filter(r => r.status === 'new' || r.status === 'ours'), cust = open.filter(r => r.status === 'customer');
+  const closeH = closed.map(r => hrs(r.opened_at, r.closed_at)), frH = opened.filter(r => r.first_out).map(r => hrs(r.first_in || r.opened_at, r.first_out));
+  const fr2 = frH.length ? Math.round(frH.filter(h => h <= 48).length / frH.length * 100) : null;
+  const estN = closed.filter(r => r.closed_est).length;
+  // aylar
+  const months = []; for (let d = new Date(from); d < to && d <= now; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) months.push(new Date(d));
+  const mRows = months.map(m => { const e = new Date(m.getFullYear(), m.getMonth() + 1, 1), inM = d => d && new Date(d) >= m && new Date(d) < e;
+    const o = all.filter(r => inM(r.opened_at)), c = all.filter(r => inM(r.closed_at));
+    const back = all.filter(r => new Date(r.opened_at) < e && (!r.closed_at || new Date(r.closed_at) >= e)).length;
+    return { m, o:o.length, c:c.length, back, cMed:medianOf(c.map(r => hrs(r.opened_at, r.closed_at))), fMed:medianOf(o.filter(r => r.first_out).map(r => hrs(r.first_in || r.opened_at, r.first_out))), est:c.filter(r => r.closed_est).length }; });
+  const mMax = Math.max(1, ...mRows.map(x => Math.max(x.o, x.c)));
+  // ürün
+  const prods = {}; all.forEach(r => { const k = r.product || '—'; const o = prods[k] = prods[k] || { k, o:0, c:0, open:0, h:[] };
+    if (inP(r.opened_at)) o.o++; if (inP(r.closed_at)) { o.c++; o.h.push(hrs(r.opened_at, r.closed_at)); } if (r.status !== 'closed') o.open++; });
+  const prodRows = Object.values(prods).filter(x => x.o || x.c || x.open).sort((a, b) => (b.o + b.open) - (a.o + a.open));
+  // sorumlu
+  const ppl = {}; all.forEach(r => { const k = r.assignee_name || 'Atanmamış'; const o = ppl[k] = ppl[k] || { k, ours:0, cust:0, c:0 };
+    if (r.status === 'new' || r.status === 'ours') o.ours++; if (r.status === 'customer') o.cust++; if (inP(r.closed_at)) o.c++; });
+  const pplRows = Object.values(ppl).filter(x => x.ours || x.cust || x.c).sort((a, b) => (b.ours + b.cust) - (a.ours + a.cust));
+  // açık konuların yaşı
+  const age = r => (now - new Date(r.opened_at)) / 864e5, B = [['0–7 gün', 0, 7], ['8–30 gün', 7, 30], ['31–90 gün', 30, 90], ['90+ gün', 90, 1e9]];
+  const oldest = [...open].sort((a, b) => new Date(a.opened_at) - new Date(b.opened_at)).slice(0, 10);
+  const perLabel = st.per === '12' ? 'son 12 ay' : st.per === 'all' ? 'tüm zamanlar' : st.per;
+  const mLab = m => `${MONTHS[m.getMonth()]}${st.per === '12' || st.per === 'all' ? ' ' + String(m.getFullYear()).slice(2) : ''}`;
+  shell('support-rapor', `<div class="pagehead"><div><h1>Support raporu</h1><p class="lede">Gelen ve kapanan konular, kapanma ve ilk cevap süreleri (${esc(perLabel)}). Süreler medyandır: konuların yarısı bundan kısa sürede kapanır.</p></div>
+    <div style="display:flex;gap:8px"><a class="btn" href="#/support">Konular</a><button class="btn" id="srcsv">CSV indir</button></div></div>
+  <div class="toolbar" style="flex-wrap:wrap"><label class="f" style="width:170px">Dönem<select id="srp"><option value="12" ${st.per === '12' ? 'selected' : ''}>Son 12 ay</option>${years.map(y => `<option ${st.per === String(y) ? 'selected' : ''}>${y}</option>`).join('')}<option value="all" ${st.per === 'all' ? 'selected' : ''}>Tüm zamanlar</option></select></label>
+    <label class="f" style="width:220px">Konular<select id="src"><option value="support" ${st.cat === 'support' ? 'selected' : ''}>Teknik destek (support)</option><option value="all" ${st.cat === 'all' ? 'selected' : ''}>Tümü (spam / tanıtım hariç)</option></select></label></div>
+  <div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+    <div class="kpi"><div class="l">Gelen konu</div><div class="v">${opened.length}</div><div class="d">${esc(perLabel)}</div></div>
+    <div class="kpi"><div class="l">Kapanan konu</div><div class="v">${closed.length}</div><div class="d">${esc(perLabel)}</div></div>
+    <div class="kpi ${ours.length ? 'alert' : ''}"><div class="l">Şu an açık</div><div class="v">${open.length}</div><div class="d">${ours.length} bizde · ${cust.length} müşteride</div></div>
+    <div class="kpi"><div class="l">Kapanma süresi</div><div class="v">${fmtDur(medianOf(closeH))}</div><div class="d">medyan · ${closed.length} konu</div></div>
+    <div class="kpi"><div class="l">İlk cevap süresi</div><div class="v">${fmtDur(medianOf(frH))}</div><div class="d">medyan · ${frH.length} konuda ölçüldü</div></div>
+    <div class="kpi"><div class="l">48 saatte ilk cevap</div><div class="v">${fr2 == null ? '—' : fr2 + '%'}</div><div class="d">ilk cevabı ölçülen konular</div></div></div>
+  <section class="panel mt"><h2>Aylık gelen ve kapanan</h2>
+    <div class="bars" style="height:180px;grid-template-columns:repeat(${mRows.length},minmax(0,1fr))" role="img" aria-label="Aylık gelen ve kapanan konu sayısı">${mRows.map(x => `<div class="m" title="${MONTHS_LONG[x.m.getMonth()]} ${x.m.getFullYear()}: ${x.o} gelen, ${x.c} kapanan, ay sonunda ${x.back} açık"><span style="font-size:11px;color:var(--muted)">${x.o || x.c ? `${x.o}/${x.c}` : ''}</span><div class="pair"><div class="b" style="height:${x.o / mMax * 100}%"></div><div class="b" style="height:${x.c / mMax * 100}%;background:var(--green)"></div></div><div class="lbl">${mLab(x.m)}</div></div>`).join('')}</div>
+    <div class="legend" style="margin-top:6px"><span><i style="background:var(--data)"></i>Gelen</span><span><i style="background:var(--green)"></i>Kapanan</span></div>
+    <div class="tablewrap mt"><table><thead><tr><th class="nosort">Ay</th><th class="nosort num">Gelen</th><th class="nosort num">Kapanan</th><th class="nosort num">Ay sonunda açık</th><th class="nosort num">Kapanma süresi</th><th class="nosort num">İlk cevap</th></tr></thead><tbody>
+      ${[...mRows].reverse().map(x => `<tr style="cursor:default"><td>${MONTHS_LONG[x.m.getMonth()]} ${x.m.getFullYear()}</td><td class="num">${x.o || ''}</td><td class="num">${x.c || ''}${x.est ? ` <span class="sub" title="${x.est} konunun kapanış tarihi son mesajdan tahmin edildi">~</span>` : ''}</td><td class="num">${x.back}</td><td class="num">${x.c ? fmtDur(x.cMed) : ''}</td><td class="num">${x.fMed != null ? fmtDur(x.fMed) : ''}</td></tr>`).join('')}
+    </tbody></table></div></section>
+  <div class="grid2 mt">
+    <section class="panel"><h2>Ürüne göre</h2>${prodRows.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Ürün</th><th class="nosort num">Gelen</th><th class="nosort num">Kapanan</th><th class="nosort num">Açık</th><th class="nosort num">Kapanma</th></tr></thead><tbody>
+      ${prodRows.map(x => `<tr style="cursor:default"><td>${x.k === '—' ? '<span class="sub">Ürün belirtilmemiş</span>' : esc(prodName(x.k))}</td><td class="num">${x.o || ''}</td><td class="num">${x.c || ''}</td><td class="num">${x.open || ''}</td><td class="num">${x.h.length ? fmtDur(medianOf(x.h)) : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Kayıt yok.</div>'}</section>
+    <section class="panel"><h2>Sorumluya göre</h2>${pplRows.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Sorumlu</th><th class="nosort num">Bizde</th><th class="nosort num">Müşteride</th><th class="nosort num">Kapattığı (${esc(perLabel)})</th></tr></thead><tbody>
+      ${pplRows.map(x => `<tr style="cursor:default"><td>${esc(x.k)}</td><td class="num ${x.ours ? 'late-txt' : ''}">${x.ours || ''}</td><td class="num">${x.cust || ''}</td><td class="num">${x.c || ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Kayıt yok.</div>'}
+      <h2 class="mt">Açık konuların yaşı</h2><div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr));margin:0">${B.map(([l, a, b]) => { const n = open.filter(r => age(r) > a && age(r) <= b).length; return `<div class="kpi ${b > 90 && n ? 'alert' : ''}"><div class="l">${l}</div><div class="v">${n}</div></div>`; }).join('')}</div>
+      ${oldest.length ? `<p class="sub mt" style="margin-bottom:4px">En eski açık konular</p><ul class="plain">${oldest.map(r => `<li><a href="#/support/${r.id}">#${r.id} ${esc(r.subject || '')}</a> <span class="sub">${esc(r.org || '')} · ${Math.round(age(r))} gün · ${SUP_STATUS[r.status] || r.status}</span></li>`).join('')}</ul>` : ''}</section></div>
+  <p class="note">Gelen = o ay açılan konu, kapanan = o ay kapatılan konu. İlk cevap: müşterinin ilk mailinden Acrome'un ilk cevabına kadar geçen süre; eski Basecamp konularında müşteri maili kayıtlı olmadığı için çoğunda ölçülemez. ${estN ? `${estN} eski konunun kapanış tarihi, toplu aktarımda gerçek tarih bulunmadığı için son mesaj tarihinden tahmin edildi (tabloda ~ işaretli).` : ''}</p>`);
+  q('#srp').onchange = e => { st.per = e.target.value; viewSupportReport(); };
+  q('#src').onchange = e => { st.cat = e.target.value; viewSupportReport(); };
+  q('#srcsv').onclick = () => { const head = ['Konu no', 'Konu', 'Kategori', 'Durum', 'Ürün', 'Kurum', 'Sorumlu', 'Açılış', 'Kapanış', 'Kapanış tahmini', 'Kapanma (gün)', 'İlk müşteri maili', 'İlk Acrome cevabı', 'İlk cevap (saat)'];
+    const d = x => x ? new Date(x).toLocaleString('tr-TR') : '';
+    const lines = [head, ...all.map(r => [r.id, r.subject, r.category, SUP_STATUS[r.status] || r.status, r.product ? prodName(r.product) : '', r.org, r.assignee_name, d(r.opened_at), d(r.closed_at), r.closed_est ? 'evet' : '',
+      r.closed_at ? (hrs(r.opened_at, r.closed_at) / 24).toFixed(1).replace('.', ',') : '', d(r.first_in), d(r.first_out), r.first_out ? hrs(r.first_in || r.opened_at, r.first_out).toFixed(1).replace('.', ',') : ''])]
+      .map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `support-raporu-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); };
+}
+
 async function viewRmaReport(qsel){
   await loadRma();
   const { data: costs } = await sb.from('rma_costs').select('rma_id,kind,direction,amount_try,currency,fx_rate');
