@@ -434,7 +434,7 @@ function todaySections(){
     const op = PO.filter(p => p.kind === 'alim').sort((a,b) => ((b.urgency === 'acil') - (a.urgency === 'acil')) || (a.requested_at||'').localeCompare(b.requested_at||''));
     S_.push({ id:'pur', title:'Açık alım talepleri', link:'#/alimlar', rows: op.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:esc([p.project, p.requester_name].filter(Boolean).join(' · ')),
       meta: p.urgency === 'acil' ? '<span class="late-txt">● acil</span>' : `<span class="sub">${PUR_ST[p.status]}</span>`, hot: p.urgency === 'acil' })), empty:'Açık alım talebi yok.', max:5,
-      foot: op.length ? `${op.filter(p => p.urgency === 'acil').length} acil · ${fmtTRY(op.reduce((a, p) => a + (+p.total || 0), 0))}` : '' });
+      foot: op.length ? `${op.filter(p => p.urgency === 'acil').length} acil · ${sumPur(op)}` : '' });
     const kc = PO.filter(p => p.kind === 'kontrol');
     if (kc.length) S_.push({ id:'kon', title:'Kontrol edilecek konular', link:'#/alimlar', rows: kc.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:'', meta:'', hot:false })) });
   } else {
@@ -928,6 +928,7 @@ const EXP_ST = { gonderildi:'Onay bekliyor', onaylandi:'Onaylandı', reddedildi:
 const EXP_CUR = ['TRY', 'USD', 'EUR', 'GBP'];
 const canAcc = () => can('muhasebe', 'admin');
 const expPill = s => `<span class="pill ex-${s}">${EXP_ST[s] || s}</span>`;
+const sumPur = a => sumByCur((a || []).filter(p => +p.total).map(p => ({ currency:p.currency || 'TRY', amount:p.total }))); // alım toplamı: kur çevirmeden para birimine göre ayrı
 const sumByCur = items => { const m = {}; (items || []).forEach(i => m[i.currency] = (m[i.currency] || 0) + +i.amount); return Object.entries(m).map(([c, v]) => fmtMoney(v, c)).join(' + ') || '—'; };
 async function loadExpPending(){
   if (!canAcc()) { S.expPending = 0; S.expPendingList = []; return; }
@@ -2472,7 +2473,7 @@ async function loadStock(force){
   S.stockLoaded = true;
 }
 async function loadPurCount(){
-  const r = await sb.from('purchases').select('id,kind,item_name,project,qty,urgency,status,requested_at,requester,requester_name,created_by').in('status', PUR_OPEN).order('requested_at', { ascending:false }).range(0, 999);
+  const r = await sb.from('purchases').select('id,kind,item_name,project,qty,total,currency,urgency,status,requested_at,requester,requester_name,created_by').in('status', PUR_OPEN).order('requested_at', { ascending:false }).range(0, 999);
   S.purOpenList = r.error ? [] : (r.data || []);
   S.purOpen = S.purOpenList.filter(p => p.kind === 'alim').length;
 }
@@ -2551,7 +2552,7 @@ async function viewStockItem(id, g){
   const [mv, ln, pu] = id ? await Promise.all([
     sb.from('stock_moves').select('*').eq('item_id', id).order('at', { ascending:false }).limit(100),
     sb.from('bom_lines').select('bom_id,qty_per,alt_group').eq('item_id', id),
-    sb.from('purchases').select('id,requested_at,item_name,qty,unit_price,total,status,supplier_text').eq('item_id', id).order('requested_at', { ascending:false }).limit(30),
+    sb.from('purchases').select('id,requested_at,item_name,qty,unit_price,total,currency,status,supplier_text').eq('item_id', id).order('requested_at', { ascending:false }).limit(30),
   ]) : [{ data:[] }, { data:[] }, { data:[] }];
   const ed = canStock(), v = k => esc(i[k] ?? '');
   const tx = (k, l, hint) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="text" name="${k}" value="${v(k)}"></label>`;
@@ -2583,7 +2584,7 @@ async function viewStockItem(id, g){
       <label class="f">Not <span class="hint">ör. sipariş no, RMA no</span><input type="text" name="note"></label>
       <p><button class="btn primary">Uygula</button></p></form></section>` : ''}
     ${id ? `<section class="panel mt"><h2>Kullanıldığı BOM'lar</h2>${(ln.data || []).length ? `<ul class="sugg">${ln.data.map(l => { const b = S.boms.find(x => x.id === l.bom_id); return b ? `<li><a href="#/bom/${b.id}">${esc(b.name)}</a> · ürün başına ${fmtQ(l.qty_per)}${l.alt_group ? ' <span class="sub">(seçenekli)</span>' : ''}</li>` : ''; }).join('')}</ul>` : '<p class="note">Bir BOM\'da kullanılmıyor.</p>'}</section>
-    <section class="panel mt"><h2>Alımlar</h2>${(pu.data || []).length ? `<ul class="sugg">${pu.data.map(p => `<li><a href="#/alimlar/${p.id}">${fmtD(p.requested_at)}</a> · ${fmtQ(p.qty)} adet · ${fmtMoney(p.total)} ${purPill(p.status)}</li>`).join('')}</ul>` : '<p class="note">Bu parçaya bağlı alım yok.</p>'}</section>` : ''}
+    <section class="panel mt"><h2>Alımlar</h2>${(pu.data || []).length ? `<ul class="sugg">${pu.data.map(p => `<li><a href="#/alimlar/${p.id}">${fmtD(p.requested_at)}</a> · ${fmtQ(p.qty)} adet · ${fmtMoney(p.total, p.currency)} ${purPill(p.status)}</li>`).join('')}</ul>` : '<p class="note">Bu parçaya bağlı alım yok.</p>'}</section>` : ''}
   </aside></div>`);
   if (id) sb.from('stock_item_images').select('mime,data').eq('item_id', id).maybeSingle().then(({ data }) => {
     const el = q('#iimg'); if (!el) return; el.innerHTML = data ? `<img src="data:${esc(data.mime)};base64,${esc(data.data)}" alt="${esc(i.name)}" class="partimg">` : 'Görsel yok.'; });
@@ -2964,17 +2965,16 @@ async function viewPurchases(){
   const open = P.filter(p => PUR_OPEN.includes(p.status) && p.kind === 'alim');
   const years = [...new Set(P.map(p => (p.requested_at || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   const who = [...new Set(P.map(p => p.requester_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
-  const sumT = a => a.reduce((x, p) => x + (+p.total || 0), 0);
   const tabs = { open:'Açık talepler', kontrol:'Kontrol listesi', alindi:'Alınanlar', reddedildi:'Reddedilen', arsiv:'Eski / kapanmış', all:'Tümü' };
   const tabOf = p => p.kind === 'kontrol' ? 'kontrol' : PUR_OPEN.includes(p.status) ? 'open' : p.status;
   shell('alimlar', `<div class="pagehead"><div><h1>Alımlar</h1><p class="lede">Atölye ihtiyaç ve alım talepleri. Herkes talep açabilir; durumu Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici günceller. "Alındı" yapılan ve bir parçaya bağlı talep stoğa otomatik girer.</p></div>
     <a class="btn primary" href="#/alim-yeni">Yeni talep</a></div>
   ${P.length ? '' : `<div class="banner">Henüz alım kaydı yok.${can('admin') ? ' <a href="#/stok-aktar">Excel\'den hazırlanan veriyi içe aktar</a>' : ''}</div>`}
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
-    <div class="kpi ${open.filter(p => p.urgency === 'acil').length ? 'alert' : ''}"><div class="v">${open.length}</div><div class="l">Açık talep</div><div class="d">${open.filter(p => p.urgency === 'acil').length} acil · ${fmtTRY(sumT(open))}</div></div>
+    <div class="kpi ${open.filter(p => p.urgency === 'acil').length ? 'alert' : ''}"><div class="v">${open.length}</div><div class="l">Açık talep</div><div class="d">${open.filter(p => p.urgency === 'acil').length} acil · ${sumPur(open)}</div></div>
     <div class="kpi"><div class="v">${P.filter(p => p.status === 'proforma').length}</div><div class="l">Proforma bekleyen</div><div class="d">${P.filter(p => p.status === 'eft_bekliyor').length} EFT bekliyor</div></div>
-    <div class="kpi"><div class="v">${fmtTRY(sumT(P.filter(p => p.status === 'alindi' && (p.purchased_at || p.requested_at || '').slice(0, 7) === mon)))}</div><div class="l">Bu ay alınan</div><div class="d">KDV dahil</div></div>
-    <div class="kpi"><div class="v">${fmtTRY(sumT(P.filter(p => p.status === 'alindi' && (p.requested_at || '').startsWith(String(Y)))))}</div><div class="l">${Y} toplam alım</div><div class="d">${P.filter(p => p.status === 'alindi' && (p.requested_at || '').startsWith(String(Y))).length} kalem</div></div></div>
+    <div class="kpi"><div class="v">${sumPur(P.filter(p => p.status === 'alindi' && (p.purchased_at || p.requested_at || '').slice(0, 7) === mon))}</div><div class="l">Bu ay alınan</div><div class="d">KDV dahil</div></div>
+    <div class="kpi"><div class="v">${sumPur(P.filter(p => p.status === 'alindi' && (p.requested_at || '').startsWith(String(Y))))}</div><div class="l">${Y} toplam alım</div><div class="d">${P.filter(p => p.status === 'alindi' && (p.requested_at || '').startsWith(String(Y))).length} kalem</div></div></div>
   <div class="toolbar"><div class="seg" id="ptab">${Object.entries(tabs).map(([k, v]) => `<button data-t="${k}" class="${s.tab === k ? 'on' : ''}">${v} <span class="sub">${k === 'all' ? P.length : P.filter(p => tabOf(p) === k).length}</span></button>`).join('')}</div></div>
   <div class="toolbar"><input type="search" id="pq" placeholder="Ara: ürün, proje, tedarikçi, not…" value="${esc(s.q)}">
     <select id="punit"><option value="">Tüm birimler</option>${PUR_UNIT.map(u => `<option ${s.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
@@ -2995,7 +2995,7 @@ async function viewPurchases(){
         <td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(p.requester_name || '') || '<span class="sub">—</span>'}<div class="sub opt">${esc([p.unit, p.area].filter(Boolean).join(' · '))}</div></td>
         <td>${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.link ? `${supName(p.supplier_id) || p.supplier_text ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub stopprop">bağlantı ↗</a>` : (supName(p.supplier_id) || p.supplier_text ? '' : '<span class="sub">—</span>')}</td>
         <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}</td></tr>`).join('')}</tbody>
-      <tfoot><tr class="tfoot"><td colspan="3">${rows.length} kayıt${rows.length > 800 ? ' (ilk 800)' : ''}</td><td class="num">${fmtTRY(sumT(rows))}</td><td colspan="3"></td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+      <tfoot><tr class="tfoot"><td colspan="3">${rows.length} kayıt${rows.length > 800 ? ' (ilk 800)' : ''}</td><td class="num">${sumPur(rows)}</td><td colspan="3"></td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('#ptbl tr[data-pid]').forEach(r => r.onclick = () => location.hash = '#/alimlar/' + r.dataset.pid);
     qa('#ptbl .urgbtn').forEach(bt => bt.onclick = async e => { e.stopPropagation(); const pr = P.find(x => x.id === +bt.closest('tr').dataset.pid), nu = pr.urgency === 'acil' ? 'normal' : 'acil';
       const { error } = await sb.from('purchases').update({ urgency:nu }).eq('id', pr.id); if (error) return toast(dbErr(error), true); pr.urgency = nu; toast(nu === 'acil' ? 'Acil olarak işaretlendi' : 'Aciliyet kaldırıldı'); loadPurCount(); draw(); });
@@ -3309,7 +3309,7 @@ async function viewSuppliers(id){
   if (id) {
     const s = id === 'yeni' ? { name:'', kind:'tedarikci' } : all.find(x => x.id === +id);
     if (!s) return shell('tedarikciler', '<h1>Tedarikçi bulunamadı</h1>');
-    const pu = s.id ? ((await sb.from('purchases').select('id,requested_at,item_name,qty,total,status').or(`supplier_id.eq.${s.id},supplier_text.ilike.%${s.name.split(' ')[0].replace(/[,%()]/g, '')}%`).order('requested_at', { ascending:false }).limit(50)).data || []) : [];
+    const pu = s.id ? ((await sb.from('purchases').select('id,requested_at,item_name,qty,total,currency,status').or(`supplier_id.eq.${s.id},supplier_text.ilike.%${s.name.split(' ')[0].replace(/[,%()]/g, '')}%`).order('requested_at', { ascending:false }).limit(50)).data || []) : [];
     const acc = ACC.filter(a => a.supplier_id === s.id);
     const ta = (k, l, r) => `<label class="f">${l}<textarea name="${k}" rows="${r || 2}">${esc(s[k] || '')}</textarea></label>`;
     shell('tedarikciler', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>${s.id ? esc(s.name) : 'Yeni tedarikçi'}</h1>${s.grp ? `<p class="lede">${esc(SUP_GRP[s.grp] || s.grp)}</p>` : ''}${s.blacklisted ? `<p class="lede late-txt">Kara listede: ${esc(s.blacklist_reason || '')}</p>` : ''}</div>${s.id && can('admin') ? '<button class="btn danger" id="sdel">Sil</button>' : ''}</div>
@@ -3325,7 +3325,7 @@ async function viewSuppliers(id){
         <p class="note">Hesapları yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici görür.</p></section>
       <section class="panel mt"><h2>Başka bir kayıtla birleştir</h2><p class="note" style="margin-top:0">Aynı firma iki kez kayıtlıysa seçtiğiniz kayıt bu firmaya katılır: alımları, parçaları ve site hesapları buraya taşınır; iletişim, e-posta, web, parça ve notlar eklenir, hiçbir bilgi silinmez. Seçilen kayıt sonra kaldırılır.</p>
         <div class="row r2"><label class="f">Bu firmaya katılacak kayıt<select id="smerge"><option value="">—</option>${all.filter(x => x.id !== s.id).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label><div style="align-self:end"><button class="btn" id="smergeb">Birleştir</button></div></div></section>` : ''}</div>
-    <aside><section class="panel"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
+    <aside><section class="panel"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total, p.currency)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
     q('#suf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null; if (!g('name')) return toast('Firma adı girin', true);
       const o = { name:g('name'), kind:f.kind.value, grp:f.grp.value || null, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason') };
       const r = s.id ? await sb.from('suppliers').update(o).eq('id', s.id) : await sb.from('suppliers').insert(o).select('id').single();
@@ -3380,40 +3380,40 @@ async function viewPurchaseItemReport(){
   const P = (error ? [] : data || []).filter(p => p.kind !== 'kontrol').map(p => ({ ...p, d:(p.purchased_at && (!p.requested_at || p.purchased_at >= p.requested_at) ? p.purchased_at : p.requested_at || p.purchased_at || '') })).filter(p => p.d);
   const years = [...new Set(P.map(p => p.d.slice(0, 4)))].sort().reverse(), st = prState;
   if (!st.year || !years.includes(st.year)) st.year = years.includes(String(new Date().getFullYear())) ? String(new Date().getFullYear()) : years[0] || String(new Date().getFullYear());
-  const Y = P.filter(p => p.d.startsWith(st.year)), sumT = a => a.reduce((x, p) => x + (+p.total || 0), 0);
+  const Y = P.filter(p => p.d.startsWith(st.year)), sumT = a => a.reduce((x, p) => x + ((p.currency || 'TRY') === 'TRY' ? +p.total || 0 : 0), 0); // yalnız ₺ (tek sayı gereken yerler)
   const byM = MONTHS.map((_, i) => Y.filter(p => +p.d.slice(5, 7) === i + 1)), mVal = byM.map(sumT), mMax = Math.max(1, ...mVal);
   const units = [...PUR_UNIT, 'Diğer'], unitOf = p => PUR_UNIT.includes(p.unit) ? p.unit : 'Diğer';
   const nowY = String(new Date().getFullYear()), nM = st.year === nowY ? new Date().getMonth() + 1 : 12;
   const prev = P.filter(p => p.d.startsWith(String(+st.year - 1)) && +p.d.slice(5, 7) <= nM);
   const R = st.month ? byM[+st.month - 1] : Y, per = st.month ? MONTHS_LONG[+st.month - 1] + ' ' + st.year : st.year;
   const bomName = id => (S.boms.find(b => b.id === id) || {}).name;
-  const grp = (a, key) => { const m = new Map(); a.forEach(p => { const k = key(p) || '—'; const o = m.get(k) || { n:0, t:0 }; o.n++; o.t += +p.total || 0; m.set(k, o); }); return [...m].sort((x, y) => y[1].t - x[1].t); };
+  const grp = (a, key) => { const m = new Map(); a.forEach(p => { const k = key(p) || '—'; const o = m.get(k) || { n:0, t:0, a:[] }; o.n++; o.a.push(p); if ((p.currency || 'TRY') === 'TRY') o.t += +p.total || 0; m.set(k, o); }); return [...m].sort((x, y) => y[1].t - x[1].t); };
   const tbl = (head, rows, tot) => rows.length ? `<table><thead><tr>${head.map((h, i) => `<th class="nosort${i ? ' num' : ''}">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr style="cursor:default">${r.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('')}</tr>`).join('')}</tbody>${tot ? `<tfoot><tr class="tfoot">${tot.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('')}</tr></tfoot>` : ''}</table>` : '<div class="empty">Kayıt yok.</div>';
   const top = Math.max(...mVal), topI = mVal.indexOf(top);
-  shell('alim-rapor', `${repTabs('talep')}<div class="pagehead"><div><h1>Aylık alım raporu</h1><p class="lede">"Alındı" durumundaki alım talepleri (kalem bazında), alım tarihine göre (alım tarihi yoksa ya da talepten önceyse talep tarihine göre). Tutarlar KDV dahil, TL.</p></div><button class="btn" id="pcsv">CSV indir</button></div>
+  shell('alim-rapor', `${repTabs('talep')}<div class="pagehead"><div><h1>Aylık alım raporu</h1><p class="lede">"Alındı" durumundaki alım talepleri (kalem bazında), alım tarihine göre (alım tarihi yoksa ya da talepten önceyse talep tarihine göre). Tutarlar KDV dahil, para birimine göre ayrı (kur çevrilmez).</p></div><button class="btn" id="pcsv">CSV indir</button></div>
   <div class="toolbar"><label class="f" style="width:120px">Yıl<select id="pry">${years.map(y => `<option ${y === st.year ? 'selected' : ''}>${y}</option>`).join('')}</select></label>
     <label class="f" style="width:150px">Ay<select id="prm"><option value="">Tüm yıl</option>${MONTHS_LONG.map((m, i) => `<option value="${i + 1}" ${+st.month === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}</select></label></div>
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
-    <div class="kpi"><div class="l">${st.year} toplam alım</div><div class="v">${fmtTRY(sumT(Y))}</div><div class="d">${Y.length} kalem</div></div>
-    <div class="kpi"><div class="l">Aylık ortalama</div><div class="v">${fmtTRY(sumT(Y) / nM)}</div><div class="d">${nM} ay üzerinden</div></div>
-    <div class="kpi"><div class="l">En yüksek ay</div><div class="v">${top ? fmtTRY(top) : '—'}</div><div class="d">${top ? MONTHS_LONG[topI] : ''}</div></div>
-    <div class="kpi"><div class="l">Geçen yılın aynı dönemi</div><div class="v">${fmtTRY(sumT(prev))}</div><div class="d">${+st.year - 1} · ${nM < 12 ? 'Oca–' + MONTHS[nM - 1] : 'tüm yıl'}${sumT(prev) ? ` · ${sumT(Y) >= sumT(prev) ? '+' : ''}${Math.round((sumT(Y) / sumT(prev) - 1) * 100)}%` : ''}</div></div></div>
-  <section class="panel"><h2>${st.year} aylık alım tutarı</h2><p class="note" style="margin-top:-6px">Bir aya tıklayınca aşağıdaki dağılımlar o aya göre gösterilir.</p>
+    <div class="kpi"><div class="l">${st.year} toplam alım</div><div class="v" style="font-size:18px">${sumPur(Y)}</div><div class="d">${Y.length} kalem</div></div>
+    <div class="kpi"><div class="l">Aylık ortalama (yalnız ₺)</div><div class="v">${fmtTRY(sumT(Y) / nM)}</div><div class="d">${nM} ay üzerinden</div></div>
+    <div class="kpi"><div class="l">En yüksek ay (yalnız ₺)</div><div class="v">${top ? fmtTRY(top) : '—'}</div><div class="d">${top ? MONTHS_LONG[topI] : ''}</div></div>
+    <div class="kpi"><div class="l">Geçen yılın aynı dönemi (yalnız ₺)</div><div class="v">${fmtTRY(sumT(prev))}</div><div class="d">${+st.year - 1} · ${nM < 12 ? 'Oca–' + MONTHS[nM - 1] : 'tüm yıl'}${sumT(prev) ? ` · ${sumT(Y) >= sumT(prev) ? '+' : ''}${Math.round((sumT(Y) / sumT(prev) - 1) * 100)}%` : ''}</div></div></div>
+  <section class="panel"><h2>${st.year} aylık alım tutarı (yalnız ₺)</h2><p class="note" style="margin-top:-6px">Bir aya tıklayınca aşağıdaki dağılımlar o aya göre gösterilir.</p>
     <div class="bars" style="height:200px">${mVal.map((v, i) => `<button class="m" data-m="${i + 1}" style="border:0;background:${+st.month === i + 1 ? 'var(--brand-soft)' : 'none'};cursor:pointer;border-radius:4px;padding:2px 0" title="${MONTHS_LONG[i]}: ${byM[i].length} kalem, ${fmtTRY(v)}" aria-label="${MONTHS_LONG[i]}: ${fmtTRY(v)}"><span style="font-size:11px;color:var(--muted)">${v ? Math.round(v / 1000) + 'K' : ''}</span><div class="pair"><div class="b" style="height:${v / mMax * 100}%;width:60%;max-width:28px"></div></div><div class="lbl">${MONTHS[i]}</div></button>`).join('')}</div></section>
   <section class="mt"><h2>Aylara ve birime göre — ${st.year}</h2><div class="tablewrap">${tbl(['Ay', ...units, 'Toplam', 'Kalem'],
-    byM.map((a, i) => [`<a href="#" data-m2="${i + 1}">${MONTHS_LONG[i]}</a>`, ...units.map(u => { const t = sumT(a.filter(p => unitOf(p) === u)); return t ? fmtTRY(t) : ''; }), `<b>${sumT(a) ? fmtTRY(sumT(a)) : ''}</b>`, a.length || '']),
-    ['Toplam', ...units.map(u => fmtTRY(sumT(Y.filter(p => unitOf(p) === u)))), `<b>${fmtTRY(sumT(Y))}</b>`, Y.length])}</div></section>
-  <div class="grid g2 mt"><section class="panel"><h2>Ürün / projeye göre — ${per}</h2><div class="tablewrap">${tbl(['Ürün / proje', 'Kalem', 'Tutar'], grp(R, p => bomName(p.bom_id) || (p.project ? 'Diğer: ' + p.project.slice(0, 40) : 'Belirtilmemiş')).slice(0, 25).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div>
+    byM.map((a, i) => [`<a href="#" data-m2="${i + 1}">${MONTHS_LONG[i]}</a>`, ...units.map(u => { const t = sumPur(a.filter(p => unitOf(p) === u)); return t === '—' ? '' : t; }), `<b>${sumPur(a) === '—' ? '' : sumPur(a)}</b>`, a.length || '']),
+    ['Toplam', ...units.map(u => sumPur(Y.filter(p => unitOf(p) === u))), `<b>${sumPur(Y)}</b>`, Y.length])}</div></section>
+  <div class="grid g2 mt"><section class="panel"><h2>Ürün / projeye göre — ${per} (sıralama yalnız ₺)</h2><div class="tablewrap">${tbl(['Ürün / proje', 'Kalem', 'Tutar'], grp(R, p => bomName(p.bom_id) || (p.project ? 'Diğer: ' + p.project.slice(0, 40) : 'Belirtilmemiş')).slice(0, 25).map(([k, o]) => [esc(k), o.n, sumPur(o.a)]))}</div>
       <p class="note">Ürün / proje, alım talebindeki "İlgili ürün / proje" seçiminden gelir. Eski kayıtlarda proje yazısından otomatik eşleştirildi.</p></section>
-    <section class="panel"><h2>Tedarikçi grubuna göre — ${per}</h2><div class="tablewrap">${tbl(['Grup', 'Kalem', 'Tutar'], grp(R, p => { const s = (S.suppliers || []).find(x => x.id === p.supplier_id); return s ? SUP_GRP[s.grp] || 'Grupsuz' : 'Tedarikçi seçilmemiş'; }).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div>
-      <h2 class="mt">Tedarikçiye göre — ${per}</h2><div class="tablewrap">${tbl(['Tedarikçi', 'Kalem', 'Tutar'], grp(R, p => supName(p.supplier_id) || p.supplier_text).slice(0, 25).map(([k, o]) => [esc(k), o.n, fmtTRY(o.t)]))}</div></section></div>
-  <section class="mt"><h2>En yüksek tutarlı alımlar — ${per}</h2><div class="tablewrap">${tbl(['Ürün / iş', 'Tarih', 'Adet', 'Tutar'], [...R].sort((a, b) => (+b.total || 0) - (+a.total || 0)).slice(0, 20).map(p => [`<a href="#/alimlar/${p.id}">${esc(p.item_name)}</a>${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}`, fmtD(p.d), p.qty == null ? '—' : fmtQ(p.qty), fmtTRY(p.total)]))}</div></section>`);
+    <section class="panel"><h2>Tedarikçi grubuna göre — ${per} (sıralama yalnız ₺)</h2><div class="tablewrap">${tbl(['Grup', 'Kalem', 'Tutar'], grp(R, p => { const s = (S.suppliers || []).find(x => x.id === p.supplier_id); return s ? SUP_GRP[s.grp] || 'Grupsuz' : 'Tedarikçi seçilmemiş'; }).map(([k, o]) => [esc(k), o.n, sumPur(o.a)]))}</div>
+      <h2 class="mt">Tedarikçiye göre — ${per} (sıralama yalnız ₺)</h2><div class="tablewrap">${tbl(['Tedarikçi', 'Kalem', 'Tutar'], grp(R, p => supName(p.supplier_id) || p.supplier_text).slice(0, 25).map(([k, o]) => [esc(k), o.n, sumPur(o.a)]))}</div></section></div>
+  <section class="mt"><h2>En yüksek tutarlı alımlar (yalnız ₺) — ${per}</h2><div class="tablewrap">${tbl(['Ürün / iş', 'Tarih', 'Adet', 'Tutar'], R.filter(p => (p.currency || 'TRY') === 'TRY').sort((a, b) => (+b.total || 0) - (+a.total || 0)).slice(0, 20).map(p => [`<a href="#/alimlar/${p.id}">${esc(p.item_name)}</a>${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}`, fmtD(p.d), p.qty == null ? '—' : fmtQ(p.qty), fmtTRY(p.total)]))}</div></section>`);
   bindRepTabs();
   q('#pry').onchange = e => { st.year = e.target.value; st.month = ''; viewPurchaseReport(); };
   q('#prm').onchange = e => { st.month = e.target.value; viewPurchaseReport(); };
   qa('.bars [data-m], [data-m2]').forEach(b => b.onclick = e => { e.preventDefault(); const m = b.dataset.m || b.dataset.m2; st.month = +st.month === +m ? '' : m; viewPurchaseReport(); });
-  q('#pcsv').onclick = () => { const head = ['Tarih', 'Ürün / iş', 'Birim', 'Ürün / proje', 'Proje notu', 'Tedarikçi', 'Adet', 'Tutar (TL)'];
-    const lines = [head, ...R.map(p => [p.d, p.item_name, p.unit || '', bomName(p.bom_id) || '', p.project || '', supName(p.supplier_id) || p.supplier_text || '', p.qty ?? '', p.total ?? ''])]
+  q('#pcsv').onclick = () => { const cur = [...new Set(R.map(p => p.currency || 'TRY'))].sort(), head = ['Tarih', 'Ürün / iş', 'Birim', 'Ürün / proje', 'Proje notu', 'Tedarikçi', 'Adet', ...cur.map(c => 'Tutar (' + c + ')')];
+    const lines = [head, ...R.map(p => [p.d, p.item_name, p.unit || '', bomName(p.bom_id) || '', p.project || '', supName(p.supplier_id) || p.supplier_text || '', p.qty ?? '', ...cur.map(c => (p.currency || 'TRY') === c ? p.total ?? '' : '')])]
       .map(r => r.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `alimlar-${st.year}${st.month ? '-' + String(st.month).padStart(2, '0') : ''}.csv`; a.click(); };
 }
