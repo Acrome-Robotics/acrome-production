@@ -3,6 +3,9 @@
 //  - GET ?code=...            : Basecamp OAuth dönüşü (bir kez, bağlantı kurulurken)
 //  - POST + x-backup-token    : senkron (pg_cron 09:36 ve 16:36'da basecamp_sync_run() ile çağırır)
 //  - POST ?check=1            : yalnız bağlantı kontrolü
+//  - POST ?peek=1             : son yorumlar / kart değişiklikleri (yalnız okur)
+//  - POST ?since=ISO          : o tarihten bu yana olanları yeniden tarar (geriye dönük doldurma)
+// Kartlar (Kanban::Card), Supports'a iletilen mailler (Inbox::Forward) ve ikisinin altındaki yorumlar aktarılır.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const BASE = Deno.env.get("SUPABASE_URL")!;
@@ -71,50 +74,126 @@ async function bc(url: string): Promise<unknown[]> {
   return out;
 }
 
-const norm = (s: string) => (s || "").toLowerCase().replace(/^((re|fw|fwd|ynt|ilt)\s*:\s*)+/i, "").replace(/\s+/g, " ").trim();
+// konu başlığı karşılaştırması: Re:/Fwd:/AW:/YNT: gibi önekler ve [EXT], [Acrome Sales] gibi etiketler atılır
+const norm = (s: string) => (s || "").toLowerCase().replace(/^(\s*((re|fw|fwd|aw|wg|sv|antw|ynt|ilt|tr)\s*:|\[[^\]]{1,30}\]\s*-?))+\s*/i, "").replace(/\s+/g, " ").trim();
 
 type Card = { id: number; title: string; content: string; created_at: string; updated_at: string; app_url: string; comments_count: number; creator: { name: string; email_address?: string } };
 type Com = { id: number; content: string; created_at: string; creator: { name: string; email_address?: string } };
 
-async function sync() {
+// tek sayfa GET (sayfalama yok): son hareketlere bakmak için
+async function bc1(url: string): Promise<unknown[]> {
+  const r = await fetch(url.startsWith("http") ? url : API + url, { headers: { Authorization: "Bearer " + TOKEN, "User-Agent": UA } });
+  if (!r.ok) throw new Error("Basecamp API " + r.status + " " + url);
+  const d = await r.json();
+  return Array.isArray(d) ? d : [d];
+}
+type RecCom = { id: number; created_at: string; parent?: { id: number; type?: string } };
+// projedeki son kayıtlar (en yeni önce), "since"den yeni olanlar bitene kadar sayfa sayfa (en çok 10 sayfa)
+async function recentSince(type: string, since: string, maxPages = 10, first?: string): Promise<RecCom[]> {
+  const out: RecCom[] = [];
+  let next: string | null = first || `${API}/projects/recordings.json?type=${type}&bucket=${P}&sort=created_at&direction=desc`;
+  for (let i = 0; next && i < maxPages; i++) {
+    const r = await fetch(next, { headers: { Authorization: "Bearer " + TOKEN, "User-Agent": UA } });
+    if (!r.ok) throw new Error("Basecamp API " + r.status + " " + next);
+    const d = await r.json() as RecCom[];
+    out.push(...d);
+    if (!d.length || Date.parse(d[d.length - 1].created_at) <= Date.parse(since)) break;
+    const m = (r.headers.get("Link") || "").match(/<([^>]+)>;\s*rel="next"/);
+    next = m ? m[1] : null;
+  }
+  return out.filter((x) => Date.parse(x.created_at) > Date.parse(since));
+}
+// projedeki son yorumlar (en yeni önce; peek için tek sayfa)
+const recentComments = () => bc1(`/projects/recordings.json?type=Comment&bucket=${P}&sort=created_at&direction=desc`) as Promise<RecCom[]>;
+type Fwd = { id: number; subject?: string; title?: string; content?: string; from?: string; created_at: string; app_url: string; comments_count: number; creator?: { name: string } };
+
+async function sync(sinceOverride?: string) {
   TOKEN = await accessToken();
   const { data: stRow } = await db.from("support_sync_state").select("value").eq("key", "basecamp_cards").maybeSingle();
-  const since = (stRow?.value as { last?: string })?.last || "2026-11-04T06:30:00Z";
+  const since = sinceOverride || (stRow?.value as { last?: string })?.last || "2026-11-04T06:30:00Z";
+  const pages = sinceOverride ? 40 : 10;
   const now = new Date().toISOString();
   const rapor = { kart: 0, mesaj: 0, eklenen: [] as number[], yeni_konu: [] as number[], kapatilan: [] as number[] };
+  const done = new Set<number>();
+
+  const processCard = async (c: Card, cname: string) => {
+    done.add(c.id);
+    const msgs: Record<string, unknown>[] = [{ external_id: `bccard:${c.id}`, source: "basecamp", direction: "internal", from_name: c.creator?.name,
+      sent_at: c.created_at, subject: c.title, body: (text(c.content) || "(kart açıklaması yok)").slice(0, 8000), url: c.app_url }];
+    if (c.comments_count) {
+      for (const x of await bc(`/buckets/${P}/recordings/${c.id}/comments.json`) as Com[]) {
+        msgs.push({ external_id: `bccom:${x.id}`, source: "basecamp", direction: "internal", from_name: x.creator?.name, from_email: x.creator?.email_address || null,
+          sent_at: x.created_at, body: text(x.content).slice(0, 8000), url: `${c.app_url}#__recording_${x.id}` });
+      }
+    }
+    // konuyu bul: 1) bu kart zaten bağlı mı  2) aynı konu başlıklı, son 45 günde açılmış konu (Basecamp'e yönlendirilen mail)
+    let { data: t } = await db.from("support_tickets").select("id,status,last_inbound_at,last_outbound_at").contains("basecamp_urls", [c.app_url]).limit(1).maybeSingle();
+    if (!t && norm(c.title).length >= 6) {
+      const { data: cand } = await db.from("support_tickets").select("id,subject,status,last_inbound_at,last_outbound_at")
+        .gte("opened_at", new Date(Date.parse(c.created_at) - 45 * 864e5).toISOString()).neq("category", "other").order("last_activity_at", { ascending: false }).limit(300);
+      t = (cand || []).find((k) => norm(k.subject) === norm(c.title)) || null;
+    }
+    const ticket: Record<string, unknown> = { basecamp_url: c.app_url };
+    if (t) {
+      ticket.ticket_id = t.id;
+      const answered = !t.last_inbound_at || (t.last_outbound_at && t.last_outbound_at >= t.last_inbound_at);
+      if (cname === "Done" && ["ours", "new"].includes(t.status) && answered) { ticket.status = "closed"; rapor.kapatilan.push(t.id); }
+    } else {
+      Object.assign(ticket, { subject: c.title, opened_at: c.created_at, status: ST[cname] || "new", category: "support" });
+    }
+    const { data: tid, error } = await db.rpc("support_ingest", { p: { ticket, messages: msgs } });
+    if (error) throw new Error(`Kart ${c.id}: ${error.message}`);
+    if (!t) { await db.from("support_tickets").update({ needs_triage: true }).eq("id", tid); rapor.yeni_konu.push(tid as number); }
+    else rapor.eklenen.push(tid as number);
+    rapor.kart++; rapor.mesaj += msgs.length;
+  };
+
   for (const [cid, cname] of Object.entries(COLS)) {
     const cards = await bc(`/buckets/${P}/card_tables/lists/${cid}/cards.json`) as Card[];
-    for (const c of cards) {
-      if (!(Date.parse(c.updated_at || "") > Date.parse(since))) continue;
-      const msgs: Record<string, unknown>[] = [{ external_id: `bccard:${c.id}`, source: "basecamp", direction: "internal", from_name: c.creator?.name,
-        sent_at: c.created_at, subject: c.title, body: (text(c.content) || "(kart açıklaması yok)").slice(0, 8000), url: c.app_url }];
-      if (c.comments_count) {
-        for (const x of await bc(`/buckets/${P}/recordings/${c.id}/comments.json`) as Com[]) {
-          msgs.push({ external_id: `bccom:${x.id}`, source: "basecamp", direction: "internal", from_name: x.creator?.name, from_email: x.creator?.email_address || null,
-            sent_at: x.created_at, body: text(x.content).slice(0, 8000), url: `${c.app_url}#__recording_${x.id}` });
-        }
+    for (const c of cards) if (Date.parse(c.updated_at || "") > Date.parse(since)) await processCard(c, cname);
+  }
+  // Supports'a iletilen mailler (Inbox::Forward) ve altlarına yazılan ekip yorumları
+  const processForward = async (f: Fwd) => {
+    done.add(f.id);
+    const subj = f.subject || f.title || "(konu yok)";
+    const msgs: Record<string, unknown>[] = [{ external_id: `bcfwd:${f.id}`, source: "basecamp", direction: "internal", from_name: f.creator?.name || f.from || "",
+      sent_at: f.created_at, subject: subj, body: (text(f.content) || "(içerik yok)").slice(0, 8000), url: f.app_url }];
+    if (f.comments_count) {
+      for (const x of await bc(`/buckets/${P}/recordings/${f.id}/comments.json`) as Com[]) {
+        msgs.push({ external_id: `bccom:${x.id}`, source: "basecamp", direction: "internal", from_name: x.creator?.name, from_email: x.creator?.email_address || null,
+          sent_at: x.created_at, body: text(x.content).slice(0, 8000), url: `${f.app_url}#__recording_${x.id}` });
       }
-      // konuyu bul: 1) bu kart zaten bağlı mı  2) aynı konu başlıklı, son 45 günde açılmış konu (Basecamp'e yönlendirilen mail)
-      let { data: t } = await db.from("support_tickets").select("id,status,last_inbound_at,last_outbound_at").contains("basecamp_urls", [c.app_url]).limit(1).maybeSingle();
-      if (!t && norm(c.title).length >= 6) {
-        const { data: cand } = await db.from("support_tickets").select("id,subject,status,last_inbound_at,last_outbound_at")
-          .gte("opened_at", new Date(Date.parse(c.created_at) - 45 * 864e5).toISOString()).neq("category", "other").order("last_activity_at", { ascending: false }).limit(300);
-        t = (cand || []).find((k) => norm(k.subject) === norm(c.title)) || null;
-      }
-      const ticket: Record<string, unknown> = { basecamp_url: c.app_url };
-      if (t) {
-        ticket.ticket_id = t.id;
-        const answered = !t.last_inbound_at || (t.last_outbound_at && t.last_outbound_at >= t.last_inbound_at);
-        if (cname === "Done" && ["ours", "new"].includes(t.status) && answered) { ticket.status = "closed"; rapor.kapatilan.push(t.id); }
-      } else {
-        Object.assign(ticket, { subject: c.title, opened_at: c.created_at, status: ST[cname], category: "support" });
-      }
-      const { data: tid, error } = await db.rpc("support_ingest", { p: { ticket, messages: msgs } });
-      if (error) throw new Error(`Kart ${c.id}: ${error.message}`);
-      if (!t) { await db.from("support_tickets").update({ needs_triage: true }).eq("id", tid); rapor.yeni_konu.push(tid as number); }
-      else rapor.eklenen.push(tid as number);
-      rapor.kart++; rapor.mesaj += msgs.length;
     }
+    // konuyu bul: 1) bu iletinin zaten bağlı olduğu konu  2) aynı başlıklı, son ~13 ayda açılmış konu (aynı yazışma Gmail'den de gelmiş olabilir)
+    const { data: had } = await db.from("support_messages").select("ticket_id").eq("external_id", `bcfwd:${f.id}`).limit(1).maybeSingle();
+    let tid0 = had?.ticket_id as number | undefined;
+    if (!tid0 && norm(subj).length >= 6) {
+      const { data: cand } = await db.from("support_tickets").select("id,subject")
+        .gte("opened_at", new Date(Date.parse(f.created_at) - 400 * 864e5).toISOString()).neq("category", "other").order("last_activity_at", { ascending: false }).limit(1000);
+      tid0 = (cand || []).find((k) => norm(k.subject) === norm(subj))?.id;
+    }
+    const ticket: Record<string, unknown> = tid0 ? { ticket_id: tid0, basecamp_url: f.app_url } : { basecamp_url: f.app_url, subject: subj, opened_at: f.created_at, status: "new", category: "support" };
+    const { data: tid, error } = await db.rpc("support_ingest", { p: { ticket, messages: msgs } });
+    if (error) throw new Error(`İleti ${f.id}: ${error.message}`);
+    if (!tid0) { await db.from("support_tickets").update({ needs_triage: true }).eq("id", tid); rapor.yeni_konu.push(tid as number); }
+    else rapor.eklenen.push(tid as number);
+    rapor.kart++; rapor.mesaj += msgs.length;
+  };
+  // iletilen mailler kutusu (Forwards): proje menüsündeki "inbox" aracı; en yeni önce listelenir
+  const dock = ((await bc1(`/projects/${P}.json`))[0] as { dock?: { name: string; url: string; enabled?: boolean }[] }).dock || [];
+  const inbox = dock.find((d) => d.name === "inbox" && d.enabled !== false);
+  const fwds = inbox ? await recentSince("", since, pages, inbox.url.replace(/\.json$/, "") + "/forwards.json") : [];
+  for (const x of fwds) if (!done.has(x.id)) await processForward((await bc1(`/buckets/${P}/inbox_forwards/${x.id}.json`))[0] as Fwd);
+
+  // yeni yorumlar: kartın updated_at'i değişmeden yazılanlar ve iletilen maillerin altındakiler
+  for (const x of await recentSince("Comment", since, pages)) {
+    if (!x.parent || done.has(x.parent.id)) continue;
+    if (x.parent.type === "Inbox::Forward") { await processForward((await bc1(`/buckets/${P}/inbox_forwards/${x.parent.id}.json`))[0] as Fwd); continue; }
+    if (x.parent.type !== "Kanban::Card") continue;
+    const c = (await bc1(`/buckets/${P}/card_tables/cards/${x.parent.id}.json`))[0] as Card & { parent?: { id: number } };
+    const cname = COLS[String(c.parent?.id)];
+    if (!cname) { done.add(c.id); continue; } // Supports panosunda değil
+    await processCard(c, cname);
   }
   await db.from("support_sync_state").upsert({ key: "basecamp_cards", value: { last: now, kaynak: "basecamp-sync" }, updated_at: now });
   return rapor;
@@ -142,12 +221,21 @@ Deno.serve(async (req) => {
     }
     const { data: tok } = await db.rpc("backup_get_token");
     if (!tok || req.headers.get("x-backup-token") !== tok) return json({ error: "yetkisiz" }, 401);
+    if (url.searchParams.get("peek") === "1") { // yalnız okur: son yorumlar ve kart değişiklikleri
+      TOKEN = await accessToken();
+      const com = (await recentComments()).slice(0, 8).map((x) => ({ at: x.created_at, kart: x.parent?.id, tur: x.parent?.type }));
+      const cards: { at: string; kolon: string }[] = [];
+      for (const [cid, cname] of Object.entries(COLS)) for (const c of await bc1(`/buckets/${P}/card_tables/lists/${cid}/cards.json`) as Card[]) cards.push({ at: c.updated_at, kolon: cname });
+      cards.sort((a, b) => b.at.localeCompare(a.at));
+      return json({ ok: true, son_yorumlar: com, son_kartlar: cards.slice(0, 5) });
+    }
     if (url.searchParams.get("check") === "1") {
       TOKEN = await accessToken();
       const cards = await bc(`/buckets/${P}/card_tables/lists/5437218311/cards.json`);
       return json({ ok: true, triage_kart: cards.length });
     }
-    const r = await sync();
+    const so = url.searchParams.get("since"); // geriye dönük doldurma (yalnız yetkili çağrı)
+    const r = await sync(so && !isNaN(Date.parse(so)) ? new Date(so).toISOString() : undefined);
     return json({ ok: true, ...r });
   } catch (e) {
     const m = String((e as Error)?.message || e);
