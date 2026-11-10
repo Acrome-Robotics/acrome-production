@@ -1640,7 +1640,7 @@ async function loadSupport(){
   S.tickets = data; S.supErr = null;
   await loadNotifs();
   const ss = await sb.from('support_sync_state').select('key,updated_at');
-  S.syncAt = Object.fromEntries((ss.data||[]).map(r => [r.key, r.updated_at]));
+  S.syncAt = Object.fromEntries((ss.data||[]).map(r => [r.key, r.updated_at])); S.syncVal = Object.fromEntries((ss.data||[]).map(r => [r.key, r.value || {}]));
   const st = await sb.from('support_settings').select('key,value');
   S.supSet = Object.fromEntries((st.data||[]).map(r => [r.key, r.value]));
 }
@@ -1648,7 +1648,9 @@ async function loadSupport(){
 function syncLine(){
   const z = S.syncAt || {}, old = t => !t || (Date.now() - new Date(t)) > 14 * 36e5;
   const one = (k, label, hint) => `<span class="chip${old(z[k]) ? ' warn' : ''}" title="${old(z[k]) ? 'Gecikti' + (hint ? ': ' + hint : '') : 'Güncel'}"><i></i>${label} · ${z[k] ? fmtDT(z[k]) : '—'}${old(z[k]) ? ' · gecikti' : ''}</span>`;
-  return `<div class="syncline">${one('gmail','Mail senkronu')}${one('basecamp_cards','Basecamp senkronu','bilgisayar kapalı olabilir; açılınca kaldığı yerden devam eder')}</div>`;
+  const m = (S.syncVal || {}).manual || {};
+  const man = z.manual ? `<span class="sub" title="Şimdi güncelle düğmesiyle yapılan son okuma">Son elle güncelleme: ${fmtDT(z.manual)}${m.name ? ' · ' + esc(m.name) : ''}${m.yeni ? ` · ${m.yeni} yeni mesaj` : ''}</span>` : '';
+  return `<div class="syncline">${one('gmail','Mailler en son okundu')}${one('basecamp_cards','Basecamp en son okundu','sunucu senkronu; bir sonraki çalışmada kaldığı yerden devam eder')}${man}</div>`;
 }
 async function people(){
   if (supPeople) return supPeople;

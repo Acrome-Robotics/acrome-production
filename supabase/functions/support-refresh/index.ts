@@ -44,7 +44,8 @@ Deno.serve(async (req) => {
       call(`${BASE}/functions/v1/basecamp-sync`, { method: "POST", headers: { "x-backup-token": String(tok), "Content-Type": "application/json" }, body: "{}" }, 120_000),
     ]);
     const { count } = await db.from("support_messages").select("id", { count: "exact", head: true }).gte("created_at", started);
-    await db.from("support_sync_state").update({ value: { by: u.user.id, last: started, gmail: gmail.ok, basecamp: basecamp.ok, yeni: count || 0 } }).eq("key", "manual");
+    const { data: pr } = await db.from("profiles").select("full_name").eq("id", u.user.id).maybeSingle();
+    await db.from("support_sync_state").update({ value: { by: u.user.id, name: pr?.full_name || null, last: started, gmail: gmail.ok, basecamp: basecamp.ok, yeni: count || 0 } }).eq("key", "manual");
     return json({ gmail, basecamp, yeni_mesaj: count || 0 });
   } catch (e) {
     return json({ error: String((e as Error)?.message || e) }, 500);

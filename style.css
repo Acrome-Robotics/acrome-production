@@ -642,3 +642,4 @@ ul.sugg .sg-t{min-width:0}
   .bc-act .btn{min-width:64px;justify-content:center}
   .linkbtn{min-height:32px}
 }
+.syncline > .sub{align-self:center}
