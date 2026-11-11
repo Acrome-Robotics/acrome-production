@@ -1117,7 +1117,7 @@ function viewForm(id){
 
   const stageOpts = () => kind==='order' ? ['won'] : ['qualify','advance','closing','lost'];
   const statusOpts = () => kind==='order' ? ['production','shipped'] : ['pipeline','lost','archived'];
-  const dis = f => prodOnly && !['planned_ship_date','ship_date','ship_month','status','delay_reason'].includes(f) ? 'disabled' : '';
+  const dis = f => prodOnly && !['planned_ship_date','ship_date','status','delay_reason'].includes(f) ? 'disabled' : '';
   const v = k => esc(d[k] ?? '');
   const dt = (k, label, hint) => `<label class="f">${label}${hint?` <span class="hint">${hint}</span>`:''}<input type="date" name="${k}" value="${v(k)}" min="${MIN_DATE}" max="${MAX_DATE}" ${dis(k)}><span class="err" data-e="${k}"></span></label>`;
 
@@ -1242,6 +1242,7 @@ function viewForm(id){
     if (d.ship_date && d.order_date && d.ship_date < d.order_date) errs.ship_date = 'Sipariş tarihinden önce olamaz.';
     if (d.ship_date && d.ship_date > addDays(T,1)) errs.ship_date = 'Gelecek tarih olamaz; planlanan sevk alanını kullan.';
     if (d.status === 'shipped' && !d.ship_date && !d.ship_month) errs.ship_date = 'Gönderildi için sevk tarihi (ya da en azından sevk ayı) zorunlu.';
+    if (d.status === 'shipped' && !d.ship_date && ex && ex.status !== 'shipped') errs.ship_date = 'Gönderildi durumuna geçerken sevk tarihi zorunlu (yalnız sevk ayı yetmez).'; // sunucudaki deals_validate kuralı
     if (d.ship_month && !/^20[2-3][0-9]-(0[1-9]|1[0-2])$/.test(d.ship_month)) errs.ship_month = 'Ay seç.';
     if (d.ship_date && d.ship_month && d.ship_date.slice(0,7) !== d.ship_month) errs.ship_month = 'Sevk tarihiyle aynı ay olmalı (ya da boş bırak).';
     if (d.amount_usd !== '' && d.amount_usd != null && (isNaN(+d.amount_usd) || Math.abs(+d.amount_usd) >= 1e7)) errs.amount_usd = '10 milyondan küçük olmalı (iade için eksi girilebilir).';
@@ -3696,12 +3697,12 @@ const attTimeTxt = t => t && (t.arrive || t.leave) ? `${hm(t.arrive) || '?'}–$
 const attCell = (c, t) => (c && ATT[c] ? `<b>${esc(c)}</b><span>${ATT[c][2]}</span>` : '<span>Seç</span>') + (attTimeTxt(t) ? `<i class="atttime">${attTimeTxt(t)}</i>` : '');
 // geliş / çıkış saati kutusu (geç gelen kişi geliş saatini, telafi için çıkış saatini girer)
 function openTimePop(btn, pid, day, cur, ws, we, onDone){
-  closeAttPop();
+  closeAttPop(); const lock = attLocked(day);
   const el = document.createElement('div'); el.className = 'attpop timepop'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Geliş / çıkış saati');
   el.innerHTML = `<form novalidate><b>${fmtD(day)} · saat</b><p class="sub" style="margin:2px 0 8px">Mesai ${hm(ws)}–${hm(we)}. Geç geldiysen geliş saatini gir; geç çıkarak telafi ettiysen çıkış saatini de gir.</p>
     <div class="row r2"><label class="f">Geliş<input type="time" name="arrive" value="${hm(cur && cur.arrive)}"></label><label class="f">Çıkış<input type="time" name="leave" value="${hm(cur && cur.leave)}"></label></div>
     <label class="f">Not <span class="hint">isteğe bağlı</span><input type="text" name="note" maxlength="300" value="${esc((cur && cur.note) || '')}" placeholder="ör. doktor, trafik, telafi"></label>
-    <p class="btnrow" style="margin:8px 0 0"><button class="btn sm primary">Kaydet</button>${cur ? '<button type="button" class="btn sm" data-x>Saati sil</button>' : ''}<button type="button" class="btn sm ghost" data-c>Vazgeç</button></p></form>`;
+    ${lock ? `<p class="note" style="margin:8px 0 0">${ATT_LOCK}</p>` : ''}<p class="btnrow" style="margin:8px 0 0">${lock ? '' : `<button class="btn sm primary">Kaydet</button>${cur ? '<button type="button" class="btn sm" data-x>Saati sil</button>' : ''}`}<button type="button" class="btn sm ghost" data-c>Vazgeç</button></p></form>`;
   document.body.appendChild(el); attPop = el;
   const r = btn.getBoundingClientRect(), h = el.offsetHeight, w = el.offsetWidth;
   el.style.top = Math.max(8, r.bottom + 6 + h > innerHeight && r.top - h - 6 > 0 ? r.top - h - 6 : Math.min(r.bottom + 6, innerHeight - h - 8)) + 'px';
@@ -3718,6 +3719,8 @@ function openTimePop(btn, pid, day, cur, ws, we, onDone){
   setTimeout(() => { document.addEventListener('mousedown', attOutside, true); });
 }
 const ATT_DN = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum'];
+const ATT_LOCK = 'Geçmiş haftaların saatleri kilitli. Değişiklik için yöneticiye sor.';
+const attLocked = day => !can('admin') && day < mondayOf(today());
 const mondayOf = d => { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x); };
 const fmtDM = d => d.slice(8, 10) + '.' + d.slice(5, 7);
 const attBadge = c => c && ATT[c] ? `<span class="attb ${ATT[c][1]}" title="${ATT[c][0]}">${esc(c)}</span>` : '';
@@ -3865,9 +3868,9 @@ async function viewAttLate(arg){
       <td>${(r.days || []).length ? `<button type="button" class="linkbtn ldet">${(r.days || []).length} gün ▾</button>` : ''}</td></tr>
       <tr class="ldrow" data-for="${r.person_id}" hidden><td colspan="8"><div class="tablewrap"><table><thead><tr><th class="nosort">Gün</th><th class="nosort">Kod</th><th class="nosort">Geliş</th><th class="nosort">Çıkış</th><th class="nosort num">Geç</th><th class="nosort num">Telafi</th><th class="nosort">Not</th></tr></thead><tbody>${(r.days || []).map(dayRow).join('')}</tbody></table></div></td></tr>`).join('')}
   </tbody></table></div>` : `<div class="empty mt">${me == null && !all ? 'E-posta adresin yoklama listesinde yok; yöneticiden eklemesini iste.' : 'Bu ay kayıt yok.'}</div>`}
-  ${canAdd.length ? `<section class="panel mt" style="max-width:760px"><h2>Saat / telafi gir</h2><p class="note" style="margin-top:0">Geç geldiğin bir günün geliş saatini, geç çıktığın günün çıkış saatini ya da hafta sonu / tatilde telafi için çalıştığın saatleri gir. Aynı günü tekrar girersen kayıt güncellenir.</p>
+  ${canAdd.length ? `<section class="panel mt" style="max-width:760px"><h2>Saat / telafi gir</h2><p class="note" style="margin-top:0">Geç geldiğin bir günün geliş saatini, geç çıktığın günün çıkış saatini ya da hafta sonu / tatilde telafi için çalıştığın saatleri gir. Aynı günü tekrar girersen kayıt güncellenir.${can('admin') ? '' : ' ' + ATT_LOCK}</p>
     <form id="ltf" class="fs plain" novalidate><div class="row r4">${all ? `<label class="f">Kişi<select name="pid">${canAdd.map(p => `<option value="${p.id}" ${p.id === me ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>` : `<input type="hidden" name="pid" value="${me}">`}
-      <label class="f">Gün<input type="date" name="day" max="${td}" value="${td}"></label><label class="f">Geliş<input type="time" name="arrive"></label><label class="f">Çıkış<input type="time" name="leave"></label></div>
+      <label class="f">Gün<input type="date" name="day" ${can('admin') ? '' : `min="${mondayOf(td)}"`} max="${td}" value="${td}"></label><label class="f">Geliş<input type="time" name="arrive"></label><label class="f">Çıkış<input type="time" name="leave"></label></div>
       <label class="f">Not <span class="hint">isteğe bağlı</span><input type="text" name="note" maxlength="300" placeholder="ör. Cumartesi telafi, doktor randevusu"></label>
       <p><button class="btn primary">Kaydet</button></p></form></section>` : ''}`);
   q('#lm').onchange = e => { if (e.target.value) { s.month = e.target.value; viewAttLate(); } };
