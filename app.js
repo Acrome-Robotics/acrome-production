@@ -186,7 +186,7 @@ function renderAuth(mode='in'){
     e.preventDefault(); const f = new FormData(e.target); const err = q('#aerr'); err.textContent = '';
     const email = String(f.get('email')||'').trim(), pw = String(f.get('pw')||'');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { err.textContent = 'Geçerli bir e-posta gir.'; return; }
-    if (up && !/@acrome\.net$/i.test(email)) { err.textContent = 'Yalnızca @acrome.net adresiyle hesap açılabilir.'; return; }
+    // @acrome.net kuralı sunucuda (enforce_acrome_domain); istisna adresleri yalnız orada bilinir
     let r;
     if (reset) { r = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (!r.error) { err.style.color='var(--green)'; err.textContent='Bağlantı gönderildi, e-postanı kontrol et.'; return; } }
     else if (up) {
