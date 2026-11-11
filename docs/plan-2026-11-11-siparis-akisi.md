@@ -23,7 +23,13 @@ Canlıdaki durum (11.11): 12 sipariş "Üretimde", yalnız 1'inde üretim aşama
 - Üretim panosu yalnız üretime alınanları gösterir.
 - Doğrulama: SQL rol taklidiyle geri alınan blokta; arayüz sahte veriyle test kopyasında.
 
-## Aşama 2 — Ödeme planı ve tahsilat raporu
+## Aşama 2 — Ödeme planı ve tahsilat raporu (11.11'de yapıldı)
+Yapılan (sql/2026-11-11_odeme_plani.sql): satır başına oran % + takvimden tarih + not. Tutar saklanmıyor, sipariş toplamından
+hesaplanıyor. Varsayılan 3 satır, "+ Satır ekle". Toplam %100 olmalı, sunucu da kontrol ediyor. Yeni siparişte plan zorunlu,
+eski siparişlerde değil. "Sevkten N gün" vadesi yapılmadı. Rapor `deal_payment_report()` RPC'siyle geliyor, çünkü muhasebe
+siparişleri okuyamıyor. Geldi işaretini orders/sales/muhasebe/admin koyabiliyor. Bugün sayfası uyarısı yapılmadı.
+
+İlk taslak:
 - Tablo `deal_payments`: deal_id, sıra, açıklama (örn. "%50 ön ödeme"), vade türü (sabit tarih / sevkten N gün sonra),
   vade tarihi, tutar, para birimi, geldi tarihi, gelen tutar, not, işaretleyen. RLS: orders/muhasebe/admin.
 - Sipariş formunda (sipariş türünde) satır satır ödeme planı. Toplam sipariş tutarını tutmuyorsa uyarı verir, kaydı engellemez.

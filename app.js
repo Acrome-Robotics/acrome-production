@@ -120,6 +120,7 @@ async function loadAll(){
   ]);
   for (const r of [d,c,p,k,i]) if (r.error) throw r.error;
   S.deals = d.data; S.customers = c.data; S.products = p.data; S.countries = k.data; S.issues = i.data; S.loaded = true;
+  S.payments = (await fetchAll(() => sb.from('deal_payments').select('*').order('id'))).data || [];
   await loadSupport();
   await loadRma();
   await loadPrefs().catch(() => { S.prefs = {}; });
@@ -244,6 +245,7 @@ function shell(active, html){
     ]];
   const nav = staffOnly() ? [ekip] : accOnly() ? [
     ['Alımlar', 'cart', [['alimlar','Talepler', S.purOpen || ''], ['tedarik','Tedarik planları'], ['alim-rapor','Aylık alım raporu'], ['tedarikciler','Tedarikçiler']]],
+    ['Tahsilat', 'chart', [['tahsilat','Tahsilat takibi']]],
     ekip,
   ] : [
     ['Üretim', 'gear', [
@@ -256,6 +258,7 @@ function shell(active, html){
       ['kayitlar/pipeline','Açık fırsatlar', cnt('pipeline')],
       ['kayitlar/all','Tüm kayıtlar', S.deals.length],
       ...(can('sales','orders','admin') ? [['yeni','Yeni kayıt']] : []),
+      ['tahsilat','Tahsilat takibi'],
     ]],
     ['Support', 'help', [
       ['support','Konular', supOpenCount() || '', 'hot'],
@@ -335,6 +338,7 @@ function route(){
     case 'gec-kalma': return viewAttLate(a);
     case 'kayitlar': return viewList(a || 'all');
     case 'gonderim': return viewShipments();
+    case 'tahsilat': return viewCollections();
     case 'uretim-pano': case 'pano': return viewBoard();
     case 'yeni': return can('sales','orders','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
@@ -806,11 +810,12 @@ function viewDetail(id){
       ${kv('Gecikme açıklaması', esc(d.delay_reason))}
     </dl></section>
     <section class="panel"><h2>Tutar ve ürünler</h2><dl class="kv">
-      ${kv('Tutar (USD)', fmtUSD(d.amount_usd))}${d.currency!=='USD'?kv('Orijinal tutar', fmtN(d.amount_orig)+' '+d.currency):''}${kv('SMD satışı', d.smd_sales_usd!=null && fmtUSD(d.smd_sales_usd))}${kv('Ödeme planı', esc(d.payment_terms))}${d.is_internal?kv('Tür','Dahili (Acrome içi)'):''}
+      ${kv('Tutar (USD)', fmtUSD(d.amount_usd))}${d.currency!=='USD'?kv('Orijinal tutar', fmtN(d.amount_orig)+' '+d.currency):''}${kv('SMD satışı', d.smd_sales_usd!=null && fmtUSD(d.smd_sales_usd))}${kv('Ödeme notu', esc(d.payment_terms))}${d.is_internal?kv('Tür','Dahili (Acrome içi)'):''}
     </dl>
     ${Object.keys(d.items||{}).length ? `<table class="mt"><tbody>${Object.entries(d.items).map(([c,q])=>`<tr style="cursor:default"><td>${esc(prodName(c))}${c==='OTHER' && d.other_note ? `<div class="sub" style="white-space:pre-line">${esc(d.other_note)}</div>` : ''}</td><td class="num">${fmtN(q)}</td></tr>`).join('')}</tbody></table>`:'<p class="note">Ürün kalemi yok.</p>'}
     </section>
   </div>
+  ${payPanel(d)}
   ${stagePanel(d)}
   ${rmaBox({ deal_id:d.id }, (S.rmas||[]).filter(x => x.deal_id === d.id), 'mt')}
   ${(S.tickets||[]).some(x => x.deal_id === d.id) ? `<section class="panel mt"><h2>Support konuları</h2><ul class="sugg">${S.tickets.filter(x => x.deal_id === d.id).map(x => `<li><a href="#/support/${x.id}"><span class="mono">#${x.id}</span> ${esc(x.subject)}</a> ${supPill(x.status)} <span class="sub">${fmtD(x.opened_at.slice(0,10))}</span></li>`).join('')}</ul></section>` : ''}
@@ -1103,6 +1108,77 @@ function viewRolePreview(){
   q('#pvoff') && (q('#pvoff').onclick = () => { try { localStorage.removeItem(PV_KEY); } catch {} location.hash = '#/kullanicilar'; location.reload(); });
 }
 
+// ---------------------------------------------------------------- ÖDEME PLANI
+const dealTotalOf = d => d.currency === 'USD' ? d.amount_usd : d.amount_orig;
+const payState = p => p.received_at ? 'geldi' : p.due_date < today() ? 'gecikti' : 'bekliyor';
+const payPill = p => ({ geldi:`<span class="pill st-shipped">Geldi · ${fmtD(p.received_at)}</span>`, gecikti:`<span class="pill st-lost">Gecikti · ${days(p.due_date, today())} gün</span>`, bekliyor:'<span class="pill st-pipeline">Bekleniyor</span>' })[payState(p)];
+function payPanel(d){
+  if (!['production', 'shipped'].includes(d.status)) return '';
+  const ps = (S.payments || []).filter(p => p.deal_id === d.id).sort((a, b) => a.seq - b.seq), tot = dealTotalOf(d);
+  return `<section class="panel mt"><h2>Ödeme planı</h2>${ps.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Tarih</th><th class="nosort num">Oran</th><th class="nosort num">Tutar</th><th class="nosort">Not</th><th class="nosort">Durum</th></tr></thead><tbody>
+    ${ps.map(p => `<tr style="cursor:default"><td>${fmtD(p.due_date)}</td><td class="num">%${fmtN(p.pct)}</td><td class="num">${tot ? fmtMoney(tot * p.pct / 100, d.currency) : '—'}</td><td>${esc(p.note || '')}</td><td>${payPill(p)}</td></tr>`).join('')}
+    </tbody></table></div><p class="note" style="margin:6px 0 0">Tahsilatı <a href="#/tahsilat">Tahsilat takibi</a> sayfasından işaretleyin.</p>`
+    : `<p class="note" style="margin:0">Ödeme planı girilmemiş.${can('sales', 'orders', 'admin') ? ` <a href="#/duzenle/${d.id}">Düzenle</a> sayfasından ekleyin.` : ''}</p>`}</section>`;
+}
+
+const colState = { tab:'bekleyen', q:'' };
+async function viewCollections(){
+  shell('tahsilat', '<h1>Tahsilat takibi</h1><p class="sub">Yükleniyor…</p>');
+  const { data, error } = await sb.rpc('deal_payment_report');
+  if (error) return shell('tahsilat', `<h1>Tahsilat takibi</h1><div class="banner">${esc(dbErr(error))}</div>`);
+  const all = (data || []).filter(r => ['production', 'shipped'].includes(r.status) && !r.is_internal), T = today(), mo = T.slice(0, 7);
+  const canMark = can('sales', 'orders', 'muhasebe', 'admin'), st = colState;
+  const money = a => sumByCur(a.filter(r => r.amount != null).map(r => ({ currency:r.currency, amount:r.amount })));
+  const open = all.filter(r => !r.received_at), late = open.filter(r => r.due_date < T);
+  const in3 = addDays(T, 92);
+  const noPlan = (S.deals || []).filter(d => d.status === 'production' && !d.is_internal && !(S.payments || []).some(p => p.deal_id === d.id));
+  const draw = () => {
+    const ql = st.q.toLocaleLowerCase('tr');
+    const rows = all.filter(r => (st.tab === 'bekleyen' ? !r.received_at : st.tab === 'gecikmis' ? !r.received_at && r.due_date < T : st.tab === 'gelen' ? !!r.received_at : true)
+      && (!ql || [r.ref_no, r.customer, r.description, r.note].join(' ').toLocaleLowerCase('tr').includes(ql)));
+    const key = r => (st.tab === 'gelen' ? r.received_at : r.due_date).slice(0, 7);
+    if (st.tab === 'gelen') rows.sort((a, b) => a.received_at < b.received_at ? 1 : -1);
+    const groups = []; rows.forEach(r => { const k = key(r), g = groups[groups.length - 1]; if (g && g.k === k) g.rows.push(r); else groups.push({ k, rows:[r] }); });
+    const ref = r => S.deals.some(d => d.id === r.deal_id) ? `<a href="#/kayit/${r.deal_id}" class="mono">${esc(r.ref_no || '')}</a>` : `<span class="mono">${esc(r.ref_no || '')}</span>`;
+    q('#coltbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">${st.tab === 'gelen' ? 'Geldiği gün' : 'Ödeme tarihi'}</th><th class="nosort">Sipariş</th><th class="nosort">Müşteri</th><th class="nosort num">Oran</th><th class="nosort num">Tutar</th><th class="nosort">Durum</th>${canMark ? '<th class="nosort"></th>' : ''}</tr></thead><tbody>
+      ${groups.map(g => `<tr class="tfoot"><td colspan="4"><b>${MONTHS_LONG[+g.k.slice(5, 7) - 1]} ${g.k.slice(0, 4)}</b> · ${g.rows.length} ödeme</td><td class="num"><b>${money(g.rows)}</b></td><td colspan="${canMark ? 2 : 1}"></td></tr>
+        ${g.rows.map(r => `<tr style="cursor:default"><td style="white-space:nowrap">${fmtD(st.tab === 'gelen' ? r.received_at : r.due_date)}${st.tab === 'gelen' ? `<div class="sub">vade ${fmtD(r.due_date)}</div>` : ''}</td>
+          <td>${ref(r)}<div class="sub">${esc(r.description || '')}</div></td><td>${esc(r.customer || '')}${r.note ? `<div class="sub">${esc(r.note)}</div>` : ''}</td>
+          <td class="num">%${fmtN(r.pct)}</td><td class="num">${r.amount == null ? '<span class="sub">tutar yok</span>' : fmtMoney(r.amount, r.currency)}</td><td>${payPill(r)}${r.received_name ? `<div class="sub">${esc(r.received_name)}</div>` : ''}</td>
+          ${canMark ? `<td style="white-space:nowrap">${r.received_at ? `<button type="button" class="linkbtn colundo" data-id="${r.id}">geri al</button>`
+            : `<input type="date" class="coldt" data-id="${r.id}" value="${T}" max="${T}" min="${MIN_DATE}" aria-label="Paranın geldiği gün" style="min-height:28px;padding:2px 6px;font-size:12px;width:140px"> <button type="button" class="btn sm colok" data-id="${r.id}">Geldi</button>`}</td>` : ''}</tr>`).join('')}`).join('')}
+      <tr class="tfoot"><td colspan="4">${rows.length} ödeme</td><td class="num"><b>${money(rows)}</b></td><td colspan="${canMark ? 2 : 1}"></td></tr></tbody></table>` : '<div class="empty">Bu görünümde ödeme yok.</div>';
+    const mark = async (id, dt) => { const { error } = await sb.rpc('deal_payment_mark', { p_id:id, p_date:dt }); if (error) return toast(dbErr(error), true);
+      const r = all.find(x => x.id === id); r.received_at = dt; r.received_name = dt ? (S.profile.full_name || S.profile.email) : null;
+      const sp = (S.payments || []).find(x => x.id === id); if (sp) sp.received_at = dt;
+      toast(dt ? 'Tahsil edildi olarak işaretlendi' : 'Geri alındı'); viewCollections(); };
+    qa('.colok').forEach(b => b.onclick = () => { const dt = q(`.coldt[data-id="${b.dataset.id}"]`).value; if (!dt) return toast('Paranın geldiği günü seç', true); if (dt > T) return toast('Gelecek tarih olamaz', true); busy(b, () => mark(+b.dataset.id, dt)); });
+    qa('.colundo').forEach(b => b.onclick = () => { if (confirmTwice(b, 'emin misin?')) busy(b, () => mark(+b.dataset.id, null)); });
+  };
+  shell('tahsilat', `<div class="pagehead"><div><h1>Tahsilat takibi</h1>
+    <p class="lede">Siparişlerin ödeme planından: hangi tarihte ne kadar para gelecek, ne geldi. Tutarlar sipariş para biriminde, çevrilmeden toplanır. Dahili siparişler hariç.</p></div>
+    <div><button class="btn" id="colcsv">CSV indir</button></div></div>
+  <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="kpi"><div class="v" style="font-size:18px">${money(late)}</div><div class="l">Gecikmiş</div><div class="d">${late.length} ödeme</div></div>
+    <div class="kpi"><div class="v" style="font-size:18px">${money(open.filter(r => r.due_date.slice(0, 7) === mo && r.due_date >= T))}</div><div class="l">Bu ay beklenen</div><div class="d">bugünden ay sonuna</div></div>
+    <div class="kpi"><div class="v" style="font-size:18px">${money(open.filter(r => r.due_date >= T && r.due_date <= in3))}</div><div class="l">Önümüzdeki 3 ay</div><div class="d">${open.filter(r => r.due_date >= T && r.due_date <= in3).length} ödeme</div></div>
+    <div class="kpi"><div class="v" style="font-size:18px">${money(all.filter(r => (r.received_at || '').slice(0, 7) === mo))}</div><div class="l">Bu ay gelen</div><div class="d">${all.filter(r => (r.received_at || '').slice(0, 7) === mo).length} ödeme</div></div>
+  </div>
+  ${noPlan.length ? `<details class="banner"><summary><b>${noPlan.length} üretimdeki siparişin ödeme planı yok</b></summary><ul style="margin:6px 0 0;padding-left:18px">${noPlan.map(d => `<li><a href="#/duzenle/${d.id}" class="mono">${esc(refNo(d))}</a> ${esc(custName(d))}</li>`).join('')}</ul></details>` : ''}
+  <div class="toolbar"><div class="seg" id="coltab">${[['bekleyen', 'Bekleyen'], ['gecikmis', 'Gecikmiş'], ['gelen', 'Gelenler'], ['tumu', 'Tümü']].map(([k, l]) => `<button type="button" data-t="${k}" class="${st.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <input type="search" id="colq" placeholder="Sipariş, müşteri, not ara" value="${esc(st.q)}" aria-label="Ara"></div>
+  <div class="tablewrap" id="coltbl"></div>`);
+  draw();
+  qa('#coltab button').forEach(b => b.onclick = () => { st.tab = b.dataset.t; qa('#coltab button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  q('#colq').oninput = e => { st.q = e.target.value; draw(); };
+  q('#colcsv').onclick = () => {
+    const cols = [['Ödeme tarihi', r => r.due_date], ['Sipariş', r => r.ref_no], ['Müşteri', r => r.customer], ['Açıklama', r => r.description], ['Oran %', r => r.pct], ['Tutar', r => r.amount], ['Para birimi', r => r.currency], ['Not', r => r.note], ['Geldiği gün', r => r.received_at], ['İşaretleyen', r => r.received_name]];
+    const cell = v => { v = csvSafe(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const txt = '﻿' + [cols.map(c => c[0]).join(';'), ...all.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type:'text/csv;charset=utf-8' })); a.download = `acrome-tahsilat-${T}.csv`; a.click();
+  };
+}
+
 // ---------------------------------------------------------------- FORM
 function viewForm(id){
   const ex = id ? S.deals.find(x => x.id === id) : null;
@@ -1114,6 +1190,12 @@ function viewForm(id){
   if (convert) { d.status = 'production'; d.stage = 'won'; d.order_date = d.order_date || today(); }
   let kind = ['production','shipped'].includes(d.status) ? 'order' : 'opp';
   const cust = ex ? S.customers.find(c => c.id === ex.customer_id) : null;
+  const payRow = () => ({ pct:'', due_date:'', note:'' });
+  d.pays = ex ? (S.payments || []).filter(p => p.deal_id === ex.id).sort((a, b) => a.seq - b.seq).map(p => ({ ...p })) : [];
+  const padPays = () => { if (kind === 'order' && !d.pays.length) d.pays = [payRow(), payRow(), payRow()]; };
+  padPays();
+  const payNeeded = () => kind === 'order' && (!ex || convert) && !d.is_internal; // eski siparişlerde zorunlu değil
+  const dealTotal = () => +(d.currency === 'USD' ? d.amount_usd : d.amount_orig) || 0;
 
   const stageOpts = () => kind==='order' ? ['won'] : ['qualify','advance','closing','lost'];
   const statusOpts = () => kind==='order' ? ['production','shipped'] : ['pipeline','lost','archived'];
@@ -1132,7 +1214,7 @@ function viewForm(id){
   <form id="df" class="form" novalidate><div>
     <section class="fs"><h2>Müşteri ve numaralar</h2>
       <div class="row r2">
-        <label class="f">Müşteri<input type="text" name="customer" list="custlist" value="${esc(cust?.name || '')}" autocomplete="off" ${dis('customer')} required><span class="hint">Listeden seç; listede yoksa yeni müşteri olarak eklenir</span><span class="err" data-e="customer"></span></label>
+        <label class="f">Müşteri<input type="text" name="customer" list="custlist" value="${esc(d.customer ?? cust?.name ?? '')}" autocomplete="off" ${dis('customer')} required><span class="hint">Listeden seç; listede yoksa yeni müşteri olarak eklenir</span><span class="err" data-e="customer"></span></label>
         <label class="f">Ülke<select name="country" ${dis('country')}><option value="">Seç…</option>${S.countries.map(c=>`<option value="${c.code}" ${d.country===c.code?'selected':''}>${esc(c.name)}</option>`).join('')}</select><span class="err" data-e="country"></span></label>
       </div>
       <datalist id="custlist">${S.customers.map(c=>`<option value="${esc(c.name)}">`).join('')}</datalist>
@@ -1173,8 +1255,20 @@ function viewForm(id){
       </div>
       <div class="row r2">
         <label class="f">SMD satış tutarı (USD)<input type="number" name="smd_sales_usd" min="0" step="0.01" value="${v('smd_sales_usd')}" ${dis('smd_sales_usd')}></label>
-        <label class="f">Ödeme planı<input type="text" name="payment_terms" value="${v('payment_terms')}" placeholder="%50 ön ödeme, %50 teslimatta" ${dis('payment_terms')}></label>
+        <label class="f">Ödeme notu<input type="text" name="payment_terms" value="${v('payment_terms')}" placeholder="ör. akreditif, vade farkı, kur şartı" ${dis('payment_terms')}></label>
       </div>
+      ${kind==='order' ? `<div style="margin:4px 0 12px"><div style="font-weight:600;font-size:13px;margin-bottom:6px">Ödeme planı <span class="hint">sipariş tutarının yüzdesi ve ödeme tarihi; oranların toplamı %100</span></div>
+        <div class="tablewrap"><table><thead><tr><th class="nosort">#</th><th class="nosort num">Oran %</th><th class="nosort">Ödeme tarihi</th><th class="nosort num">Tutar</th><th class="nosort">Not</th><th class="nosort"></th></tr></thead><tbody>
+        ${d.pays.map((p, i) => p.received_at
+          ? `<tr style="cursor:default"><td>${i + 1}</td><td class="num">%${fmtN(p.pct)}</td><td>${fmtD(p.due_date)}</td><td class="num pay-amt" data-i="${i}"></td><td>${esc(p.note || '')}<div class="sub ok-txt">Geldi · ${fmtD(p.received_at)}</div></td><td></td></tr>`
+          : `<tr style="cursor:default"><td>${i + 1}</td>
+            <td class="num"><input type="number" name="pay_pct_${i}" value="${esc(p.pct ?? '')}" min="0" max="100" step="0.01" inputmode="decimal" style="width:80px;text-align:right" aria-label="${i + 1}. ödeme oranı" ${dis('payments')}></td>
+            <td><input type="date" name="pay_due_${i}" value="${esc(p.due_date || '')}" min="${MIN_DATE}" max="${MAX_DATE}" aria-label="${i + 1}. ödeme tarihi" ${dis('payments')}></td>
+            <td class="num pay-amt" data-i="${i}"></td>
+            <td><input type="text" name="pay_note_${i}" value="${esc(p.note || '')}" maxlength="200" placeholder="ör. ön ödeme" aria-label="${i + 1}. ödeme notu" ${dis('payments')}></td>
+            <td>${prodOnly ? '' : `<button type="button" class="linkbtn paydel" data-i="${i}" aria-label="${i + 1}. satırı sil">sil</button>`}</td></tr>`).join('')}
+        </tbody><tfoot><tr class="tfoot"><td>Toplam</td><td class="num" id="paysum"></td><td></td><td class="num" id="paytot"></td><td colspan="2"></td></tr></tfoot></table></div>
+        ${prodOnly ? '' : '<p style="margin:6px 0 0"><button type="button" class="btn sm" id="payadd">+ Satır ekle</button></p>'}<span class="err" data-e="payments"></span></div>` : ''}
       <div class="row r2">
         <label class="f">Detay<textarea name="details" ${dis('details')}>${v('details')}</textarea></label>
         <label class="f">Not<textarea name="notes" ${dis('notes')}>${v('notes')}</textarea></label>
@@ -1190,7 +1284,9 @@ function viewForm(id){
     shell(ex ? 'kayitlar/'+ex.status : 'yeni', html());
     qa('[data-k]').forEach(b => b.onclick = () => { collect(); kind = b.dataset.k;
       if (kind==='order'){ d.status='production'; d.stage='won'; d.order_date = d.order_date || today(); } else { d.status='pipeline'; d.stage='qualify'; d.lead_date = d.lead_date || today(); }
-      mount(); });
+      padPays(); mount(); });
+    q('#payadd') && (q('#payadd').onclick = () => { collect(); d.pays.push(payRow()); mount(); });
+    qa('.paydel').forEach(b => b.onclick = () => { collect(); d.pays.splice(+b.dataset.i, 1); mount(); });
     const f = q('#df');
     f.addEventListener('input', onChange); f.addEventListener('change', onChange);
     f.onsubmit = submit;
@@ -1202,6 +1298,8 @@ function viewForm(id){
     for (const el of f.elements) {
       if (!el.name || el.name === 'rate') continue;
       if (el.name.startsWith('item_')) { const c = el.name.slice(5); d.items = d.items || {}; if (el.value) d.items[c] = +el.value; else delete d.items[c]; continue; }
+      const pm = /^pay_(pct|due|note)_(\d+)$/.exec(el.name);
+      if (pm) { const p = d.pays[+pm[2]]; if (p && !p.received_at) p[{ pct:'pct', due:'due_date', note:'note' }[pm[1]]] = el.value.trim(); continue; }
       if (el.type === 'checkbox') d[el.name] = el.checked; else d[el.name] = el.value.trim();
     }
   }
@@ -1222,6 +1320,10 @@ function viewForm(id){
     qa('.orig', f).forEach(l => l.style.display = cur === 'USD' ? 'none' : '');
     if (e && ['amount_orig','rate'].includes(e.target.name) && f.rate.value && f.amount_orig.value) f.amount_usd.value = (+f.amount_orig.value * +f.rate.value).toFixed(2);
     validate(false);
+    if (q('#paysum', f)) { const tot = dealTotal(), sum = d.pays.reduce((t, p) => t + (+p.pct || 0), 0);
+      qa('.pay-amt', f).forEach(td => { const p = d.pays[+td.dataset.i]; td.textContent = p && +p.pct && tot ? fmtMoney(tot * p.pct / 100, d.currency) : ''; });
+      q('#paysum', f).textContent = sum ? '%' + sum.toLocaleString('tr-TR', { maximumFractionDigits:2 }) : '';
+      q('#paytot', f).textContent = sum && tot ? fmtMoney(tot * sum / 100, d.currency) : ''; }
   }
   function validate(show){
     collect();
@@ -1253,6 +1355,12 @@ function viewForm(id){
     if (kind==='order' && !Object.keys(d.items||{}).length && !d.amount_usd) errs.items = 'Sipariş için en az bir ürün ya da tutar gir.';
     if ((d.items||{}).OTHER && !d.other_note) errs.other_note = 'Diğer adedi girildi; ne satıldığını yaz.';
     if (d.other_note && !(d.items||{}).OTHER) errs.other_note = 'Diğer notu yazıldı; Diğer adedini de gir.';
+    if (kind === 'order') {
+      const filled = d.pays.filter(p => p.received_at || p.pct || p.due_date || p.note), sum = filled.reduce((t, p) => t + (+p.pct || 0), 0);
+      if (filled.some(p => !p.received_at && (!(+p.pct > 0) || +p.pct > 100 || !p.due_date || p.due_date < MIN_DATE || p.due_date > MAX_DATE))) errs.payments = 'Her dolu satırda oran (0–100) ve ödeme tarihi olmalı.';
+      else if (filled.length && Math.abs(sum - 100) > 0.01) errs.payments = `Oranların toplamı %100 olmalı (şu an %${sum.toLocaleString('tr-TR', { maximumFractionDigits:2 })}).`;
+      else if (!filled.length && payNeeded()) errs.payments = 'Sipariş için ödeme planını gir.';
+    }
 
     qa('[data-e]', f).forEach(s => { const k = s.dataset.e; const m = errs[k]; s.textContent = show || f.dataset.tried ? (m||'') : '';
       const inp = f.elements[k] || f.elements['item_'+k]; if (inp && inp.setAttribute) inp.setAttribute('aria-invalid', !!(m && (show || f.dataset.tried))); });
@@ -1263,6 +1371,7 @@ function viewForm(id){
       ['Tarihler tutarlı', !['lead_date','order_date','expected_po_date','requested_ship_date','planned_ship_date','ship_date'].some(k=>errs[k])],
       ['Ürün adetleri', !errs.items && !errs.other_note],
       ['Tutar ve para birimi', !errs.amount_usd && !errs.amount_orig],
+      ...(kind === 'order' ? [['Ödeme planı', !errs.payments]] : []),
     ];
     q('#chk').innerHTML = checks.map(([t,ok]) => `<li class="${ok?'ok':(f.dataset.tried?'bad':'')}">${t}</li>`).join('') + (!existingCust && custTxt.length>=2 ? `<li class="ok">Yeni müşteri eklenecek: ${esc(custTxt)}</li>` : '');
     return errs;
@@ -1281,10 +1390,17 @@ function viewForm(id){
     payload.customer_id = existingCust ? existingCust.id : null;
     const { data, error } = await sb.rpc('save_deal', { p_deal: payload, p_items: prodOnly ? null : (d.items||{}), p_customer_name: existingCust ? null : d.customer, p_customer_country: d.country || null });
     if (error) { btn.disabled = false; btn.textContent = ex ? 'Değişiklikleri kaydet' : 'Kaydı oluştur'; return toast(dbErr(error), true); }
+    let payErr = null;
+    if (kind === 'order' && !prodOnly) {
+      const rows = d.pays.map((p, i) => ({ ...p, seq:i + 1 })).filter(p => !p.received_at && (p.pct || p.due_date))
+        .map(p => ({ id:p.id || null, seq:p.seq, pct:+p.pct, due_date:p.due_date, note:p.note || null }));
+      payErr = (await sb.rpc('save_deal_payments', { p_deal:data, p_rows:rows })).error;
+    }
     const ri = q('#resolveIss');
     if (ex && ri && ri.checked) { const ids = S.issues.filter(i => i.deal_id === ex.id && !i.resolved).map(i => i.id); if (ids.length) await sb.from('import_issues').update({ resolved:true }).in('id', ids); }
     await loadAll().catch(() => {}); // kayıt yazıldı; yenileme hatası düğmeyi kilitli bırakmasın
-    toast(ex ? 'Değişiklikler kaydedildi' : 'Kayıt oluşturuldu');
+    if (payErr) toast('Kayıt kaydedildi ama ödeme planı kaydedilemedi: ' + dbErr(payErr), true);
+    else toast(ex ? 'Değişiklikler kaydedildi' : 'Kayıt oluşturuldu');
     location.hash = '#/kayit/' + data;
   }
   mount();
@@ -3706,7 +3822,7 @@ function openAttPop(btn, cur, onPick){
 }
 const hm = t => t ? String(t).slice(0, 5) : '';
 const attTimeTxt = t => t && (t.arrive || t.leave) ? `${hm(t.arrive) || '?'}–${hm(t.leave) || '…'}` : '';
-const attCell = (c, t) => (c && ATT[c] ? `<b>${esc(c)}</b><span>${ATT[c][2]}</span>` : '<span>Seç</span>') + (attTimeTxt(t) ? `<i class="atttime">${attTimeTxt(t)}</i>` : '');
+const attCell = (c, t, lk) => (c && ATT[c] ? `<b>${esc(c)}</b><span>${ATT[c][2]}${lk ? ' 🔒' : ''}</span>` : '<span>Seç</span>') + (attTimeTxt(t) ? `<i class="atttime">${attTimeTxt(t)}</i>` : '');
 // geliş / çıkış saati kutusu (geç gelen kişi geliş saatini, telafi için çıkış saatini girer)
 function openTimePop(btn, pid, day, cur, ws, we, onDone){
   closeAttPop(); const lock = attLocked(day);
@@ -3765,13 +3881,14 @@ async function viewAttendance(arg){
   if (!s.week) s.week = mondayOf(td);
   const days = [0, 1, 2, 3, 4].map(i => addDays(s.week, i));
   const [pr, dr, nr, tr] = await Promise.all([sb.from('att_people').select('*').order('sort').order('name'),
-    sb.from('att_days').select('person_id,day,code').gte('day', days[0]).lte('day', days[4]), sb.from('att_week_notes').select('person_id,note').eq('week', s.week),
+    sb.from('att_days').select('person_id,day,code,admin_lock').gte('day', days[0]).lte('day', days[4]), sb.from('att_week_notes').select('person_id,note').eq('week', s.week),
     sb.from('att_times').select('person_id,day,arrive,leave,note').gte('day', days[0]).lte('day', days[4])]);
   if (pr.error) return shell('calisma-plani', `<h1>Haftalık yoklama</h1><div class="empty">${esc(dbErr(pr.error))}</div>`);
   const all = pr.data || [], people = all.filter(p => p.active), D = dr.data || [], N = nr.data || [], T = tr.error ? [] : (tr.data || []);
   const tOf = (pid, d) => T.find(x => x.person_id === pid && x.day === d);
   const me = attMine(all), adm = can('admin'), canEd = pid => adm || pid === me;
   const code = (pid, d) => (D.find(x => x.person_id === pid && x.day === d) || {}).code || '';
+  const lockOf = (pid, d) => !!(D.find(x => x.person_id === pid && x.day === d) || {}).admin_lock; // yönetici "G" işaretledi
   const note = pid => (N.find(x => x.person_id === pid) || {}).note || '';
   const inWeek = days.includes(td), thisWeek = s.week === mondayOf(td);
   const filled = d => people.filter(p => code(p.id, d)).length;
@@ -3784,24 +3901,26 @@ async function viewAttendance(arg){
   <div class="tablewrap"><table class="att"><thead><tr><th class="nosort">Ad</th>${days.map((d, i) => `<th class="nosort c${d === td ? ' today' : ''}">${ATT_DN[i]} <span class="sub">${fmtDM(d)}</span><div class="sub">${filled(d)}/${people.length}${adm && filled(d) < people.length ? ` · <button type="button" class="linkbtn atthol" data-d="${d}" title="Boş hücrelere T (tatil) yaz: resmi tatil vb.">tatil</button>` : ''}</div></th>`).join('')}<th class="nosort">Açıklama</th></tr></thead><tbody>
     ${people.map(p => `<tr data-p="${p.id}" class="${p.id === me ? 'mine' : ''}" style="cursor:default"><td><b style="font-weight:600">${esc(p.name)}</b>${p.id === me ? ' <span class="sub">(sen)</span>' : ''}</td>
       ${days.map(d => { const c = code(p.id, d); return `<td class="c${d === td ? ' today' : ''}">${canEd(p.id)
-        ? `<button type="button" class="attcell ${c ? ATT[c][1] : 'empty'}" data-d="${d}" aria-haspopup="menu" aria-label="${esc(p.name)} ${fmtD(d)}: ${c ? ATT[c][0] : 'boş'}">${attCell(c, tOf(p.id, d))}</button>`
+        ? `<button type="button" class="attcell ${c ? ATT[c][1] : 'empty'}" data-d="${d}" aria-haspopup="menu" aria-label="${esc(p.name)} ${fmtD(d)}: ${c ? ATT[c][0] : 'boş'}${lockOf(p.id, d) ? ', yönetici işaretledi' : ''}">${attCell(c, tOf(p.id, d), lockOf(p.id, d))}</button>`
         : attBadge(c) || '<span class="sub">·</span>'}</td>`; }).join('')}
       <td>${canEd(p.id) ? `<input type="text" class="attnote" value="${esc(note(p.id))}" placeholder="Part-time günleri, açıklama…">` : `<span class="sub">${esc(note(p.id))}</span>`}</td></tr>`).join('')}
   </tbody></table></div>
-  <p class="note">Kodlar: ${Object.entries(ATT).map(([k, v]) => `${attBadge(k)} ${v[0]}`).join(' · ')} · Boş hücre: henüz girilmedi. <b>G</b> seçince geliş saati sorulur; geç çıkarak telafi ettiysen hücreden “saat gir” ile çıkış saatini ekle. Ay sonu eksik saat: <a href="#/gec-kalma">Geç kalma / telafi</a>.</p>`);
+  <p class="note">Kodlar: ${Object.entries(ATT).map(([k, v]) => `${attBadge(k)} ${v[0]}`).join(' · ')} · Boş hücre: henüz girilmedi. <b>G</b> seçince geliş saati sorulur. Yöneticinin işaretlediği G (🔒) değiştirilemez, yalnız saati girilir. Geç çıkarak telafi ettiysen hücreden “saat gir” ile çıkış saatini ekle. Ay sonu eksik saat: <a href="#/gec-kalma">Geç kalma / telafi</a>.</p>`);
   const go = w => { s.week = w; viewAttendance(); };
   q('#awp').onclick = () => go(addDays(s.week, -7)); q('#awn').onclick = () => go(addDays(s.week, 7)); q('#awt').onclick = () => go(mondayOf(td));
   bindNotifPanel();
   const pOf = pid => all.find(p => p.id === pid) || {};
   const askTime = (btn, pid, d) => openTimePop(btn, pid, d, tOf(pid, d), pOf(pid).work_start || '09:00', pOf(pid).work_end || '18:00', row => {
-    const i = T.findIndex(x => x.person_id === pid && x.day === d); if (i >= 0) T.splice(i, 1); if (row) T.push(row); btn.innerHTML = attCell(code(pid, d), tOf(pid, d)); btn.focus(); });
+    const i = T.findIndex(x => x.person_id === pid && x.day === d); if (i >= 0) T.splice(i, 1); if (row) T.push(row); btn.innerHTML = attCell(code(pid, d), tOf(pid, d), lockOf(pid, d)); btn.focus(); });
   qa('.attcell').forEach(btn => btn.onclick = () => { const pid = +btn.closest('tr').dataset.p, d = btn.dataset.d;
-    const pick = async v => { if (v === '__t') return askTime(btn, pid, d); if (v === code(pid, d)) return;
+    if (!adm && lockOf(pid, d)) { if (!tr.error && d <= td) return askTime(btn, pid, d); return toast('Bu günü yönetici geç olarak işaretledi; değiştirilemez.', true); }
+    const pick = async v => { if (v === '__t') return askTime(btn, pid, d); if (v === code(pid, d) && !(adm && v === 'G' && !lockOf(pid, d))) return; // yönetici kişinin yazdığı G'yi yeniden seçerek kilitler
     const r = v ? await sb.from('att_days').upsert({ person_id:pid, day:d, code:v, updated_by:S.profile.id, updated_at:new Date().toISOString() }) : await sb.from('att_days').delete().eq('person_id', pid).eq('day', d);
     if (r.error) { toast(dbErr(r.error), true); return viewAttendance(); }
     const x = D.find(y => y.person_id === pid && y.day === d);
-    if (v) { if (x) x.code = v; else D.push({ person_id:pid, day:d, code:v }); } else if (x) D.splice(D.indexOf(x), 1);
-    btn.className = 'attcell ' + (v ? ATT[v][1] : 'empty'); btn.innerHTML = attCell(v, tOf(pid, d));
+    const lk = adm && v === 'G';
+    if (v) { if (x) Object.assign(x, { code:v, admin_lock:lk }); else D.push({ person_id:pid, day:d, code:v, admin_lock:lk }); } else if (x) D.splice(D.indexOf(x), 1);
+    btn.className = 'attcell ' + (v ? ATT[v][1] : 'empty'); btn.innerHTML = attCell(v, tOf(pid, d), lk);
     if (d === td) { await loadAttToday(); } toast('Kaydedildi');
     if (v === 'G' && !(tOf(pid, d) || {}).arrive && d <= td) askTime(btn, pid, d); };
     pick.time = !tr.error && d <= td; openAttPop(btn, code(pid, d), pick); });
