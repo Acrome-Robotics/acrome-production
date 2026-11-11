@@ -25,7 +25,7 @@ const PV_KEY = 'rolePreview';
 const getPreview = () => { try { return JSON.parse(localStorage.getItem(PV_KEY) || 'null'); } catch { return null; } };
 const realAdmin = () => userRoles(S.realProfile || S.profile).includes('admin');
 const roleLabel = p => userRoles(p).length ? userRoles(p).map(r => ROLES[r] || r).join(' + ') : ROLES.pending;
-const CATS = { sistem:'Deney setleri', kontrolcu:'Kontrolcüler', smd:'SMD' };
+const CATS = { sistem:'Deney setleri', kontrolcu:'Kontrolcüler', smd:'SMD', diger:'Diğer' };
 const CURRENCIES = ['USD','EUR','GBP','TRY'];
 const MONTHS = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
 const RE_ORDER = /^ACRPO-I?[0-9]{1,4}(-(SP|P)[0-9]{1,2})?$/;
@@ -639,7 +639,7 @@ function viewList(tab){
   const draw = () => {
     const s = listState, ql = s.q.toLocaleLowerCase('tr');
     let rows = base.filter(d =>
-      (!ql || [d.order_no,d.opp_no,custName(d),d.description,d.details,d.reseller,d.notes].join(' ').toLocaleLowerCase('tr').includes(ql)) &&
+      (!ql || [d.order_no,d.opp_no,custName(d),d.description,d.details,d.reseller,d.notes,d.other_note].join(' ').toLocaleLowerCase('tr').includes(ql)) &&
       (!s.year || yearOf(bdate(d)) === +s.year) &&
       (!s.month || (bdate(d) && +bdate(d).slice(5,7) === +s.month)) &&
       (!s.country || d.country === s.country) &&
@@ -693,7 +693,7 @@ function viewList(tab){
 function csv(rows, name){
   const cols = [['No',refNo],['PROS',d=>d.opp_no],['Müşteri',custName],['Ülke',d=>ctryName(d.country)],['Açıklama',d=>d.description],['Aşama',d=>STAGES[d.stage]],['Durum',d=>STATUSES[d.status]],
     ['Fırsat girişi',d=>d.lead_date],['Sipariş tarihi',d=>d.order_date],['İstenen sevk',d=>d.requested_ship_date],['Planlanan sevk',d=>d.planned_ship_date],['Sevk tarihi',d=>d.ship_date],['Sevk ayı',d=>d.ship_month],
-    ['Tutar USD',d=>d.amount_usd],['Para birimi',d=>d.currency],['Orijinal tutar',d=>d.amount_orig],...S.products.map(p=>[p.name,d=>(d.items||{})[p.code]||'']),['Detay',d=>d.details],['Ödeme',d=>d.payment_terms],['Not',d=>d.notes]];
+    ['Tutar USD',d=>d.amount_usd],['Para birimi',d=>d.currency],['Orijinal tutar',d=>d.amount_orig],...S.products.map(p=>[p.name,d=>(d.items||{})[p.code]||'']),['Diğer notu',d=>d.other_note],['Detay',d=>d.details],['Ödeme',d=>d.payment_terms],['Not',d=>d.notes]];
   const cell = v => { v = csvSafe(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
   const txt = '﻿' + [cols.map(c=>c[0]).join(';'), ...rows.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'})); a.download = name; a.click();
@@ -808,7 +808,7 @@ function viewDetail(id){
     <section class="panel"><h2>Tutar ve ürünler</h2><dl class="kv">
       ${kv('Tutar (USD)', fmtUSD(d.amount_usd))}${d.currency!=='USD'?kv('Orijinal tutar', fmtN(d.amount_orig)+' '+d.currency):''}${kv('SMD satışı', d.smd_sales_usd!=null && fmtUSD(d.smd_sales_usd))}${kv('Ödeme planı', esc(d.payment_terms))}${d.is_internal?kv('Tür','Dahili (Acrome içi)'):''}
     </dl>
-    ${Object.keys(d.items||{}).length ? `<table class="mt"><tbody>${Object.entries(d.items).map(([c,q])=>`<tr style="cursor:default"><td>${esc(prodName(c))}</td><td class="num">${fmtN(q)}</td></tr>`).join('')}</tbody></table>`:'<p class="note">Ürün kalemi yok.</p>'}
+    ${Object.keys(d.items||{}).length ? `<table class="mt"><tbody>${Object.entries(d.items).map(([c,q])=>`<tr style="cursor:default"><td>${esc(prodName(c))}${c==='OTHER' && d.other_note ? `<div class="sub" style="white-space:pre-line">${esc(d.other_note)}</div>` : ''}</td><td class="num">${fmtN(q)}</td></tr>`).join('')}</tbody></table>`:'<p class="note">Ürün kalemi yok.</p>'}
     </section>
   </div>
   ${stagePanel(d)}
@@ -1161,7 +1161,8 @@ function viewForm(id){
 
     <section class="fs"><h2>Ürünler</h2><div class="prodgrid">
       ${Object.entries(CATS).map(([cat,cl]) => `<div class="cat">${cl}</div>` + S.products.filter(p=>p.category===cat && (p.active || (d.items||{})[p.code])).map(p => `<label>${esc(p.name)}<input type="number" min="0" max="1000" step="any" inputmode="decimal" name="item_${p.code}" value="${(d.items||{})[p.code]||''}" ${dis('items')} aria-label="${esc(p.name)} adedi"></label>`).join('')).join('')}
-    </div><span class="err" data-e="items"></span></section>
+    </div><span class="err" data-e="items"></span>
+      <div class="row r1" style="margin-top:8px"><label class="f">Diğer — ne satıldı? <span class="hint">plaka, yedek parça, proje… Diğer adediyle birlikte doldur</span><textarea name="other_note" maxlength="1000" ${dis('other_note')}>${v('other_note')}</textarea><span class="err" data-e="other_note"></span></label></div></section>
 
     <section class="fs"><h2>Tutar ve ödeme</h2>
       <div class="row r4">
@@ -1250,6 +1251,8 @@ function viewForm(id){
     const badQty = Object.entries(d.items||{}).find(([,q]) => isNaN(+q) || +q < 0 || +q > 1000 || Math.round(+q*100) !== +q*100);
     if (badQty) errs.items = `${prodName(badQty[0])}: adet 0–1000 arası olmalı.`;
     if (kind==='order' && !Object.keys(d.items||{}).length && !d.amount_usd) errs.items = 'Sipariş için en az bir ürün ya da tutar gir.';
+    if ((d.items||{}).OTHER && !d.other_note) errs.other_note = 'Diğer adedi girildi; ne satıldığını yaz.';
+    if (d.other_note && !(d.items||{}).OTHER) errs.other_note = 'Diğer notu yazıldı; Diğer adedini de gir.';
 
     qa('[data-e]', f).forEach(s => { const k = s.dataset.e; const m = errs[k]; s.textContent = show || f.dataset.tried ? (m||'') : '';
       const inp = f.elements[k] || f.elements['item_'+k]; if (inp && inp.setAttribute) inp.setAttribute('aria-invalid', !!(m && (show || f.dataset.tried))); });
@@ -1258,7 +1261,7 @@ function viewForm(id){
       [kind==='order'?'Sipariş numarası (benzersiz)':'PROS numarası (benzersiz)', !errs.order_no && !errs.opp_no],
       ['Açıklama', !errs.description],
       ['Tarihler tutarlı', !['lead_date','order_date','expected_po_date','requested_ship_date','planned_ship_date','ship_date'].some(k=>errs[k])],
-      ['Ürün adetleri', !errs.items],
+      ['Ürün adetleri', !errs.items && !errs.other_note],
       ['Tutar ve para birimi', !errs.amount_usd && !errs.amount_orig],
     ];
     q('#chk').innerHTML = checks.map(([t,ok]) => `<li class="${ok?'ok':(f.dataset.tried?'bad':'')}">${t}</li>`).join('') + (!existingCust && custTxt.length>=2 ? `<li class="ok">Yeni müşteri eklenecek: ${esc(custTxt)}</li>` : '');
@@ -1271,7 +1274,7 @@ function viewForm(id){
     const btn = q('#save'); btn.disabled = true; btn.textContent = 'Kaydediliyor…';
     const existingCust = S.customers.find(c => c.name.toLocaleLowerCase('tr') === d.customer.toLocaleLowerCase('tr'));
     const payload = {};
-    for (const k of ['id','order_no','opp_no','country','description','stage','status','quote_no','lead_date','order_date','expected_po_date','requested_ship_date','planned_ship_date','ship_date','ship_month','details','delay_reason','payment_terms','notes','reseller','amount_usd','currency','amount_orig','smd_sales_usd','is_internal'])
+    for (const k of ['id','order_no','opp_no','country','description','stage','status','quote_no','lead_date','order_date','expected_po_date','requested_ship_date','planned_ship_date','ship_date','ship_month','details','delay_reason','payment_terms','notes','reseller','amount_usd','currency','amount_orig','smd_sales_usd','is_internal','other_note'])
       payload[k] = d[k] === '' ? null : d[k] ?? null;
     if (kind==='opp') { payload.order_date = d.order_date || null; }
     if (payload.currency === 'USD') payload.amount_orig = null;
@@ -3046,6 +3049,7 @@ async function viewPurchase(id, preset){
   </fieldset></form><datalist id="itemlist2">${S.items.map(i => `<option value="${esc(i.name)}">`).join('')}</datalist></div>
   <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Tutar</dt><dd><b>${fmtMoney(p.total, p.currency)}</b></dd><dt>Durum</dt><dd>${purPill(p.status)}</dd>${p.purchased_at ? `<dt>Alındı</dt><dd>${fmtD(p.purchased_at)}</dd>` : ''}${p.received_into_stock ? '<dt>Stok</dt><dd class="ok-txt">Stoğa girdi</dd>' : ''}${p.link ? `<dt>Bağlantı</dt><dd><a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener">aç ↗</a></dd>` : ''}${p.bom_id && bomById(p.bom_id) ? `<dt>Ürün / proje</dt><dd><a href="#/bom/${p.bom_id}">${esc(bomById(p.bom_id).name)}</a></dd>` : ''}${it ? `<dt>Parça</dt><dd><a href="#/stok/${it.id}">${esc(it.name)}</a> · stok ${fmtQ(it.qty)}</dd>` : ''}</dl></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Aynı tedarikçiden birden fazla parça istiyorsanız her parçayı ayrı talep olarak açın; böylece her biri ayrı takip edilir ve stoğa ayrı girer.</p></section>`}
     ${id ? `<section class="panel mt"><h2>Belgeler</h2><div id="pfl"><p class="sub">Yükleniyor…</p></div></section>
+      <section class="panel mt"><h2>Dekont</h2><div id="pdk"><p class="sub">Yükleniyor…</p></div><div id="pdka"></div></section>
       <div id="pinv"></div>` : ''}
     ${id ? `<section class="panel mt"><h2>Yorumlar</h2><div id="pcl"><p class="sub">Yükleniyor…</p></div>
       <textarea id="pct" rows="2" maxlength="2000" placeholder="Yorum yaz (talep sahibi ve Satın alma görür, bildirim alır)" style="width:100%;margin-top:8px"></textarea>
@@ -3054,7 +3058,14 @@ async function viewPurchase(id, preset){
   if (id) {
     const canAdd = canPurchase() || can('muhasebe') || mine, loadF = async () => {
       const { data } = await sb.from('purchase_files').select('*').eq('purchase_id', id).order('created_at');
-      fileList(q('#pfl'), data || [], { canAdd, canDel: f => f.uploaded_by === S.profile.id || can('admin'), prefix:'p/' + id, link:{ purchase_id:id }, kind:'proforma', reload:loadF }); };
+      const all = data || [], dk = all.filter(f => f.kind === 'dekont'), acc = can('muhasebe', 'admin');
+      fileList(q('#pfl'), all.filter(f => f.kind !== 'dekont'), { canAdd, canDel: f => f.uploaded_by === S.profile.id || can('admin'), prefix:'p/' + id, link:{ purchase_id:id }, kind:'proforma', reload:loadF });
+      fileList(q('#pdk'), dk, { canAdd: acc && !p.receipt_approved_at, canDel: f => !p.receipt_approved_at && (f.uploaded_by === S.profile.id || can('admin')), prefix:'p/' + id, link:{ purchase_id:id },
+        kind:'dekont', kinds:{ dekont:'Dekont' }, empty:'Dekont yüklenmedi. Ödeme yapılınca muhasebe yükler ve onaylar.', reload:loadF });
+      q('#pdka').innerHTML = p.receipt_approved_at ? `<p class="ok-txt" style="margin:8px 0 0">✓ Onaylandı · ${esc(p.receipt_approved_name || '')} · ${fmtDT(p.receipt_approved_at)}</p>`
+        : acc && dk.length ? `<p style="margin:8px 0 0"><button class="btn sm primary" id="pdkok" type="button">Dekontu onayla</button> <span class="sub">talebi açana bildirim gider</span></p>` : '';
+      q('#pdkok') && (q('#pdkok').onclick = e => busy(e.currentTarget, async () => { const { error } = await sb.rpc('purchase_receipt_approve', { p_purchase:id }); if (error) return toast(dbErr(error), true);
+        toast('Dekont onaylandı; talep sahibine bildirim gitti'); await viewPurchase(id); })); };
     loadF();
     sb.from('purchase_events').select('*').eq('purchase_id', id).order('at').then(({ data }) => { const ev = (data || []).slice(-15).reverse();
       q('#pev') && (q('#pev').innerHTML = ev.length ? `<ul class="pclist">${ev.map(e => `<li><div>${e.old_status ? purPill(e.old_status) + ' → ' : ''}${purPill(e.new_status)}</div><div class="sub">${esc(e.actor_name || '')} · ${fmtDT(e.at)}${e.note ? ' · ' + esc(e.note) : ''}</div></li>`).join('')}</ul>` : '<p class="sub" style="margin:0">Bu özellik eklendikten sonraki durum değişiklikleri burada görünür.</p>'); });
@@ -3438,9 +3449,10 @@ async function openAlimFile(path){
 // Belge listesi + yükleme (alım: p/<id>, fatura: f/<id>)
 function fileList(box, files, o){
   if (!box) return;
-  box.innerHTML = `${files.length ? `<ul class="flist">${files.map(f => `<li><button type="button" class="linkbtn flink" data-fo="${esc(f.path)}">📎 ${esc(f.name || 'dosya')}</button> <span class="chip">${FILE_KIND[f.kind] || f.kind}</span>
-      <div class="sub">${esc(f.uploaded_by_name || '')} · ${fmtDT(f.created_at)}${o.canDel(f) ? ` · <button type="button" class="linkbtn" data-fd="${f.id}">sil</button>` : ''}</div></li>`).join('')}</ul>` : '<p class="sub" style="margin:0">Henüz belge yok.</p>'}
-    ${o.canAdd ? `<div class="fup"><select aria-label="Belge türü">${Object.entries(FILE_KIND).map(([k, l]) => `<option value="${k}" ${k === o.kind ? 'selected' : ''}>${l}</option>`).join('')}</select>
+  const K = o.kinds || FILE_KIND;
+  box.innerHTML = `${files.length ? `<ul class="flist">${files.map(f => `<li><button type="button" class="linkbtn flink" data-fo="${esc(f.path)}">📎 ${esc(f.name || 'dosya')}</button> <span class="chip">${K[f.kind] || f.kind}</span>
+      <div class="sub">${esc(f.uploaded_by_name || '')} · ${fmtDT(f.created_at)}${o.canDel(f) ? ` · <button type="button" class="linkbtn" data-fd="${f.id}">sil</button>` : ''}</div></li>`).join('')}</ul>` : `<p class="sub" style="margin:0">${o.empty || 'Henüz belge yok.'}</p>`}
+    ${o.canAdd ? `<div class="fup"><select aria-label="Belge türü" ${Object.keys(K).length < 2 ? 'hidden' : ''}>${Object.entries(K).map(([k, l]) => `<option value="${k}" ${k === o.kind ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <label class="btn sm">Dosya seç (PDF / foto)<input type="file" accept="application/pdf,image/*" hidden></label></div><p class="note" style="margin:4px 0 0">En fazla 10 MB. Telefondan fotoğraf çekebilirsiniz.</p>` : ''}`;
   qa('[data-fo]', box).forEach(b => b.onclick = () => openAlimFile(b.dataset.fo));
   qa('[data-fd]', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'emin misin? tekrar bas')) return;
