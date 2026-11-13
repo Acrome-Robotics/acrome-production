@@ -213,6 +213,7 @@ const logo = () => { const g = 'lg' + (++logoN); return `<svg width="32" height=
 // menü grubu ikonları (16px, çizgi)
 const svgI = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICON = {
+  bell: svgI('<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 20a2 2 0 0 0 3.4 0"/>'),
   chart: svgI('<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>'),
   help: svgI('<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7"/><path d="M12 17h.01"/>'),
   wrench: svgI('<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/>'),
@@ -324,7 +325,7 @@ function shell(active, html){
 
 function route(){
   const [p, a] = location.hash.replace(/^#\/?/,'').split('?')[0].split('/');
-  window.scrollTo(0,0); if (typeof closeAttPop === 'function') closeAttPop();
+  window.scrollTo(0,0); if (typeof closeAttPop === 'function') closeAttPop(); if (typeof closeBell === 'function') closeBell();
   if (p === 'rol-onizleme' && realAdmin()) return viewRolePreview();
   if (p === 'masraf') return a ? viewExpenseDetail(+a) : viewExpense();
   if (p === 'masraf-liste') return canAcc() ? viewExpenseList() : viewExpense();
@@ -406,7 +407,6 @@ function todaySections(){
     const fol = tk.filter(t => mine(t) && t.status === 'customer' && supWait(t));
     S_.push({ id:'fol', title:'Müşteride 7+ gün · takip maili atılmalı', link:'#/support', rows: fol.map(tRow), empty:'Takip bekleyen yok.' });
   }
-  if (S.unread) S_.push({ id:'not', bottom:true, title:'Okunmamış bildirimler', link:'#/bildirimler', count:S.unread, rows:[{ href:'#/bildirimler', main:`${S.unread} okunmamış bildirim`, sub:'', meta:'', hot:true }], alert:true });
   if (can('production','orders','admin') && prod.length) {
     const deps = myDeps(), ks = deps.length ? deps : can('production','admin') ? STG.map(x => x[0]) : ['gonderim'];
     const sq = prod.filter(d => ks.includes((curStage(d.id) || [])[0])).sort((a,b) => (due(a)||'9999').localeCompare(due(b)||'9999'));
@@ -491,12 +491,12 @@ function viewToday(){
       ${mini ? '' : `${x.foot ? `<p class="tfoot-note">${x.foot}</p>` : ''}
       <ul class="tlist">${x.rows.slice(0, MAX).map(r => `<li><a href="${r.href}"><span class="tm">${r.main}${r.sub ? `<span class="sub">${r.sub}</span>` : ''}</span><span class="tmeta">${r.meta}</span></a></li>`).join('')}</ul>${x.rows.length > MAX ? `<a class="tmore" href="${x.link}">+${x.rows.length - MAX} tane daha</a>` : ''}`}</section>`; };
   shell('bugun', `<div class="pagehead"><div><h1>${hi}, ${esc(name)}</h1><p class="lede">${dstr} · ${esc(roleLabel(S.profile))} görünümü · ${hotN ? `<b class="late-txt">${hotN} iş dikkat istiyor</b>` : 'Acil bekleyen iş yok'}</p></div>
-      <div class="tlayout">${todayEdit ? `<button class="btn sm" id="treset" type="button" title="Kutuların yerini ve açık/küçük durumunu varsayılana döndürür">Varsayılana dön</button><button class="btn sm primary" id="tedit" type="button">Bitti</button>` : `<button class="btn sm" id="tedit" type="button" title="Kutuları sürükleyerek ya da oklarla yerleştirin; düzen hesabınıza kaydedilir">Düzeni değiştir</button>`}</div></div>
-    ${notifPanel()}${countBanner()}
+      <div class="tlayout">${todayEdit ? `<button class="btn sm" id="treset" type="button" title="Kutuların yerini ve açık/küçük durumunu varsayılana döndürür">Varsayılana dön</button><button class="btn sm primary" id="tedit" type="button">Bitti</button>` : `<button class="btn sm" id="tedit" type="button" title="Kutuları sürükleyerek ya da oklarla yerleştirin; düzen hesabınıza kaydedilir">Düzeni değiştir</button>`}${bellBtn()}</div></div>
+    ${countBanner()}
     ${todayEdit ? '<p class="note tedit-note">Kutuları tutup sürükleyin ya da ↑ ↓ ⇄ ile taşıyın. ▾ ile kutuyu küçültün. Düzen hesabınıza kaydedilir, her cihazda aynı görünür.</p>' : ''}
     <div class="tcols${todayEdit ? ' editing' : ''}">${cols.map((c, i) => `<div class="tcol" data-col="${i}">${c.map(panel).join('')}${todayEdit ? '<div class="tdrop" aria-hidden="true">Buraya bırakın</div>' : ''}</div>`).join('')}</div>
     ${secs.some(x => !x.rows.length) ? `<div class="tclear">${secs.filter(x => !x.rows.length).map(x => `<span>✓ ${x.empty}</span>`).join('')}</div>` : ''}`);
-  bindNotifPanel();
+  bindBell();
   // mevcut ekrandaki düzeni oku ve kaydet
   const current = () => qa('.tcols .tcol').map(c => qa('.tday[data-sec]', c).map(p => p.dataset.sec));
   const persist = async (re = true) => { await savePref(TL_KEY, { cols: current(), min: [...minSet] }); if (re) viewToday(); };
@@ -519,17 +519,49 @@ function viewToday(){
       if (after) { after.classList.add('dropbefore'); c.insertBefore(drag, after); } else c.insertBefore(drag, q('.tdrop', c)); };
     c.ondrop = e => e.preventDefault(); });
 }
-function bindNotifPanel(){
-  qa('.tnotif li[data-nid] a').forEach(el => el.onclick = async e => { e.preventDefault(); const li = el.closest('li'), n = (S.notifList || []).find(x => x.id === +li.dataset.nid); if (!n) return;
-    if (!n.read_at) { n.read_at = new Date().toISOString(); S.unread = Math.max(0, (S.unread || 0) - 1); await sb.from('support_notifications').update({ read_at:n.read_at }).eq('id', n.id).is('read_at', null); }
-    location.hash = n.ticket_id ? '#/support/' + n.ticket_id : n.link || '#/bildirimler'; });
+// Zil düğmesi + açılır bildirim kutusu (Bugün ve Yoklama sayfaları ortak)
+let bellPop = null;
+const bellN = () => (S.unread || 0) > 99 ? '99+' : String(S.unread || 0);
+const bellBtn = () => `<button type="button" class="btn sm bellbtn" aria-label="Bildirimler, ${S.unread || 0} okunmamış" aria-haspopup="dialog" aria-expanded="false" title="Bildirimler">${ICON.bell}<span class="bellb"${S.unread ? '' : ' hidden'}>${bellN()}</span></button>`;
+function closeBell(){ if (!bellPop) return; bellPop.remove(); bellPop = null; document.removeEventListener('mousedown', bellOutside, true); window.removeEventListener('scroll', bellScroll, true); window.removeEventListener('resize', closeBell);
+  qa('.bellbtn').forEach(b => b.setAttribute('aria-expanded', 'false')); }
+function bellOutside(e){ if (bellPop && !bellPop.contains(e.target) && !e.target.closest('.bellbtn')) closeBell(); }
+// kutunun kendi içindeki kaydırma kapatmasın; sayfa kayarsa kutu düğmeden ayrılır, kapat
+function bellScroll(e){ if (bellPop && !bellPop.contains(e.target)) closeBell(); }
+function bellSync(){ qa('.bellbtn').forEach(b => { const n = S.unread || 0, c = q('.bellb', b); b.setAttribute('aria-label', `Bildirimler, ${n} okunmamış`); c.textContent = bellN(); c.hidden = !n; }); }
+const bellGo = n => n.ticket_id ? '#/support/' + n.ticket_id : n.link || '#/bildirimler';
+const bellRows = () => { const L = S.notifList || []; return [...L.filter(n => !n.read_at), ...L.filter(n => n.read_at)]; };
+function bellHtml(){
+  const rows = bellRows();
+  return `<div class="bellhead"><b>Bildirimler</b>${S.unread ? '<button type="button" class="linkbtn" data-all>Hepsini okundu say</button>' : ''}</div>
+    <ul class="belllist">${rows.length ? rows.map(n => `<li data-nid="${n.id}" class="${n.read_at ? 'read' : 'unread'}"><a href="${esc(bellGo(n))}"><span class="tm">${notifText(n)}</span><span class="sub">${ago(n.created_at)}</span></a>${n.read_at ? '' : '<button type="button" class="linkbtn" data-rd>okundu</button>'}</li>`).join('') : '<li class="bellempty">Bildirim yok</li>'}</ul>
+    <a class="bellfoot" href="#/bildirimler">Tüm bildirimler ve cihaz ayarları →</a>`;
 }
-// Bugün sayfasının en üstünde bildirimler: okunmamışlar (en çok 6); okunmamış yoksa son 3 bildirim sade görünür
-function notifPanel(){
-  const L = S.notifList || []; if (!L.length) return '';
-  const un = L.filter(n => !n.read_at), rows = un.length ? un.slice(0, 6) : L.slice(0, 3);
-  return `<section class="panel tday tnotif${un.length ? ' is-hot' : ' is-calm'}"><header><h2>Bildirimler</h2>${un.length ? `<span class="tcount hot">${Math.max(S.unread || 0, un.length)}</span>` : '<span class="sub">yeni yok · son bildirimler</span>'}<a class="more" href="#/bildirimler">Tümü →</a></header>
-    <ul class="tlist">${rows.map(n => `<li data-nid="${n.id}" class="${n.read_at ? '' : 'unread'}"><a href="${esc(n.ticket_id ? '#/support/' + n.ticket_id : n.link || '#/bildirimler')}"><span class="tm">${notifText(n)}</span><span class="tmeta">${n.read_at ? `<span class="sub">${ago(n.created_at)}</span>` : '<b class="late-txt">yeni</b>'}</span></a></li>`).join('')}</ul></section>`;
+function bellFill(){
+  const el = bellPop; el.innerHTML = bellHtml();
+  const find = li => (S.notifList || []).find(x => x.id === +li.dataset.nid);
+  const mark = async n => { if (n.read_at) return true; const at = new Date().toISOString();
+    const { error } = await sb.from('support_notifications').update({ read_at:at }).eq('id', n.id).is('read_at', null);
+    if (error) { toast(dbErr(error), true); return false; }
+    n.read_at = at; S.unread = Math.max(0, (S.unread || 0) - 1); bellSync(); return true; };
+  qa('li[data-nid] a', el).forEach(a => a.onclick = async e => { e.preventDefault(); const n = find(a.closest('li')); if (!n) return; await mark(n); closeBell(); location.hash = bellGo(n); });
+  qa('[data-rd]', el).forEach(b => b.onclick = async () => { const li = b.closest('li'), n = find(li); if (n && await mark(n)) { li.className = 'read'; b.remove(); const all = q('[data-all]', el); if (all && !S.unread) all.remove(); } });
+  const all = q('[data-all]', el);
+  if (all) all.onclick = async () => { const { error } = await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null);
+    if (error) return toast(dbErr(error), true); S.unread = 0; bellSync(); await loadNotifs(); bellSync(); if (bellPop === el) bellFill(); };
+}
+function bindBell(){
+  closeBell();
+  qa('.bellbtn').forEach(btn => btn.onclick = () => {
+    if (bellPop) return closeBell();
+    const el = document.createElement('div'); el.className = 'bellpop'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Bildirimler');
+    document.body.appendChild(el); bellPop = el; bellFill(); btn.setAttribute('aria-expanded', 'true');
+    const r = btn.getBoundingClientRect(), w = el.offsetWidth;
+    el.style.top = (r.bottom + 6) + 'px'; el.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
+    el.style.maxHeight = Math.min(innerHeight * .7, innerHeight - r.bottom - 14) + 'px';
+    el.onkeydown = e => { if (e.key === 'Escape') { closeBell(); btn.focus(); } };
+    (q('button, a', el) || el).focus();
+    setTimeout(() => { document.addEventListener('mousedown', bellOutside, true); window.addEventListener('scroll', bellScroll, true); window.addEventListener('resize', closeBell); }); });
 }
 
 // ---------------------------------------------------------------- RAPOR
@@ -3892,8 +3924,8 @@ async function viewAttendance(arg){
   const note = pid => (N.find(x => x.person_id === pid) || {}).note || '';
   const inWeek = days.includes(td), thisWeek = s.week === mondayOf(td);
   const filled = d => people.filter(p => code(p.id, d)).length;
-  shell('calisma-plani', `${staffOnly() ? notifPanel() : ''}<div class="pagehead"><div><h1>Haftalık yoklama</h1><p class="lede">Ortak tablo: herkes kendi satırını doldurur, herkes tabloyu görür. Hücresi boş kalanlara iş günü 16:00'da e-posta hatırlatması gider.</p></div>
-    <nav class="subnav" aria-label="Yoklama sayfaları"><a class="btn sm" href="#/gec-kalma">Geç kalma / telafi</a>${can('admin', 'muhasebe') ? '<a class="btn sm" href="#/calisma-raporu">Aylık rapor</a>' : ''}${adm ? '<a class="btn sm" href="#/calisma-kisiler">Kişiler</a>' : ''}</nav></div>
+  shell('calisma-plani', `<div class="pagehead"><div><h1>Haftalık yoklama</h1><p class="lede">Ortak tablo: herkes kendi satırını doldurur, herkes tabloyu görür. Hücresi boş kalanlara iş günü 16:00'da e-posta hatırlatması gider.</p></div>
+    <nav class="subnav" aria-label="Yoklama sayfaları"><a class="btn sm" href="#/gec-kalma">Geç kalma / telafi</a>${can('admin', 'muhasebe') ? '<a class="btn sm" href="#/calisma-raporu">Aylık rapor</a>' : ''}${adm ? '<a class="btn sm" href="#/calisma-kisiler">Kişiler</a>' : ''}${bellBtn()}</nav></div>
   ${me == null && !adm ? `<div class="banner">E-posta adresin (${esc(S.profile.email || '')}) yoklama listesinde yok; yöneticiden eklemesini iste.</div>` : ''}
   ${me != null && inWeek && new Date().getDay() >= 1 && new Date().getDay() <= 5 && !code(me, td) ? '<div class="banner countday"><b>Bugünkü hücren boş.</b> Kendi satırında bugünün hücresinden durumunu seç.</div>' : ''}
   <div class="toolbar"><div class="seg"><button id="awp" type="button">← Önceki</button><button id="awt" type="button" class="${thisWeek ? 'on' : ''}">Bu hafta</button><button id="awn" type="button">Sonraki →</button></div>
@@ -3908,7 +3940,7 @@ async function viewAttendance(arg){
   <p class="note">Kodlar: ${Object.entries(ATT).map(([k, v]) => `${attBadge(k)} ${v[0]}`).join(' · ')} · Boş hücre: henüz girilmedi. <b>G</b> seçince geliş saati sorulur. Yöneticinin işaretlediği G (🔒) değiştirilemez, yalnız saati girilir. Geç çıkarak telafi ettiysen hücreden “saat gir” ile çıkış saatini ekle. Ay sonu eksik saat: <a href="#/gec-kalma">Geç kalma / telafi</a>.</p>`);
   const go = w => { s.week = w; viewAttendance(); };
   q('#awp').onclick = () => go(addDays(s.week, -7)); q('#awn').onclick = () => go(addDays(s.week, 7)); q('#awt').onclick = () => go(mondayOf(td));
-  bindNotifPanel();
+  bindBell();
   const pOf = pid => all.find(p => p.id === pid) || {};
   const askTime = (btn, pid, d) => openTimePop(btn, pid, d, tOf(pid, d), pOf(pid).work_start || '09:00', pOf(pid).work_end || '18:00', row => {
     const i = T.findIndex(x => x.person_id === pid && x.day === d); if (i >= 0) T.splice(i, 1); if (row) T.push(row); btn.innerHTML = attCell(code(pid, d), tOf(pid, d), lockOf(pid, d)); btn.focus(); });
