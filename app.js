@@ -254,6 +254,7 @@ function shell(active, html){
       ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
       ...(canSeePlan() ? [['tedarik','Tedarik planı', S.planPending || '', 'hot']] : []),
       ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
+      ['checklist-sablon','Checklist şablonları'],
     ]],
     ['Satış', 'chart', [
       ['kayitlar/pipeline','Açık fırsatlar', cnt('pipeline')],
@@ -343,6 +344,8 @@ function route(){
     case 'tahsilat': return viewCollections();
     case 'tahsilat-rapor': return viewCollReport();
     case 'uretim-pano': case 'pano': return viewBoard();
+    case 'checklist-sablon': return a ? viewClTemplate(a === 'yeni' ? null : +a) : viewClTemplates();
+    case 'checklist': return viewChecklist(+a);
     case 'yeni': return can('sales','orders','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
     case 'duzenle': return viewForm(+a);
@@ -855,11 +858,13 @@ function viewDetail(id){
   </div>
   ${payPanel(d)}
   ${stagePanel(d)}
+  ${clBox(d)}
   <div id="dpur"></div>
   ${rmaBox({ deal_id:d.id }, (S.rmas||[]).filter(x => x.deal_id === d.id), 'mt')}
   ${(S.tickets||[]).some(x => x.deal_id === d.id) ? `<section class="panel mt"><h2>Support konuları</h2><ul class="sugg">${S.tickets.filter(x => x.deal_id === d.id).map(x => `<li><a href="#/support/${x.id}"><span class="mono">#${x.id}</span> ${esc(x.subject)}</a> ${supPill(x.status)} <span class="sub">${fmtD(x.opened_at.slice(0,10))}</span></li>`).join('')}</ul></section>` : ''}
   <section class="panel mt"><h2>Açıklama ve notlar</h2><dl class="kv">${kv('Detay', esc(d.details))}${kv('Not', esc(d.notes))}${kv('Kaynak', esc(d.source))}${kv('Son güncelleme', new Date(d.updated_at).toLocaleString('tr-TR'))}</dl></section>`);
   bindStagePanel(d);
+  loadClBox(d);
   sb.from('purchase_deals').select('note,purchases(id,item_name,status,qty,total,currency,supplier_id,supplier_text,requested_at)').eq('deal_id', id).then(({ data }) => {
     const rs = (data || []).filter(x => x.purchases).sort((a, b) => (b.purchases.requested_at || '').localeCompare(a.purchases.requested_at || '')), box = q('#dpur');
     if (!rs.length || !box) return;
@@ -970,6 +975,202 @@ async function viewBoard(){
       ${ds.length ? ds.map(d => card(d, k)).join('') : '<p class="tok">✓ Bu aşamada bekleyen sipariş yok.</p>'}</section>`).join('')}</div>`);
   qa('[data-bm]').forEach(b => b.onclick = () => { st.mine = b.dataset.bm === '1'; viewBoard(); });
   qa('.bcard').forEach(el => { const d = S.deals.find(x => x.id === +el.dataset.bid); bindStgActions(el, d, () => viewBoard()); });
+}
+
+// ---------------------------------------------------------------- CHECKLIST (müşteriye giden belge)
+// Ürün şablonu → sipariş üretime girince her ürün adedi için kopyası (sunucuda _checklist_sync). Kopya şablondan bağımsızdır.
+const CL_SEC = [['component','Bileşenler','Components'], ['packaging','Paketleme','Packaging Checklist'], ['test','Test','Test Checklist'], ['final','Son kontrol','Final Inspection']];
+const CL_RES = { pass:['Uygun','PASS'], fail:['Red','REJECTED'], conditional:['Şartlı kabul','CONDITIONAL ACCEPTANCE'] };
+const CL_FILE = { rapor:'Test raporu', foto:'Fotoğraf', diger:'Diğer' };
+const canCl = () => can('production', 'admin');
+const clQty = k => k === 'component' || k === 'packaging';
+const clOrd = a => a.slice().sort((x, y) => CL_SEC.findIndex(s => s[0] === x.section) - CL_SEC.findIndex(s => s[0] === y.section) || x.sort - y.sort || x.id - y.id);
+const clItem = x => ({ section:x.section, grp:x.grp || '', name:x.name || '', qty:x.qty ?? '', ok:!!x.ok, note:x.note || '' });
+// madde tabloları (şablon ve sipariş checklist'i ortak): satır ekle / sil / sırala; fill = işaret + not sütunu
+function clEditor(box, items, fill, ro){
+  const draw = () => {
+    box.innerHTML = CL_SEC.map(([k, tr]) => { const rows = items.map((x, i) => [x, i]).filter(([x]) => x.section === k);
+      if (ro && !rows.length) return '';
+      return `<section class="panel mt"><h2>${tr} <span class="sub" style="font-weight:400">· ${rows.length} madde${fill && rows.length ? ` · ${rows.filter(([x]) => x.ok).length} işaretli` : ''}</span></h2>
+        ${rows.length ? `<div class="tablewrap"><table class="cltab"><thead><tr>${fill ? `<th class="nosort">${k === 'component' || k === 'packaging' ? 'Acrome' : 'Durum'}</th>` : ''}${k === 'final' ? '<th class="nosort">Bölüm</th>' : ''}<th class="nosort">Madde</th>${clQty(k) ? '<th class="nosort">Adet</th>' : ''}${fill ? '<th class="nosort">Not</th>' : ''}${ro ? '' : '<th class="nosort"></th>'}</tr></thead><tbody>
+        ${rows.map(([x, i]) => `<tr data-i="${i}">${fill ? `<td><input type="checkbox" data-f="ok" ${x.ok ? 'checked' : ''} ${ro ? 'disabled' : ''} aria-label="İşaretle"></td>` : ''}
+          ${k === 'final' ? `<td>${ro ? esc(x.grp) : `<input data-f="grp" value="${esc(x.grp)}" maxlength="120" aria-label="Bölüm">`}</td>` : ''}
+          <td class="clname">${ro ? esc(x.name) : `<input data-f="name" value="${esc(x.name)}" maxlength="300" aria-label="Madde">`}</td>
+          ${clQty(k) ? `<td class="clqty">${ro ? esc(x.qty) : `<input data-f="qty" value="${esc(x.qty)}" maxlength="20" aria-label="Adet">`}</td>` : ''}
+          ${fill ? `<td>${ro ? esc(x.note) : `<input data-f="note" value="${esc(x.note)}" maxlength="500" aria-label="Not">`}</td>` : ''}
+          ${ro ? '' : `<td class="clact"><button type="button" class="btn sm" data-mv="-1" title="Yukarı" aria-label="Yukarı">↑</button><button type="button" class="btn sm" data-mv="1" title="Aşağı" aria-label="Aşağı">↓</button><button type="button" class="btn sm" data-rm title="Satırı sil" aria-label="Satırı sil">✕</button></td>`}</tr>`).join('')}</tbody></table></div>` : '<p class="sub" style="margin:0">Madde yok.</p>'}
+        ${ro ? '' : `<p style="margin:10px 0 0"><button type="button" class="btn sm" data-add="${k}">+ Madde ekle</button></p>`}</section>`; }).join('');
+  };
+  draw();
+  if (ro) return;
+  box.oninput = e => { const f = e.target.dataset.f, tr = e.target.closest('tr[data-i]'); if (!f || !tr) return; items[+tr.dataset.i][f] = f === 'ok' ? e.target.checked : e.target.value; };
+  box.onchange = e => { if (e.target.dataset.f === 'ok') draw(); };
+  box.onclick = e => { const b = e.target.closest('button'); if (!b) return; const tr = b.closest('tr[data-i]'), i = tr ? +tr.dataset.i : -1;
+    if (b.dataset.add) { const k = b.dataset.add, last = items.filter(x => x.section === k).pop();
+      items.push({ section:k, grp:last ? last.grp : '', name:'', qty:clQty(k) ? '1' : '', ok:false, note:'' }); draw();
+      const ins = qa(`tr[data-i="${items.length - 1}"] [data-f=name]`, box)[0]; ins && ins.focus(); return; }
+    if (b.dataset.rm != null) { items.splice(i, 1); return draw(); }
+    if (b.dataset.mv) { const d = +b.dataset.mv, sec = items[i].section; let j = i + d;
+      while (j >= 0 && j < items.length && items[j].section !== sec) j += d;
+      if (j >= 0 && j < items.length) { [items[i], items[j]] = [items[j], items[i]]; draw(); } }
+  };
+}
+const clCount = its => { const n = (its || []).length, k = (its || []).filter(x => x.ok).length; return n ? `${k}/${n}` : '—'; };
+
+async function viewClTemplates(){
+  shell('checklist-sablon', '<div class="empty">Yükleniyor…</div>');
+  const { data, error } = await sb.from('checklist_templates').select('*,checklist_template_items(section)').order('product_code').order('name');
+  const T = data || [], sortP = c => (S.products.find(p => p.code === c) || { sort:999 }).sort;
+  T.sort((a, b) => sortP(a.product_code) - sortP(b.product_code) || (b.is_default - a.is_default) || a.name.localeCompare(b.name, 'tr'));
+  shell('checklist-sablon', `<div class="pagehead"><div><h1>Checklist şablonları</h1><p class="lede">Müşteriye giden checklist'in ürün başına şablonu. Sipariş üretime girince her ürün adedi için <b>varsayılan</b> şablonun kopyası açılır; şablonu değiştirmek açılmış checklist'leri etkilemez. Çıktı İngilizcedir; maddeleri İngilizce yazın.</p></div>
+    ${canCl() ? '<a class="btn primary" href="#/checklist-sablon/yeni">+ Yeni şablon</a>' : ''}</div>
+    ${error ? `<div class="banner">${esc(dbErr(error))}</div>` : ''}
+    <div class="tablewrap">${T.length ? `<table><thead><tr><th class="nosort">Ürün</th><th class="nosort">Şablon</th><th class="nosort">Seri eki</th>${CL_SEC.map(s => `<th class="nosort num">${s[1]}</th>`).join('')}<th class="nosort">Durum</th></tr></thead><tbody>
+      ${T.map(t => `<tr data-t="${t.id}"><td>${esc(t.product_code ? prodName(t.product_code) : '—')}</td><td><b>${esc(t.name)}</b>${t.note ? `<div class="sub">${esc(t.note)}</div>` : ''}</td><td class="mono">${t.serial_code ? '-' + esc(t.serial_code) : ''}</td>
+        ${CL_SEC.map(s => `<td class="num">${(t.checklist_template_items || []).filter(x => x.section === s[0]).length || ''}</td>`).join('')}
+        <td>${!t.active ? '<span class="pill st-archived">Pasif</span>' : t.is_default ? '<span class="pill st-shipped">Varsayılan</span>' : '<span class="sub">elle seçilir</span>'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Henüz şablon yok.</div>'}</div>
+    <p class="note mt">Şablonu olmayan ürünlerde (kontrolcüler, Diğer…) otomatik checklist açılmaz; gerekirse sipariş sayfasından boş checklist eklenir.</p>`);
+  qa('tr[data-t]').forEach(tr => tr.onclick = () => location.hash = '#/checklist-sablon/' + tr.dataset.t);
+}
+
+async function viewClTemplate(id){
+  let t = { name:'', product_code:'', serial_code:'', is_default:false, active:true, note:'' }, items = [];
+  if (id) {
+    const [a, b] = await Promise.all([sb.from('checklist_templates').select('*').eq('id', id).maybeSingle(), sb.from('checklist_template_items').select('*').eq('template_id', id)]);
+    if (!a.data) return shell('checklist-sablon', `<p><a href="#/checklist-sablon">← Şablonlar</a></p><h1>Şablon bulunamadı</h1>`);
+    t = a.data; items = clOrd(b.data || []).map(clItem);
+  }
+  const ro = !canCl();
+  shell('checklist-sablon', `<p><a href="#/checklist-sablon">← Şablonlar</a></p>
+    <div class="pagehead"><div><h1>${id ? esc(t.name) : 'Yeni checklist şablonu'}</h1><p class="lede">${id ? `Son değişiklik: ${esc(t.updated_by_name || '—')} · ${fmtDT(t.updated_at)}. ` : ''}Değişiklik yalnız bundan sonra açılacak checklist'lere geçer.</p></div>
+      ${ro ? '' : `<div style="display:flex;gap:8px;flex-wrap:wrap">${id ? '<button class="btn" id="tcopy" type="button">Kopya oluştur</button><button class="btn danger" id="tdel" type="button">Sil</button>' : ''}</div>`}</div>
+    <form id="tf" class="fs" novalidate><div class="row">
+      <label class="f">Şablon adı <span class="hint">çıktıda ürün başlığı</span><input name="name" required maxlength="120" value="${esc(t.name)}" ${ro ? 'disabled' : ''}></label>
+      <label class="f">Ürün<select name="product_code" ${ro ? 'disabled' : ''}><option value="">— genel —</option>${S.products.filter(p => p.active || p.code === t.product_code).map(p => `<option value="${esc(p.code)}" ${p.code === t.product_code ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+      <label class="f">Seri no eki <span class="hint">ör. 08 → ACRPO546-08</span><input name="serial_code" maxlength="6" value="${esc(t.serial_code || '')}" ${ro ? 'disabled' : ''}></label></div>
+      <div class="row"><label class="f chk"><input type="checkbox" name="is_default" ${t.is_default ? 'checked' : ''} ${ro ? 'disabled' : ''}> Varsayılan (üretime girince bu şablondan açılır)</label>
+      <label class="f chk"><input type="checkbox" name="active" ${t.active ? 'checked' : ''} ${ro ? 'disabled' : ''}> Aktif</label>
+      <label class="f">Not<input name="note" maxlength="500" value="${esc(t.note || '')}" ${ro ? 'disabled' : ''}></label></div>
+      <div id="tits"></div>
+      ${ro ? '<p class="note">Şablonu yalnız Üretim ve Yönetici değiştirebilir.</p>' : '<p class="mt"><button class="btn primary" type="submit">Şablonu kaydet</button></p>'}</form>`);
+  clEditor(q('#tits'), items, false, ro);
+  if (ro) return;
+  const f = q('#tf');
+  const save = (asNew) => { const g = n => f[n].value.trim();
+    if (!g('name')) return toast('Şablon adı girin', true);
+    const head = { name: asNew ? (g('name') + ' (kopya)').slice(0, 120) : g('name'), product_code:g('product_code'), serial_code:g('serial_code'), is_default: asNew ? false : f.is_default.checked, active:f.active.checked, note:g('note') };
+    if (head.serial_code && !/^[0-9A-Za-z]{1,6}$/.test(head.serial_code)) return toast('Seri no eki yalnız harf ve rakam (ör. 08)', true);
+    const its = items.filter(x => x.name.trim()).map(({ ok, note, ...x }) => x);
+    return sb.rpc('checklist_template_save', { p_id: asNew ? null : id, p_tpl: head, p_items: its }).then(({ data, error }) => {
+      if (error) return toast(dbErr(error), true);
+      toast(asNew ? 'Kopya oluşturuldu' : 'Şablon kaydedildi'); location.hash = '#/checklist-sablon/' + data; if (data === id) viewClTemplate(id); });
+  };
+  f.onsubmit = e => { e.preventDefault(); busy(e, () => save(false)); };
+  q('#tcopy') && (q('#tcopy').onclick = e => busy(e.target, () => save(true)));
+  q('#tdel') && (q('#tdel').onclick = async e => { if (!confirmTwice(e.target, 'Açılmış checklist\'ler kalır · tekrar bas')) return;
+    const { error } = await sb.rpc('checklist_template_delete', { p_id:id }); if (error) return toast(dbErr(error), true);
+    toast('Şablon silindi'); location.hash = '#/checklist-sablon'; });
+}
+
+// sipariş sayfasındaki kutu: bu siparişin checklist'leri + elle ekleme
+const clBox = d => (d.status === 'production' || d.status === 'shipped') ? `<section class="panel mt" id="clbox"><h2>Checklist</h2><div class="sub">Yükleniyor…</div></section>` : '';
+async function loadClBox(d){
+  const box = q('#clbox'); if (!box) return;
+  const [a, b] = await Promise.all([sb.from('checklists').select('id,product_code,title,serial_no,unit_no,result,check_date,checked_by,checklist_items(ok)').eq('deal_id', d.id).order('product_code').order('unit_no', { nullsFirst:false }).order('id'),
+    sb.from('checklist_templates').select('id,name,product_code,is_default').eq('active', true).order('name')]);
+  if (!q('#clbox')) return;
+  if (a.error) { box.innerHTML = `<h2>Checklist</h2><div class="banner">${esc(dbErr(a.error))}</div>`; return; }
+  const C = a.data || [], T = b.data || [], items = d.items || {}, ed = canCl();
+  const over = c => c.unit_no != null && c.unit_no > Math.floor(+items[c.product_code] || 0);
+  const noTpl = Object.keys(items).filter(k => !T.some(t => t.is_default && t.product_code === k) && (S.products.find(p => p.code === k) || {}).category !== 'kontrolcu');
+  const opts = [...new Set([...Object.keys(items), ...T.map(t => t.product_code).filter(Boolean)])];
+  box.innerHTML = `<h2>Checklist <span class="sub" style="font-weight:400">· müşteriye giden belge, her ürün adedi için bir tane</span></h2>
+    ${C.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Seri no</th><th class="nosort">Ürün</th><th class="nosort num">İşaretli</th><th class="nosort">Kontrol</th><th class="nosort">Sonuç</th></tr></thead><tbody>
+      ${C.map(c => `<tr data-cl="${c.id}"><td class="mono">${esc(c.serial_no || '—')}</td><td>${esc(c.title)}${c.unit_no == null ? ' <span class="chip">elle</span>' : ''}${over(c) ? ' <span class="chip dupchip" title="Sipariş adedi azaldı; doldurulmuş olduğu için silinmedi">adetten fazla</span>' : ''}</td>
+        <td class="num">${clCount(c.checklist_items)}</td><td>${c.checked_by ? esc(c.checked_by) + (c.check_date ? ` <span class="sub">${fmtD(c.check_date)}</span>` : '') : '<span class="sub">—</span>'}</td><td>${c.result ? esc(CL_RES[c.result][0]) : '<span class="sub">—</span>'}</td></tr>`).join('')}</tbody></table></div>`
+      : `<p class="sub" style="margin:0">${d.status === 'production' ? 'Bu siparişte şablonu olan ürün yok.' : 'Checklist açılmamış.'}</p>`}
+    ${noTpl.length ? `<p class="note">Şablonu olmayan ürün: ${noTpl.map(k => esc(prodName(k)) + ' ×' + fmtN(items[k])).join(', ')} — gerekirse aşağıdan boş checklist ekleyin.</p>` : ''}
+    ${ed ? `<div class="fup"><select id="clp" aria-label="Ürün">${opts.map(k => `<option value="${esc(k)}">${esc(prodName(k))}</option>`).join('')}</select><select id="clt" aria-label="Şablon"></select><button class="btn sm" id="cladd" type="button">+ Checklist ekle</button>
+      ${d.status === 'production' ? '<button class="btn sm" id="clsync" type="button" title="Sipariş kalemlerine göre eksik checklist\'leri varsayılan şablondan açar">Eksikleri şablondan aç</button>' : ''}</div>` : ''}`;
+  qa('tr[data-cl]', box).forEach(tr => tr.onclick = () => location.hash = '#/checklist/' + tr.dataset.cl);
+  if (!ed) return;
+  const fillT = () => { const p = q('#clp').value; q('#clt').innerHTML = T.filter(t => t.product_code === p).map(t => `<option value="${t.id}">${esc(t.name)}${t.is_default ? ' (varsayılan)' : ''}</option>`).join('') + '<option value="">Boş checklist</option>'; };
+  q('#clp').onchange = fillT; fillT();
+  q('#cladd').onclick = e => busy(e.target, async () => { const { data, error } = await sb.rpc('checklist_add', { p_deal:d.id, p_product:q('#clp').value || null, p_template:+q('#clt').value || null });
+    if (error) return toast(dbErr(error), true); location.hash = '#/checklist/' + data; });
+  q('#clsync') && (q('#clsync').onclick = e => busy(e.target, async () => { const { data, error } = await sb.rpc('checklist_sync', { p_deal:d.id });
+    if (error) return toast(dbErr(error), true); toast(data ? `${data} checklist açıldı` : 'Eksik checklist yok'); loadClBox(d); }));
+}
+
+// doldurma ekranı
+async function viewChecklist(id){
+  shell('kayitlar/production', '<div class="empty">Yükleniyor…</div>');
+  const [a, b] = await Promise.all([sb.from('checklists').select('*').eq('id', id).maybeSingle(), sb.from('checklist_items').select('*').eq('checklist_id', id)]);
+  const c = a.data, d = c && S.deals.find(x => x.id === c.deal_id);
+  if (!c || !d) return shell('kayitlar/production', `<h1>Checklist bulunamadı</h1><p><a href="#/kayitlar/production">Üretimdeki siparişler</a></p>`);
+  const items = clOrd(b.data || []).map(clItem), ro = !canCl();
+  const T = c.product_code && !c.edited_at && !ro ? ((await sb.from('checklist_templates').select('id,name').eq('product_code', c.product_code).eq('active', true).order('name')).data || []) : [];
+  const qty = Math.floor(+(d.items || {})[c.product_code] || 0), canDel = !ro && (c.unit_no == null || c.unit_no > qty || can('admin'));
+  const H = { title:c.title, serial_no:c.serial_no || '', checked_by:c.checked_by || (ro ? '' : S.profile.full_name || ''), check_date:c.check_date || (ro ? '' : today()), result:c.result || '', test_note:c.test_note || '' };
+  shell('kayitlar/' + d.status, `<div class="noprint"><p><a href="#/kayit/${d.id}">← ${esc(refNo(d))} · ${esc(custName(d))}</a></p>
+    <div class="pagehead"><div><h1>${esc(c.title)} <span class="mono" style="font-size:.7em">${esc(c.serial_no || '')}</span></h1><p class="lede">Müşteriye giden checklist. Satır ekleyip çıkarmak yalnız bu checklist'i değiştirir, şablonu etkilemez.${c.updated_by_name ? ` Son kayıt: ${esc(c.updated_by_name)} · ${fmtDT(c.updated_at)}.` : ''}</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="clprint" type="button">Yazdır / PDF</button>${canDel ? '<button class="btn danger" id="cldel" type="button">Sil</button>' : ''}</div></div>
+    <form id="clf" class="fs" novalidate><div class="row r4">
+      <label class="f">Ürün başlığı <span class="hint">çıktıda</span><input name="title" maxlength="120" value="${esc(H.title)}" ${ro ? 'disabled' : ''}></label>
+      <label class="f">Seri no<input name="serial_no" maxlength="60" value="${esc(H.serial_no)}" ${ro ? 'disabled' : ''}></label>
+      <label class="f">Checked by<input name="checked_by" maxlength="120" value="${esc(H.checked_by)}" ${ro ? 'disabled' : ''}></label>
+      <label class="f">Tarih<input name="check_date" type="date" value="${esc(H.check_date)}" min="${MIN_DATE}" max="${MAX_DATE}" ${ro ? 'disabled' : ''}></label></div>
+      <div class="row"><label class="f">Genel sonuç<select name="result" ${ro ? 'disabled' : ''}><option value="">—</option>${Object.entries(CL_RES).map(([k, v]) => `<option value="${k}" ${k === H.result ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
+      ${T.length > 1 ? `<label class="f">Şablonu değiştir <span class="hint">doldurulmadan önce</span><span style="display:flex;gap:6px"><select id="clrt">${T.map(t => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select><button class="btn sm" id="clrtb" type="button">Uygula</button></span></label>` : ''}</div>
+      <div id="clits"></div>
+      <section class="panel mt"><h2>Test notu ve test raporu</h2>
+        <label class="f">Test notu <span class="hint">çıktıda görünür; ölçümler, kalibrasyon değerleri, yazılım sürümü…</span><textarea name="test_note" rows="6" maxlength="5000" ${ro ? 'disabled' : ''}>${esc(H.test_note)}</textarea></label>
+        <h3 style="font-size:14px;margin:14px 0 6px">Test raporu dosyaları <span class="sub" style="font-weight:400">· çıktıya eklenmez</span></h3><div id="clfiles"><span class="sub">Yükleniyor…</span></div></section>
+      ${ro ? '<p class="note">Checklist\'i yalnız Üretim ve Yönetici doldurabilir.</p>' : '<p class="mt"><button class="btn primary" type="submit">Kaydet</button> <span class="sub">Yazdırmadan önce kaydedin; çıktı ekrandaki hâli basar.</span></p>'}</form></div>
+    <div class="clprint" id="clpr"></div>`);
+  clEditor(q('#clits'), items, true, ro);
+  const f = q('#clf'), head = () => ro ? H : Object.fromEntries(['title','serial_no','checked_by','check_date','result','test_note'].map(k => [k, f[k].value.trim()]));
+  q('#clprint').onclick = () => { q('#clpr').innerHTML = clPrintHtml(d, { ...c, ...head() }, items); window.print(); };
+  const loadF = async () => { const { data } = await sb.from('checklist_files').select('*').eq('checklist_id', id).order('created_at');
+    fileList(q('#clfiles'), data || [], { bucket:'uretim', table:'checklist_files', kinds:CL_FILE, kind:'rapor', prefix:`c/${id}`, link:{ checklist_id:id }, canAdd:!ro,
+      canDel: x => !ro && (x.uploaded_by === S.profile.id || can('admin')), empty:'Henüz test raporu yüklenmedi.', reload:loadF }); };
+  loadF();
+  if (ro) return;
+  f.onsubmit = e => { e.preventDefault(); busy(e, async () => {
+    const { error } = await sb.rpc('checklist_save', { p_id:id, p_head:head(), p_items:items.filter(x => x.name.trim()) });
+    if (error) return toast(dbErr(error), true); toast('Checklist kaydedildi'); viewChecklist(id); }); };
+  q('#clrtb') && (q('#clrtb').onclick = e => busy(e.target, async () => { const { error } = await sb.rpc('checklist_retemplate', { p_id:id, p_template:+q('#clrt').value });
+    if (error) return toast(dbErr(error), true); toast('Şablon değiştirildi'); viewChecklist(id); }));
+  q('#cldel') && (q('#cldel').onclick = async e => { if (!confirmTwice(e.target, 'Silinsin mi? Tekrar bas')) return;
+    const { error } = await sb.rpc('checklist_delete', { p_id:id }); if (error) return toast(dbErr(error), true);
+    toast('Checklist silindi'); location.hash = '#/kayit/' + d.id; });
+}
+
+// çıktı (A4, İngilizce): ürün checklist'i + varsa ayrı sayfada son kontrol
+function clPrintHtml(d, c, items){
+  const enD = v => v ? new Date(v + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '';
+  const box = v => `<span class="clp-box">${v ? '✓' : ''}</span>`, sec = k => items.filter(x => x.section === k && x.name.trim());
+  const head = sub => `<header class="clp-head">${logo()}<div><b>Acrome</b><span>${sub}</span></div></header>`;
+  const info = rows => `<table class="clp-info"><tbody>${rows.map(r => `<tr>${r.map(([k, v]) => `<th>${k}</th><td>${esc(v || '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const sign = (a, b) => `<div class="clp-sign"><div><span>${a}</span></div><div><span>${b}</span></div></div>`;
+  const listT = (k, title, cust) => { const r = sec(k); return r.length ? `<h3>${title}</h3><table class="clp-t"><thead><tr><th>#</th><th>${k === 'packaging' ? 'Item' : 'Component'}</th><th class="n">Qty</th><th class="c">Acrome</th>${cust ? '<th class="c">Customer</th>' : ''}<th>Notes</th></tr></thead><tbody>
+    ${r.map((x, i) => `<tr><td class="n">${i + 1}</td><td>${esc(x.name)}</td><td class="n">${esc(x.qty)}</td><td class="c">${box(x.ok)}</td>${cust ? `<td class="c">${box(false)}</td>` : ''}<td>${esc(x.note)}</td></tr>`).join('')}</tbody></table>` : ''; };
+  const tests = sec('test'), fin = sec('final'), res = c.result ? CL_RES[c.result][1] : '';
+  const p1 = `<div class="clp-page">${head('Product Checklist')}
+    ${info([[['Order No', refNo(d)], ['Serial Number', c.serial_no]], [['Customer', custName(d)], ['Date', enD(c.check_date)]], [['Product', c.title], ['Checked by', c.checked_by]]])}
+    ${listT('component', 'Components', true)}${listT('packaging', 'Packaging Checklist', true)}
+    ${tests.length ? `<h3>Test Checklist</h3><table class="clp-t"><thead><tr><th>#</th><th>Test</th><th class="c">Result</th><th>Description</th></tr></thead><tbody>${tests.map((x, i) => `<tr><td class="n">${i + 1}</td><td>${esc(x.name)}</td><td class="c">${box(x.ok)}</td><td>${esc(x.note)}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${(c.test_note || '').trim() ? `<h3>Test Notes</h3><div class="clp-note">${esc(c.test_note.trim())}</div>` : ''}
+    ${res && !fin.length ? `<p class="clp-res">Overall result: <b>${res}</b></p>` : ''}
+    ${sign('Checked by (Acrome) · Signature', 'Received by (Customer) · Signature')}</div>`;
+  if (!fin.length) return p1;
+  const grps = [...new Set(fin.map(x => x.grp))];
+  return p1 + `<div class="clp-page clp-break">${head('Final Inspection Report')}<h2 class="clp-title">${esc(c.title)} – Final Inspection Report</h2>
+    ${info([[['Order / Project', refNo(d)], ['Product', c.title]], [['Serial No', c.serial_no], ['Date', enD(c.check_date)]], [['Customer', custName(d)], ['Inspected by', c.checked_by]]])}
+    <table class="clp-t"><thead><tr><th>Inspection item</th><th class="c">Status</th><th>Description / Notes</th></tr></thead><tbody>
+    ${grps.map(g => `<tr class="clp-grp"><td colspan="3">${esc(g || '')}</td></tr>${fin.filter(x => x.grp === g).map(x => `<tr><td>${esc(x.name)}</td><td class="c">${box(x.ok)}</td><td>${esc(x.note)}</td></tr>`).join('')}`).join('')}</tbody></table>
+    <p class="clp-res">OVERALL RESULT: ${Object.entries(CL_RES).map(([k, v]) => `${box(c.result === k)} ${v[1]}`).join('&nbsp;&nbsp;&nbsp;')}</p>
+    ${sign('Inspected by · Signature', 'Quality approval · Signature')}</div>`;
 }
 
 // ---------------------------------------------------------------- MASRAF FORMU
@@ -3806,25 +4007,25 @@ const fmtTL2 = n => n == null || n === '' || isNaN(n) ? '—' : (+n).toLocaleStr
 const FILE_KIND = { proforma:'Proforma', fatura:'Fatura', irsaliye:'İrsaliye', diger:'Diğer' };
 const monName = per => MONTHS_LONG[+per.slice(5, 7) - 1] + ' ' + per.slice(0, 4);
 
-async function openAlimFile(path){
+async function openAlimFile(path, bucket = 'alim'){
   const w = window.open('', '_blank');
-  const { data, error } = await sb.storage.from('alim').createSignedUrl(path, 300);
+  const { data, error } = await sb.storage.from(bucket).createSignedUrl(path, 300);
   if (error || !data) { w && w.close(); return toast('Dosya açılamadı: ' + (error ? error.message : ''), true); }
   if (w) w.location = data.signedUrl; else location.href = data.signedUrl;
 }
-// Belge listesi + yükleme (alım: p/<id>, fatura: f/<id>)
+// Belge listesi + yükleme (alım: p/<id>, fatura: f/<id>; checklist: o.bucket 'uretim', o.table checklist_files, c/<id>)
 function fileList(box, files, o){
   if (!box) return;
-  const K = o.kinds || FILE_KIND;
+  const K = o.kinds || FILE_KIND, B = o.bucket || 'alim', TB = o.table || 'purchase_files';
   box.innerHTML = `${files.length ? `<ul class="flist">${files.map(f => `<li><button type="button" class="linkbtn flink" data-fo="${esc(f.path)}">📎 ${esc(f.name || 'dosya')}</button> <span class="chip">${K[f.kind] || f.kind}</span>
       <div class="sub">${esc(f.uploaded_by_name || '')} · ${fmtDT(f.created_at)}${o.canDel(f) ? ` · <button type="button" class="linkbtn" data-fd="${f.id}">sil</button>` : ''}</div></li>`).join('')}</ul>` : `<p class="sub" style="margin:0">${o.empty || 'Henüz belge yok.'}</p>`}
     ${o.canAdd ? `<div class="fup"><select aria-label="Belge türü" ${Object.keys(K).length < 2 ? 'hidden' : ''}>${Object.entries(K).map(([k, l]) => `<option value="${k}" ${k === o.kind ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <label class="btn sm">Dosya seç (PDF / foto)<input type="file" accept="application/pdf,image/*" hidden></label></div><p class="note" style="margin:4px 0 0">En fazla 10 MB. Telefondan fotoğraf çekebilirsiniz.</p>` : ''}`;
-  qa('[data-fo]', box).forEach(b => b.onclick = () => openAlimFile(b.dataset.fo));
+  qa('[data-fo]', box).forEach(b => b.onclick = () => openAlimFile(b.dataset.fo, B));
   qa('[data-fd]', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'emin misin? tekrar bas')) return;
     const f = files.find(x => x.id === +b.dataset.fd);
-    const { error } = await sb.from('purchase_files').delete().eq('id', f.id); if (error) return toast(dbErr(error), true);
-    sb.storage.from('alim').remove([f.path]).catch(() => {}); toast('Belge silindi'); o.reload(); });
+    const { error } = await sb.from(TB).delete().eq('id', f.id); if (error) return toast(dbErr(error), true);
+    sb.storage.from(B).remove([f.path]).catch(() => {}); toast('Belge silindi'); o.reload(); });
   const inp = q('.fup input[type=file]', box);
   inp && (inp.onchange = async () => {
     const file = inp.files[0]; if (!file) return;
@@ -3835,12 +4036,12 @@ function fileList(box, files, o){
       if (fl.size > 10e6) throw new Error('Dosya 10 MB\'tan büyük; daha küçük bir PDF ya da fotoğraf seçin.');
       const safe = (fl.name || 'dosya').normalize('NFKD').replace(/[^\w.-]+/g, '_').replace(/^\.+/, '').slice(-80) || 'dosya';
       path = `${o.prefix}/${Date.now()}${Math.random().toString(36).slice(2, 6)}-${safe}`;
-      const { error: ue } = await sb.storage.from('alim').upload(path, fl, { contentType:fl.type || 'application/octet-stream', upsert:false });
+      const { error: ue } = await sb.storage.from(B).upload(path, fl, { contentType:fl.type || 'application/octet-stream', upsert:false });
       if (ue) { path = null; throw new Error('Dosya yüklenemedi: ' + ue.message); }
-      const { error } = await sb.from('purchase_files').insert({ ...o.link, kind, path, name:file.name.slice(0, 200), size_bytes:fl.size });
+      const { error } = await sb.from(TB).insert({ ...o.link, kind, path, name:file.name.slice(0, 200), size_bytes:fl.size });
       if (error) throw error;
       toast('Belge eklendi'); o.reload();
-    } catch (x) { if (path) sb.storage.from('alim').remove([path]).catch(() => {}); lab.classList.remove('busy'); toast(dbErr(x), true); }
+    } catch (x) { if (path) sb.storage.from(B).remove([path]).catch(() => {}); lab.classList.remove('busy'); toast(dbErr(x), true); }
   });
 }
 
