@@ -1105,7 +1105,7 @@ async function viewChecklist(id){
   const H = { title:c.title, serial_no:c.serial_no || '', checked_by:c.checked_by || (ro ? '' : S.profile.full_name || ''), check_date:c.check_date || (ro ? '' : today()), result:c.result || '' };
   shell('kayitlar/' + d.status, `<div class="noprint"><p><a href="#/kayit/${d.id}">← ${esc(refNo(d))} · ${esc(custName(d))}</a></p>
     <div class="pagehead"><div><h1>${esc(c.title)} <span class="mono" style="font-size:.7em">${esc(c.serial_no || '')}</span></h1><p class="lede">Müşteriye giden checklist. Satır ekleyip çıkarmak yalnız bu checklist'i değiştirir, şablonu etkilemez.${c.updated_by_name ? ` Son kayıt: ${esc(c.updated_by_name)} · ${fmtDT(c.updated_at)}.` : ''}</p></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${canDel ? '<button class="btn danger" id="cldel" type="button">Sil</button>' : ''}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="clprint" type="button">Yazdır / PDF</button>${canDel ? '<button class="btn danger" id="cldel" type="button">Sil</button>' : ''}</div></div>
     <form id="clf" class="fs" novalidate><div class="row r4">
       <label class="f">Ürün başlığı <span class="hint">çıktıda</span><input name="title" maxlength="120" value="${esc(H.title)}" ${ro ? 'disabled' : ''}></label>
       <label class="f">Seri no<input name="serial_no" maxlength="60" value="${esc(H.serial_no)}" ${ro ? 'disabled' : ''}></label>
@@ -1114,10 +1114,11 @@ async function viewChecklist(id){
       <div class="row"><label class="f">Genel sonuç<select name="result" ${ro ? 'disabled' : ''}><option value="">—</option>${Object.entries(CL_RES).map(([k, v]) => `<option value="${k}" ${k === H.result ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
       ${T.length > 1 ? `<label class="f">Şablonu değiştir <span class="hint">doldurulmadan önce</span><span style="display:flex;gap:6px"><select id="clrt">${T.map(t => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select><button class="btn sm" id="clrtb" type="button">Uygula</button></span></label>` : ''}</div>
       <div id="clits"></div>
-      ${ro ? '<p class="note">Checklist\'i yalnız Üretim ve Yönetici doldurabilir.</p>' : '<p class="mt"><button class="btn primary" type="submit">Kaydet</button> </p>'}</form></div>
+      ${ro ? '<p class="note">Checklist\'i yalnız Üretim ve Yönetici doldurabilir.</p>' : '<p class="mt"><button class="btn primary" type="submit">Kaydet</button> <span class="sub">Yazdırmadan önce kaydedin; çıktı ekrandaki hâli basar.</span></p>'}</form></div>
     <div class="clprint" id="clpr"></div>`);
   clEditor(q('#clits'), items, true, ro);
   const f = q('#clf'), head = () => ro ? H : Object.fromEntries(['title','serial_no','checked_by','check_date','result'].map(k => [k, f[k].value.trim()]));
+  q('#clprint').onclick = () => { q('#clpr').innerHTML = clPrintHtml(d, { ...c, ...head() }, items); window.print(); };
   if (ro) return;
   f.onsubmit = e => { e.preventDefault(); busy(e, async () => {
     const { error } = await sb.rpc('checklist_save', { p_id:id, p_head:head(), p_items:items.filter(x => x.name.trim()) });
@@ -1129,6 +1130,31 @@ async function viewChecklist(id){
     toast('Checklist silindi'); location.hash = '#/kayit/' + d.id; });
 }
 
+// çıktı (A4, İngilizce): ürün checklist'i + varsa ayrı sayfada son kontrol
+function clPrintHtml(d, c, items){
+  const enD = v => v ? new Date(v + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '';
+  const box = v => `<span class="clp-box">${v ? '✓' : ''}</span>`, sec = k => items.filter(x => x.section === k && x.name.trim());
+  const head = sub => `<header class="clp-head">${logo()}<div><b>Acrome</b><span>${sub}</span></div></header>`;
+  const info = rows => `<table class="clp-info"><tbody>${rows.map(r => `<tr>${r.map(([k, v]) => `<th>${k}</th><td>${esc(v || '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const sign = (a, b) => `<div class="clp-sign"><div><span>${a}</span></div><div><span>${b}</span></div></div>`;
+  const listT = (k, title, cust) => { const r = sec(k); return r.length ? `<h3>${title}</h3><table class="clp-t"><thead><tr><th>#</th><th>${k === 'packaging' ? 'Item' : 'Component'}</th><th class="n">Qty</th><th class="c">Acrome</th>${cust ? '<th class="c">Customer</th>' : ''}<th>Notes</th></tr></thead><tbody>
+    ${r.map((x, i) => `<tr><td class="n">${i + 1}</td><td>${esc(x.name)}</td><td class="n">${esc(x.qty)}</td><td class="c">${box(x.ok)}</td>${cust ? `<td class="c">${box(false)}</td>` : ''}<td>${esc(x.note)}</td></tr>`).join('')}</tbody></table>` : ''; };
+  const tests = sec('test'), fin = sec('final'), res = c.result ? CL_RES[c.result][1] : '';
+  const p1 = `<div class="clp-page">${head('Product Checklist')}
+    ${info([[['Order No', refNo(d)], ['Serial Number', c.serial_no]], [['Customer', custName(d)], ['Date', enD(c.check_date)]], [['Product', c.title], ['Checked by', c.checked_by]]])}
+    ${listT('component', 'Components', true)}${listT('packaging', 'Packaging Checklist', true)}
+    ${tests.length ? `<h3>Test Checklist</h3><table class="clp-t"><thead><tr><th>#</th><th>Test</th><th class="c">Result</th><th>Description</th></tr></thead><tbody>${tests.map((x, i) => `<tr><td class="n">${i + 1}</td><td>${esc(x.name)}</td><td class="c">${box(x.ok)}</td><td>${esc(x.note)}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${res && !fin.length ? `<p class="clp-res">Overall result: <b>${res}</b></p>` : ''}
+    ${sign('Checked by (Acrome) · Signature', 'Received by (Customer) · Signature')}</div>`;
+  if (!fin.length) return p1;
+  const grps = [...new Set(fin.map(x => x.grp))];
+  return p1 + `<div class="clp-page clp-break">${head('Final Inspection Report')}<h2 class="clp-title">${esc(c.title)} – Final Inspection Report</h2>
+    ${info([[['Order / Project', refNo(d)], ['Product', c.title]], [['Serial No', c.serial_no], ['Date', enD(c.check_date)]], [['Customer', custName(d)], ['Inspected by', c.checked_by]]])}
+    <table class="clp-t"><thead><tr><th>Inspection item</th><th class="c">Status</th><th>Description / Notes</th></tr></thead><tbody>
+    ${grps.map(g => `<tr class="clp-grp"><td colspan="3">${esc(g || '')}</td></tr>${fin.filter(x => x.grp === g).map(x => `<tr><td>${esc(x.name)}</td><td class="c">${box(x.ok)}</td><td>${esc(x.note)}</td></tr>`).join('')}`).join('')}</tbody></table>
+    <p class="clp-res">OVERALL RESULT: ${Object.entries(CL_RES).map(([k, v]) => `${box(c.result === k)} ${v[1]}`).join('&nbsp;&nbsp;&nbsp;')}</p>
+    ${sign('Inspected by · Signature', 'Quality approval · Signature')}</div>`;
+}
 
 // ---------------------------------------------------------------- MASRAF FORMU
 // Herkes kendi harcamalarını fiş/fatura görseliyle gönderir; formların hepsini Muhasebe ve Yönetici görür, onaylar, ödendi işaretler.
