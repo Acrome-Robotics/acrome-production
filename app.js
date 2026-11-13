@@ -3740,7 +3740,7 @@ async function exportInvXlsx(I, year){
 
 async function viewInvoice(id){
   await loadStock();
-  const ed = canInvEdit(), qp = new URLSearchParams(location.hash.split('?')[1] || '');
+  const ed = canInvEdit(), noteOnly = !ed && can('purchasing'), qp = new URLSearchParams(location.hash.split('?')[1] || '');
   shell('alim-rapor', `<div class="empty">Yükleniyor…</div>`);
   const iv = id ? (await sb.from('purchase_invoices').select('*').eq('id', id).maybeSingle()).data
     : { period:(/^\d{4}-\d{2}$/.test(qp.get('ay') || '') ? qp.get('ay') : today().slice(0, 7)) + '-01', inv_date:today(), is_return:false };
@@ -3756,7 +3756,7 @@ async function viewInvoice(id){
   <div class="pagehead"><div><h1>${id ? esc(iv.supplier_name || 'Fatura') : 'Yeni fatura'}</h1><p class="lede">${id ? `${monName(iv.period)} raporunda · ${iv.is_return ? 'iade faturası' : 'fatura'}${iv.created_by_name ? ' · ekleyen ' + esc(iv.created_by_name) : ''}` : 'Muhasebenin aylık fatura listesine yeni satır.'}</p></div>
     ${id && ed ? '<button class="btn danger" id="ivdel">Sil</button>' : ''}</div>
   ${D.length ? `<div class="banner">Aynı fatura numarası başka satırda da var: ${D.map(x => `<a href="#/fatura/${x.id}">${monName(x.period)} · ${esc(x.supplier_name || '')} · ${fmtTL2(x.total_try)}</a>`).join(', ')}. Mükerrerse birini silin.</div>` : ''}
-  <div class="grid sup-grid"><div><form id="ivf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
+  <div class="grid sup-grid"><div><form id="ivf" class="fs" novalidate><fieldset ${ed || noteOnly ? '' : 'disabled'} class="plainfs">
     <div class="row"><label class="f">Muhasebe ayı <span class="hint">raporda bu ayda görünür</span><input type="month" name="period" value="${iv.period.slice(0, 7)}" required></label>
       <label class="f">Fatura tarihi<input type="date" name="inv_date" value="${v('inv_date')}" min="${MIN_DATE}"></label>
       <label class="f">Genel toplam (TL, KDV dahil)<input type="number" step="0.01" min="0" name="total_try" value="${v('total_try')}" required inputmode="decimal"></label></div>
@@ -3766,7 +3766,7 @@ async function viewInvoice(id){
       <label class="f chk" style="align-self:end"><input type="checkbox" name="is_return" ${iv.is_return ? 'checked' : ''}> İade faturası <span class="hint">aylık toplamdan düşülür</span></label></div>
     <label class="f">Açıklama<input name="description" value="${v('description')}" maxlength="1000" placeholder="ör. Stewart elektronik parçaları"></label>
     <label class="f">Not<input name="note" value="${v('note')}" maxlength="1000"></label>
-    ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Faturayı ekle'}</button></p>` : '<p class="note">Faturaları Muhasebe ve yöneticiler değiştirebilir.</p>'}
+    ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Faturayı ekle'}</button></p>` : noteOnly ? '<p><button class="btn primary">Notu kaydet</button></p><p class="note">Satın alma yalnız Açıklama ve Not alanını değiştirebilir.</p>' : '<p class="note">Faturaları Muhasebe ve yöneticiler değiştirebilir.</p>'}
   </fieldset></form><datalist id="ivnames">${nm.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
   ${id ? `<section class="mt"><h2>Bağlı alım talepleri <span class="sub">${L.length}</span></h2>
     <div class="tablewrap">${L.length ? `<table><thead><tr><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Durum</th><th class="nosort"></th></tr></thead><tbody>
@@ -3780,8 +3780,10 @@ async function viewInvoice(id){
     <section class="panel mt"><h2>Belgeler</h2><div id="ivfl"><p class="sub">Yükleniyor…</p></div></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Faturayı ekledikten sonra PDF'ini yükleyebilir ve ilgili alım taleplerini bağlayabilirsiniz.</p></section>`}</aside></div>`);
   const goMonth = e => { e && e.preventDefault(); prState.mode = 'fatura'; prState.year = iv.period.slice(0, 4); prState.month = String(+iv.period.slice(5, 7)); location.hash = '#/alim-rapor'; };
   q('#ivback').onclick = goMonth; q('#ivmon') && (q('#ivmon').onclick = goMonth);
+  if (noteOnly) qa('#ivf input, #ivf select').forEach(el => { if (el.name !== 'description' && el.name !== 'note') el.disabled = true; });
   q('#ivf').onsubmit = async e => {
     e.preventDefault(); const f = e.target, g = n => f[n].value.trim();
+    if (noteOnly) { const { error } = await sb.rpc('purchase_invoice_note_set', { p_id:id, p_description:g('description'), p_note:g('note') }); if (error) return toast(dbErr(error), true); toast('Not kaydedildi'); return viewInvoice(id); }
     const o = { period:g('period') + '-01', inv_date:g('inv_date') || null, total_try:num0(g('total_try')), supplier_name:g('supplier_name') || null, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
       invoice_no:g('invoice_no') || null, is_return:f.is_return.checked, description:g('description') || null, note:g('note') || null };
     if (!/^\d{4}-\d{2}-01$/.test(o.period)) return toast('Muhasebe ayını seçin', true);
