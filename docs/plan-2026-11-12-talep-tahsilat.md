@@ -108,15 +108,16 @@ Mevcut: sipariş sayfasında "Yazılım / test" aşamasında 300 karakterlik tek
 - Önceki oturumdan açık: dekont onayı e-posta da göndersin mi; onay talebin durumunu değiştirsin mi.
 
 ## Durum (13.11.2026 akşam) — ekip şefi turu
-Canlıda (main 9b1c1cc, v=20261113d):
+Canlıda (main 980e906, v=20261113e):
 - Dalga 1: liste varsayılanları (Gönderilenler bu ay, Tüm kayıtlar yeniden eskiye), zil + açılır bildirim kutusu, taleplerde tedarikçiye göre gruplama.
 - Dalga 2: faturada Satın alma notu (`purchase_invoice_note_set`), proforma şartı (`purchase_trg`), her aktif ürüne boş ürün BOM'u + tetikleyici.
 - Dalga 3: ödeme planında oran ya da tutar, TCMB döviz satış kuruyla USD (`fx-rate` Edge Function, `fx_rates`, `deals.fx_*`), grafikli Tahsilat raporu.
   Kur günü: sipariş tarihinden önceki son bülten. Kursuz eski kayıtta yalnız tarih değişince tutar değişmez.
   Doğrulanamadı: `fx-rate` canlıda TCMB'ye ulaşabiliyor mu (giriş yapmış kullanıcı gerekir).
 - Dalga 4a: talep–sipariş bağı (`purchase_deals`, `purchase_deals_set`, `purchase_deal_info`); 15 eski bağ taşındı.
-Bekleyen: Dalga 4b checklist + test raporu — dal `is-6` (worktree `.claude/worktrees/is-6`), kod + 3 SQL hazır, incelendi, canlıda DEĞİL.
-- Yayın öncesi karar: tohumdaki 0 adetler (BBT 16/18, 3DOF tümü; Excel `Update` sayfasından) nasıl ele alınacak.
-- Sonra düzeltilebilir bulgular: doldurulmuş checklist'i üretim rolünün silebilmesi, eşzamanlı kayıtta son yazan kazanır,
-  seri no eki tutarsızlığı, kaydedilmemiş değişiklik uyarısı. Uygulama sırası: checklist.sql → test_raporu.sql → tohum → kod.
+- Dalga 4b (13.11, main 980e906, v=20261113e): checklist + test raporu canlıda. 13 şablon / 247 madde Excel'deki gibi (kullanıcı kararı;
+  sağlama toplamıyla doğrulandı), üretimdeki 10 sipariş için 35 checklist açıldı, `uretim` deposu kuruldu.
+  Kullanıcıda: BBT / Ball&Beam / 3DOF adetleri (çoğu 0), paketleme listeleri (aktarılmadı), Son Kontrol çevirileri, ürün–şablon eşlemeleri.
+  Sonra düzeltilebilir bulgular: doldurulmuş checklist'i üretim rolünün silebilmesi, eşzamanlı kayıtta son yazan kazanır,
+  seri no eki tutarsızlığı, kaydedilmemiş değişiklik uyarısı.
 Kullanıcıya açık: "SMD" BOM'u (id 18) ve "4-Axis Robot Arm" BOM'u hangi ürüne ait; "Excel'den güncelle" işlevinin sunucu fonksiyonu (`admin_sync`) canlıda yok.
