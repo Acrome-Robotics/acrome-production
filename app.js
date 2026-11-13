@@ -457,7 +457,7 @@ function todaySections(){
     if (n) S_.push({ id:'data', title:'Veri kontrolü', link:'#/uyarilar', rows:[{ href:'#/uyarilar', main:`${n} kayıtta eksik veya hatalı bilgi`, sub:'', meta:'', hot:false }] }); }
   return S_;
 }
-const todayCount = () => { try { return todaySections().reduce((n, x) => n + (x.alert ? x.rows.filter(r => r.hot).length : 0), 0); } catch { return 0; } };
+const todayCount = () => { try { return todaySections().reduce((n, x) => n + (x.alert ? x.rows.filter(r => r.hot).length : 0), 0) + (S.unread ? 1 : 0); } catch { return 0; } };
 // Bugün sayfası düzeni: her kullanıcı kutuları küçültebilir ve iki sütun arasında yerini değiştirebilir (user_prefs: bugun_layout)
 const TL_KEY = 'bugun_layout';
 const todayLayout = () => { const v = (S.prefs || {})[TL_KEY] || {}; return { cols: Array.isArray(v.cols) ? v.cols : null, min: Array.isArray(v.min) ? v.min : [] }; };
@@ -473,7 +473,7 @@ function viewToday(){
   const h = new Date().getHours(), hi = h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : 'İyi akşamlar';
   const dstr = new Date().toLocaleDateString('tr-TR', { weekday:'long', day:'numeric', month:'long' });
   const hotOf = x => x.alert ? (x.count ?? x.rows.filter(r => r.hot).length) : 0;
-  const hotN = secs.reduce((n, x) => n + hotOf(x), 0);
+  const hotN = secs.reduce((n, x) => n + hotOf(x), 0) + (S.unread || 0); // okunmamış bildirimler zilde; sayaçta da kalsın
   const L = todayLayout(), minSet = new Set(L.min);
   const show = secs.filter(x => x.rows.length && !x.bottom && x.id);
   // sütunlar: kayıtlı düzen + yeni çıkan kutular daha kısa sütuna; kayıt yoksa yüksekliğe göre dengeli dağıtım
@@ -520,11 +520,13 @@ function viewToday(){
     c.ondrop = e => e.preventDefault(); });
 }
 // Zil düğmesi + açılır bildirim kutusu (Bugün ve Yoklama sayfaları ortak)
-let bellPop = null;
+let bellPop = null, bellW = 0;
 const bellN = () => (S.unread || 0) > 99 ? '99+' : String(S.unread || 0);
 const bellBtn = () => `<button type="button" class="btn sm bellbtn" aria-label="Bildirimler, ${S.unread || 0} okunmamış" aria-haspopup="dialog" aria-expanded="false" title="Bildirimler">${ICON.bell}<span class="bellb"${S.unread ? '' : ' hidden'}>${bellN()}</span></button>`;
-function closeBell(){ if (!bellPop) return; bellPop.remove(); bellPop = null; document.removeEventListener('mousedown', bellOutside, true); window.removeEventListener('scroll', bellScroll, true); window.removeEventListener('resize', closeBell);
+function closeBell(){ if (!bellPop) return; bellPop.remove(); bellPop = null; document.removeEventListener('mousedown', bellOutside, true); window.removeEventListener('scroll', bellScroll, true); window.removeEventListener('resize', bellResize);
   qa('.bellbtn').forEach(b => b.setAttribute('aria-expanded', 'false')); }
+// telefonda adres çubuğu / klavye yalnız yüksekliği değiştirir; kutu o yüzden kapanmasın
+function bellResize(){ if (innerWidth !== bellW) closeBell(); }
 function bellOutside(e){ if (bellPop && !bellPop.contains(e.target) && !e.target.closest('.bellbtn')) closeBell(); }
 // kutunun kendi içindeki kaydırma kapatmasın; sayfa kayarsa kutu düğmeden ayrılır, kapat
 function bellScroll(e){ if (bellPop && !bellPop.contains(e.target)) closeBell(); }
@@ -544,8 +546,8 @@ function bellFill(){
     const { error } = await sb.from('support_notifications').update({ read_at:at }).eq('id', n.id).is('read_at', null);
     if (error) { toast(dbErr(error), true); return false; }
     n.read_at = at; S.unread = Math.max(0, (S.unread || 0) - 1); bellSync(); return true; };
-  qa('li[data-nid] a', el).forEach(a => a.onclick = async e => { e.preventDefault(); const n = find(a.closest('li')); if (!n) return; await mark(n); closeBell(); location.hash = bellGo(n); });
-  qa('[data-rd]', el).forEach(b => b.onclick = async () => { const li = b.closest('li'), n = find(li); if (n && await mark(n)) { li.className = 'read'; b.remove(); const all = q('[data-all]', el); if (all && !S.unread) all.remove(); } });
+  qa('li[data-nid] a', el).forEach(a => a.onclick = async e => { e.preventDefault(); const n = find(a.closest('li')); if (!n) return; await mark(n); closeBell(); if (location.hash === bellGo(n)) route(); else location.hash = bellGo(n); });
+  qa('[data-rd]', el).forEach(b => b.onclick = async () => { const li = b.closest('li'), n = find(li); if (n && await mark(n)) { li.className = 'read'; q('a', li).focus(); b.remove(); const all = q('[data-all]', el); if (all && !S.unread) all.remove(); } });
   const all = q('[data-all]', el);
   if (all) all.onclick = async () => { const { error } = await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).is('read_at', null);
     if (error) return toast(dbErr(error), true); S.unread = 0; bellSync(); await loadNotifs(); bellSync(); if (bellPop === el) bellFill(); };
@@ -560,8 +562,9 @@ function bindBell(){
     el.style.top = (r.bottom + 6) + 'px'; el.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
     el.style.maxHeight = Math.min(innerHeight * .7, innerHeight - r.bottom - 14) + 'px';
     el.onkeydown = e => { if (e.key === 'Escape') { closeBell(); btn.focus(); } };
+    el.addEventListener('focusout', e => { if (e.relatedTarget && !el.contains(e.relatedTarget) && e.relatedTarget !== btn) closeBell(); });
     (q('button, a', el) || el).focus();
-    setTimeout(() => { document.addEventListener('mousedown', bellOutside, true); window.addEventListener('scroll', bellScroll, true); window.addEventListener('resize', closeBell); }); });
+    setTimeout(() => { document.addEventListener('mousedown', bellOutside, true); window.addEventListener('scroll', bellScroll, true); bellW = innerWidth; window.addEventListener('resize', bellResize); }); });
 }
 
 // ---------------------------------------------------------------- RAPOR
@@ -3947,7 +3950,7 @@ async function viewAttendance(arg){
   const inWeek = days.includes(td), thisWeek = s.week === mondayOf(td);
   const filled = d => people.filter(p => code(p.id, d)).length;
   shell('calisma-plani', `<div class="pagehead"><div><h1>Haftalık yoklama</h1><p class="lede">Ortak tablo: herkes kendi satırını doldurur, herkes tabloyu görür. Hücresi boş kalanlara iş günü 16:00'da e-posta hatırlatması gider.</p></div>
-    <nav class="subnav" aria-label="Yoklama sayfaları"><a class="btn sm" href="#/gec-kalma">Geç kalma / telafi</a>${can('admin', 'muhasebe') ? '<a class="btn sm" href="#/calisma-raporu">Aylık rapor</a>' : ''}${adm ? '<a class="btn sm" href="#/calisma-kisiler">Kişiler</a>' : ''}${bellBtn()}</nav></div>
+    <div style="display:flex;gap:8px;align-items:center;min-width:0"><nav class="subnav" aria-label="Yoklama sayfaları"><a class="btn sm" href="#/gec-kalma">Geç kalma / telafi</a>${can('admin', 'muhasebe') ? '<a class="btn sm" href="#/calisma-raporu">Aylık rapor</a>' : ''}${adm ? '<a class="btn sm" href="#/calisma-kisiler">Kişiler</a>' : ''}</nav>${bellBtn()}</div></div>
   ${me == null && !adm ? `<div class="banner">E-posta adresin (${esc(S.profile.email || '')}) yoklama listesinde yok; yöneticiden eklemesini iste.</div>` : ''}
   ${me != null && inWeek && new Date().getDay() >= 1 && new Date().getDay() <= 5 && !code(me, td) ? '<div class="banner countday"><b>Bugünkü hücren boş.</b> Kendi satırında bugünün hücresinden durumunu seç.</div>' : ''}
   <div class="toolbar"><div class="seg"><button id="awp" type="button">← Önceki</button><button id="awt" type="button" class="${thisWeek ? 'on' : ''}">Bu hafta</button><button id="awn" type="button">Sonraki →</button></div>
