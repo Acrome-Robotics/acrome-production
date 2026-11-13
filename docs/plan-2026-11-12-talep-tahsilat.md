@@ -149,3 +149,4 @@ Hepsi Talepler sayfası (`viewPurchases`, `viewPurchase`); tek dalga, SQL yalnı
   Orders / production taşıyamaz (`deals_validate`). Tahsilat raporu, talep–sipariş bağı ve checklist açma silinmişleri dışlar.
   SQL'de rol bazında denendi (geri alınan işlemle); arayüz gerçek hesapla denenmedi. Menü: Satış → Silinenler.
 - Tedarik planı menüde Üretim'den Alımlar altına taşındı.
+- G1–G4 (14.11, v=20261114d): Genel kullanım, gruplama seçimi (tedarikçi / bağlı sipariş / aciliyet), acil açık talepler kutusu, talep eden süzgeci. Ayrıntı ve termin işi: docs/plan-2026-11-14-talep-termin.md.

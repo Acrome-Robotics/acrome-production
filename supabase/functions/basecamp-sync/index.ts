@@ -75,7 +75,7 @@ async function bc(url: string): Promise<unknown[]> {
 }
 
 // konu başlığı karşılaştırması: Re:/Fwd:/AW:/YNT: gibi önekler ve [EXT], [Acrome Sales] gibi etiketler atılır
-const norm = (s: string) => (s || "").toLowerCase().replace(/^(\s*((re|fw|fwd|aw|wg|sv|antw|ynt|ilt|tr)\s*:|\[[^\]]{1,30}\]\s*-?))+\s*/i, "").replace(/\s+/g, " ").trim();
+const norm = (s: string) => (s || "").toLowerCase().replace(/^(\s*((re|fw|fwd|aw|wg|sv|antw|ynt|ilt|tr|subject|konu)\s*:|\[[^\]]{1,30}\]\s*-?))+\s*/i, "").replace(/\s+/g, " ").trim();
 
 type Card = { id: number; title: string; content: string; created_at: string; updated_at: string; app_url: string; comments_count: number; creator: { name: string; email_address?: string } };
 type Com = { id: number; content: string; created_at: string; creator: { name: string; email_address?: string } };
@@ -113,7 +113,7 @@ async function sync(sinceOverride?: string) {
   const since = sinceOverride || (stRow?.value as { last?: string })?.last || "2026-11-04T06:30:00Z";
   const pages = sinceOverride ? 40 : 10;
   const now = new Date().toISOString();
-  const rapor = { kart: 0, mesaj: 0, eklenen: [] as number[], yeni_konu: [] as number[], kapatilan: [] as number[] };
+  const rapor = { kart: 0, mesaj: 0, eklenen: [] as number[], yeni_konu: [] as number[], kapatilan: [] as number[], eslesmeyen_ileti: [] as string[] };
   const done = new Set<number>();
 
   const processCard = async (c: Card, cname: string) => {
@@ -152,31 +152,30 @@ async function sync(sinceOverride?: string) {
     const cards = await bc(`/buckets/${P}/card_tables/lists/${cid}/cards.json`) as Card[];
     for (const c of cards) if (Date.parse(c.updated_at || "") > Date.parse(since)) await processCard(c, cname);
   }
-  // Supports'a iletilen mailler (Inbox::Forward) ve altlarına yazılan ekip yorumları
+  // Supports'a iletilen mailler (Inbox::Forward): mailin kendisi eklenmez (Gmail'den zaten geliyor; kullanıcı kararı 14.11),
+  // yalnız altına yazılan ekip yorumları aynı başlıklı konuya eklenir. Eşleşen konu yoksa rapora yazılır, yeni konu açılmaz.
   const processForward = async (f: Fwd) => {
     done.add(f.id);
+    if (!f.comments_count) return;
     const subj = f.subject || f.title || "(konu yok)";
-    const msgs: Record<string, unknown>[] = [{ external_id: `bcfwd:${f.id}`, source: "basecamp", direction: "internal", from_name: f.creator?.name || f.from || "",
-      sent_at: f.created_at, subject: subj, body: (text(f.content) || "(içerik yok)").slice(0, 8000), url: f.app_url }];
-    if (f.comments_count) {
-      for (const x of await bc(`/buckets/${P}/recordings/${f.id}/comments.json`) as Com[]) {
-        msgs.push({ external_id: `bccom:${x.id}`, source: "basecamp", direction: "internal", from_name: x.creator?.name, from_email: x.creator?.email_address || null,
-          sent_at: x.created_at, body: text(x.content).slice(0, 8000), url: `${f.app_url}#__recording_${x.id}` });
-      }
+    const msgs: Record<string, unknown>[] = [];
+    for (const x of await bc(`/buckets/${P}/recordings/${f.id}/comments.json`) as Com[]) {
+      msgs.push({ external_id: `bccom:${x.id}`, source: "basecamp", direction: "internal", from_name: x.creator?.name, from_email: x.creator?.email_address || null,
+        sent_at: x.created_at, body: text(x.content).slice(0, 8000), url: `${f.app_url}#__recording_${x.id}` });
     }
-    // konuyu bul: 1) bu iletinin zaten bağlı olduğu konu  2) aynı başlıklı, son ~13 ayda açılmış konu (aynı yazışma Gmail'den de gelmiş olabilir)
-    const { data: had } = await db.from("support_messages").select("ticket_id").eq("external_id", `bcfwd:${f.id}`).limit(1).maybeSingle();
+    if (!msgs.length) return;
+    // konuyu bul: 1) bu iletinin yorumu / eski kaydı zaten bir konuda mı  2) aynı başlıklı, son ~13 ayda açılmış konu
+    const { data: had } = await db.from("support_messages").select("ticket_id").in("external_id", [`bcfwd:${f.id}`, ...msgs.map((m) => m.external_id as string)]).limit(1).maybeSingle();
     let tid0 = had?.ticket_id as number | undefined;
     if (!tid0 && norm(subj).length >= 6) {
       const { data: cand } = await db.from("support_tickets").select("id,subject")
         .gte("opened_at", new Date(Date.parse(f.created_at) - 400 * 864e5).toISOString()).neq("category", "other").order("last_activity_at", { ascending: false }).limit(1000);
       tid0 = (cand || []).find((k) => norm(k.subject) === norm(subj))?.id;
     }
-    const ticket: Record<string, unknown> = tid0 ? { ticket_id: tid0, basecamp_url: f.app_url } : { basecamp_url: f.app_url, subject: subj, opened_at: f.created_at, status: "new", category: "support" };
-    const { data: tid, error } = await db.rpc("support_ingest", { p: { ticket, messages: msgs } });
+    if (!tid0) { rapor.eslesmeyen_ileti.push(`${subj} (${f.app_url})`); return; }
+    const { data: tid, error } = await db.rpc("support_ingest", { p: { ticket: { ticket_id: tid0, basecamp_url: f.app_url }, messages: msgs } });
     if (error) throw new Error(`İleti ${f.id}: ${error.message}`);
-    if (!tid0) { await db.from("support_tickets").update({ needs_triage: true }).eq("id", tid); rapor.yeni_konu.push(tid as number); }
-    else rapor.eklenen.push(tid as number);
+    rapor.eklenen.push(tid as number);
     rapor.kart++; rapor.mesaj += msgs.length;
   };
   // iletilen mailler kutusu (Forwards): proje menüsündeki "inbox" aracı; en yeni önce listelenir

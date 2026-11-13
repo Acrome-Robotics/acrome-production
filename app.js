@@ -441,8 +441,14 @@ function todaySections(){
   // alımlar ve stok
   const PO = (S.purOpenList || []);
   const buyer = can('purchasing', 'admin', 'muhasebe');
+  // termini gelmiş, henüz teslim alınmamış (Sipariş verildi) malzemeler: satın almaya hepsi, diğerlerine kendi talepleri
+  const lateP = PO.filter(p => p.kind === 'alim' && p.status === 'siparis_verildi' && p.expected_at && p.expected_at <= T && (buyer || p.created_by === me || p.requester === me))
+    .sort((a, b) => a.expected_at.localeCompare(b.expected_at));
+  if (lateP.length) S_.push({ id:'eta', title:buyer ? 'Termini geçen malzemeler' : 'Gelmesi beklenen malzemelerim', link:'#/alimlar', alert:true,
+    rows: lateP.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:esc([p.project, p.requester_name].filter(Boolean).join(' · ')),
+      meta: p.expected_at < T ? `<span class="late-txt">${days(p.expected_at, T)} gün gecikti</span>` : '<span class="amber-txt">termin bugün</span>', hot:true })) });
   if (buyer) {
-    const op = PO.filter(p => p.kind === 'alim').sort((a,b) => ((b.urgency === 'acil') - (a.urgency === 'acil')) || (a.requested_at||'').localeCompare(b.requested_at||''));
+    const op = PO.filter(p => p.kind === 'alim' && PUR_WAIT.includes(p.status)).sort((a,b) => ((b.urgency === 'acil') - (a.urgency === 'acil')) || (a.requested_at||'').localeCompare(b.requested_at||''));
     S_.push({ id:'pur', title:'Açık alım talepleri', link:'#/alimlar', rows: op.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:esc([p.project, p.requester_name].filter(Boolean).join(' · ')),
       meta: p.urgency === 'acil' ? '<span class="late-txt">● acil</span>' : `<span class="sub">${PUR_ST[p.status]}</span>`, hot: p.urgency === 'acil' })), empty:'Açık alım talebi yok.', max:5,
       foot: op.length ? `${op.filter(p => p.urgency === 'acil').length} acil · ${sumPur(op)}` : '' });
@@ -2770,8 +2776,9 @@ const canStock = () => can('production', 'stock', 'admin');
 const canPurchase = () => can('production', 'stock', 'purchasing', 'orders', 'admin');
 const STK_CAT = { mekanik:'Mekanik', elektronik:'Elektronik', komponent:'Komponent', hazir:'Hazır alınan', diger:'Diğer' };
 const MOVE_R = { acilis:'Açılış', sayim:'Sayım', alim:'Alım', uretim:'Üretim', rma:'RMA', duzeltme:'Düzeltme', iade:'İade', diger:'Diğer' };
-const PUR_ST = { talep:'Talep', onaylandi:'Onaylandı', proforma:'Proforma alındı', siparis_verildi:'Sipariş verildi', eft_bekliyor:'EFT bekliyor', alindi:'Alındı', reddedildi:'Reddedildi', arsiv:'Eski / kapandı' };
+const PUR_ST = { talep:'Talep', onaylandi:'Onaylandı', proforma:'Proforma alındı', eft_bekliyor:'EFT bekliyor', siparis_verildi:'Sipariş verildi', alindi:'Teslim alındı', reddedildi:'Reddedildi', arsiv:'Eski / kapandı' };
 const PUR_OPEN = ['talep', 'onaylandi', 'proforma', 'siparis_verildi', 'eft_bekliyor'];
+const PUR_WAIT = PUR_OPEN.filter(x => x !== 'siparis_verildi'); // siparişi verilmiş (ödenmiş, yolda) talep açık talep sayılmaz, toplamlara girmez
 const PUR_UNIT = ['Mekanik', 'Elektronik', 'SMD', 'Yazılım'];
 const PUR_AREA = ['Üretim', 'ARGE', 'Sipariş', 'Tasarım', 'Ofis Kullanımı', 'Deneme'];
 const BOM_KIND = { product:'Ürün', project:'Proje', pcb:'PCB dizgi' };
@@ -2781,6 +2788,9 @@ const fmtQ = n => n == null ? '—' : (+n).toLocaleString('tr-TR', { maximumFrac
 const fmtMoney = (n, cur) => n == null || n === '' ? '—' : (+n).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) + ' ' + ({ TRY:'₺', USD:'$', EUR:'€' }[cur || 'TRY'] || esc(cur));
 const PUR_PRE = ['talep','onaylandi','proforma','siparis_verildi','eft_bekliyor','reddedildi']; // "Alındı"dan bunlara dönülürse stok geri düşülür
 const purPill = st => `<span class="pill pu-${st}">${PUR_ST[st] || st}</span>`;
+// Sipariş verildi (yolda) talebin termini: geçtiyse kırmızı
+const etaTxt = p => { if (!p.expected_at) return '<div class="sub amber-txt">termin girilmemiş</div>'; const late = p.expected_at < today();
+  return `<div class="sub${late ? ' late-txt' : ''}">termin ${fmtD(p.expected_at)}${late ? ` · ${days(p.expected_at, today())} gün gecikti` : ''}</div>`; };
 const stkSel = (name, o, v, blank) => `<select name="${name}">${blank !== undefined ? `<option value="">${blank}</option>` : ''}${Object.entries(o).map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
 const arrSel = (name, arr, v, blank) => `<select name="${name}">${blank !== undefined ? `<option value="">${blank}</option>` : ''}${[...new Set([...(v && !arr.includes(v) ? [v] : []), ...arr])].map(x => `<option ${v === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`;
 
@@ -2801,9 +2811,9 @@ async function loadStock(force){
   S.stockLoaded = true;
 }
 async function loadPurCount(){
-  const r = await sb.from('purchases').select('id,kind,item_name,project,qty,total,currency,urgency,status,requested_at,requester,requester_name,created_by').in('status', PUR_OPEN).order('requested_at', { ascending:false }).range(0, 999);
+  const r = await sb.from('purchases').select('id,kind,item_name,project,qty,total,currency,urgency,status,requested_at,requester,requester_name,created_by,expected_at').in('status', PUR_OPEN).order('requested_at', { ascending:false }).range(0, 999);
   S.purOpenList = r.error ? [] : (r.data || []);
-  S.purOpen = S.purOpenList.filter(p => p.kind === 'alim').length;
+  S.purOpen = S.purOpenList.filter(p => p.kind === 'alim' && PUR_WAIT.includes(p.status)).length;
 }
 const itemById = id => (S.items || []).find(i => i.id === id);
 const supName = id => (S.suppliers || []).find(s => s.id === id)?.name || '';
@@ -3292,7 +3302,18 @@ function purGroup(rows, supName, isOpen){
   const rank = g => g.urgent ? 0 : g.open ? 1 : 2;
   return [...m.values()].sort((a, b) => (a.key === 'none') - (b.key === 'none') || rank(a) - rank(b) || a.name.localeCompare(b.name, 'tr'));
 }
-const purState = { tab:'open', q:'', unit:'', year:'', who:'', bom:'', urg:'', pkg:'', deal:'' };
+const PUR_GRP = { '':'Gruplama yok', tedarikci:'Tedarikçiye göre', siparis:'Bağlı siparişe göre', aciliyet:'Aciliyete göre' };
+// Bağlı siparişe göre: her sipariş bir grup (çok siparişe bağlı talep her grubunda), sonra Genel kullanım, en sonda bağsızlar. Aciliyet: Acil / Acil değil.
+function purGroups(mode, rows, PD){
+  if (mode === 'tedarikci') return purGroup(rows, supName, p => PUR_WAIT.includes(p.status));
+  if (mode === 'aciliyet') return [['acil', 'Acil'], ['normal', 'Acil değil']].map(([key, name]) => ({ key, name, rows: rows.filter(p => (p.urgency === 'acil') === (key === 'acil')) })).filter(g => g.rows.length);
+  const m = new Map(), gen = [], none = [];
+  for (const p of rows){ const ls = PD[p.id] || [];
+    ls.forEach(l => { if (!m.has(l.deal_id)) m.set(l.deal_id, { key:'d' + l.deal_id, name:`${l.ref_no} · ${l.customer || ''}`, status:l.status, ref:l.ref_no || '', rows:[] }); m.get(l.deal_id).rows.push(p); });
+    if (p.general_use) gen.push(p); else if (!ls.length) none.push(p); }
+  return [...[...m.values()].sort((a, b) => b.ref.localeCompare(a.ref, 'tr')), ...(gen.length ? [{ key:'gen', name:'Genel kullanım', rows:gen }] : []), ...(none.length ? [{ key:'none', name:'Siparişe bağlı değil', rows:none }] : [])];
+}
+const purState = { tab:'open', q:'', unit:'', year:'', who:'', bom:'', urg:'', pkg:'', deal:'', st:'' };
 async function viewPurchases(){
   await loadStock();
   const { data, error } = await fetchAll(() => sb.from('purchases').select('*').order('requested_at', { ascending:false, nullsFirst:false }).order('id', { ascending:false }));
@@ -3307,46 +3328,57 @@ async function viewPurchases(){
   { const qp = new URLSearchParams(location.hash.split('?')[1] || ''); if (qp.get('plan')) { s.pkg = 'plan:' + qp.get('plan'); s.tab = 'all'; } if (qp.get('siparis')) { s.deal = qp.get('siparis'); s.tab = 'all'; } }
   const pkgOpts = [...new Map(P.filter(p => p.plan_id).map(p => [`${p.plan_id}|${p.package || ''}`, p])).values()].sort((a, b) => b.plan_id - a.plan_id || (a.package || '').localeCompare(b.package || '', 'tr'));
   const planIds = [...new Set(pkgOpts.map(p => p.plan_id))];
-  let grp = (S.prefs || {})[PUR_GRP_KEY] !== false;
-  const open = P.filter(p => PUR_OPEN.includes(p.status) && p.kind === 'alim');
+  const gv = (S.prefs || {})[PUR_GRP_KEY]; let grp = gv === false ? '' : gv === true || gv == null ? 'tedarikci' : gv; // eski true/false tercihi
+  const open = P.filter(p => PUR_WAIT.includes(p.status) && p.kind === 'alim');
   const years = [...new Set(P.map(p => (p.requested_at || '').slice(0, 4)).filter(Boolean))].sort().reverse();
-  const who = [...new Set(P.map(p => p.requester_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
-  const tabs = { open:'Açık talepler', kontrol:'Kontrol listesi', alindi:'Alınanlar', reddedildi:'Reddedilen', arsiv:'Eski / kapanmış', all:'Tümü' };
-  const tabOf = p => p.kind === 'kontrol' ? 'kontrol' : PUR_OPEN.includes(p.status) ? 'open' : p.status;
+  const tabs = { open:'Açık talepler', yolda:'Yolda', kontrol:'Kontrol listesi', alindi:'Teslim alınanlar', reddedildi:'Reddedilen', arsiv:'Eski / kapanmış', all:'Tümü' };
+  // Yolda: siparişi verilmiş (ödenmiş) ama elimize ulaşmamış; Açık talepler'de değil, ayrı tabloda
+  const tabOf = p => p.kind === 'kontrol' ? 'kontrol' : p.status === 'siparis_verildi' ? 'yolda' : PUR_WAIT.includes(p.status) ? 'open' : p.status;
+  const inTab = (p, t) => tabOf(p) === t;
+  const yol = P.filter(p => inTab(p, 'yolda')), yolLate = yol.filter(p => p.expected_at && p.expected_at < today());
   shell('alimlar', `<div class="pagehead"><div><h1>Alımlar</h1><p class="lede">Atölye ihtiyaç ve alım talepleri. Herkes talep açabilir; durumu Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici günceller. "Alındı" yapılan ve bir parçaya bağlı talep stoğa otomatik girer.</p></div>
     <a class="btn primary" href="#/alim-yeni">Yeni talep</a></div>
   ${P.length ? '' : `<div class="banner">Henüz alım kaydı yok.${can('admin') ? ' <a href="#/stok-aktar">Excel\'den hazırlanan veriyi içe aktar</a>' : ''}</div>`}
-  <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+  <div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr))">
     <div class="kpi ${open.filter(p => p.urgency === 'acil').length ? 'alert' : ''}"><div class="v">${open.length}</div><div class="l">Açık talep</div><div class="d">${open.filter(p => p.urgency === 'acil').length} acil · ${sumPur(open)}</div></div>
+    <div class="kpi ${open.some(p => p.urgency === 'acil') ? 'alert' : ''}"><div class="v">${open.filter(p => p.urgency === 'acil').length}</div><div class="l">Acil açık talepler</div><div class="d">${sumPur(open.filter(p => p.urgency === 'acil'))}</div></div>
+    <div class="kpi ${yolLate.length ? 'alert' : ''}"><div class="v">${yol.length}</div><div class="l">Yolda</div><div class="d">${yolLate.length ? `<span class="late-txt">${yolLate.length} termini geçti</span>` : 'termini geçen yok'} · ${sumPur(yol)}</div></div>
     <div class="kpi"><div class="v">${P.filter(p => p.status === 'proforma').length}</div><div class="l">Proforma bekleyen</div><div class="d">${P.filter(p => p.status === 'eft_bekliyor').length} EFT bekliyor</div></div>
     <div class="kpi"><div class="v">${sumPur(P.filter(p => p.status === 'alindi' && (p.purchased_at || p.requested_at || '').slice(0, 7) === mon))}</div><div class="l">Bu ay alınan</div><div class="d">KDV dahil</div></div>
     <div class="kpi"><div class="v">${sumPur(P.filter(p => p.status === 'alindi' && (p.requested_at || '').startsWith(String(Y))))}</div><div class="l">${Y} toplam alım</div><div class="d">${P.filter(p => p.status === 'alindi' && (p.requested_at || '').startsWith(String(Y))).length} kalem</div></div></div>
-  <div class="toolbar"><div class="seg" id="ptab">${Object.entries(tabs).map(([k, v]) => `<button data-t="${k}" class="${s.tab === k ? 'on' : ''}">${v} <span class="sub">${k === 'all' ? P.length : P.filter(p => tabOf(p) === k).length}</span></button>`).join('')}</div></div>
+  <div class="toolbar"><div class="seg" id="ptab">${Object.entries(tabs).map(([k, v]) => `<button data-t="${k}" class="${s.tab === k ? 'on' : ''}">${v} <span class="sub">${k === 'all' ? P.length : P.filter(p => inTab(p, k)).length}</span></button>`).join('')}</div></div>
   <div class="toolbar"><input type="search" id="pq" placeholder="Ara: ürün, proje, tedarikçi, not…" value="${esc(s.q)}">
     <select id="punit" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm birimler</option>${PUR_UNIT.map(u => `<option ${s.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
     <select id="pyear" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm yıllar</option>${years.map(y => `<option ${s.year === y ? 'selected' : ''}>${y}</option>`).join('')}</select>
-    <select id="pwho"><option value="">Talep eden: herkes</option>${who.map(w => `<option ${s.who === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select>
+    <select id="pst" aria-label="Durum"><option value="">Durum: hepsi</option>${Object.entries(PUR_ST).map(([k, l]) => `<option value="${k}" ${s.st === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <select id="pwho" aria-label="Talep eden"></select>
     <select id="pbom" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm ürün / projeler</option>${bomOpts(+s.bom)}</select>
     ${pkgOpts.length ? `<select id="ppkg" aria-label="Alım paketi"><option value="">Tüm paketler</option>${planIds.map(pid => `<option value="plan:${pid}" ${s.pkg === 'plan:' + pid ? 'selected' : ''}>Plan #${pid} (tümü)</option>${pkgOpts.filter(p => p.plan_id === pid).map(p => `<option value="${pid}|${esc(p.package || '')}" ${s.pkg === pid + '|' + (p.package || '') ? 'selected' : ''}>&nbsp;&nbsp;${esc(p.package || '—')}</option>`).join('')}`).join('')}</select>` : ''}
     ${dealOpts.length ? `<select id="pdeal" aria-label="Bağlı sipariş"><option value="">Tüm siparişler</option>${dealOpts.map(l => `<option value="${l.deal_id}" ${s.deal === String(l.deal_id) ? 'selected' : ''}>${esc(l.ref_no)} · ${esc(l.customer || '')}</option>`).join('')}</select>` : ''}
     <div class="seg" id="purg">${[['', 'Hepsi'], ['acil', 'Acil'], ['normal', 'Acil değil']].map(([k, v]) => `<button data-u="${k}" class="${s.urg === k ? 'on' : ''}">${v}</button>`).join('')}</div>
-    <label class="chk"><input type="checkbox" id="pgrp" ${grp ? 'checked' : ''}> Tedarikçiye göre grupla</label></div>
+    <select id="pgrp" aria-label="Gruplama">${Object.entries(PUR_GRP).map(([k, l]) => `<option value="${k}" ${grp === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
   <div class="tablewrap" id="ptbl"></div>`);
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
     const pkgOk = p => !s.pkg || (s.pkg.startsWith('plan:') ? p.plan_id === +s.pkg.slice(5) : `${p.plan_id}|${p.package || ''}` === s.pkg);
     const op = s.tab === 'open'; // Açık talepler'de yıl / birim / ürün süzgeci yok (kullanıcı kararı)
-    const rows = P.filter(p => pkgOk(p) && (s.tab === 'all' || tabOf(p) === s.tab) && (op || !s.unit || p.unit === s.unit) && (op || !s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (op || !s.year || (p.requested_at || '').startsWith(s.year)) && (!s.who || p.requester_name === s.who)
+    const base = (P.filter(p => pkgOk(p) && (s.tab === 'all' || inTab(p, s.tab)) && (!s.st || p.status === s.st) && (op || !s.unit || p.unit === s.unit) && (op || !s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (op || !s.year || (p.requested_at || '').startsWith(s.year))
       && (!s.deal || (PD[p.id] || []).some(l => l.deal_id === +s.deal))
-      && (!ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id), p.note, p.purpose, p.requester_name, ...(PD[p.id] || []).map(l => l.ref_no + ' ' + (l.customer || ''))].join(' ').toLocaleLowerCase('tr').includes(ql)));
-    const rowH = (p, g) => { const sn = g ? '' : supName(p.supplier_id) || p.supplier_text || ''; return `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
-        <td><b style="font-weight:600">${esc(p.item_name)}</b>${hasF.has(p.id) ? ' <span title="Proforma / belge var">📎</span>' : ''}${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.package ? ` <span class="chip pkgchip" title="Tedarik planı #${p.plan_id} alım paketi">📦 ${esc(p.package)}</span>` : ''}${(PD[p.id] || []).map(l => ` <span class="chip bomchip mono" title="Bağlı sipariş · ${esc(l.customer || '')}">${esc(l.ref_no)}</span>`).join('')}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
+      && (!ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id), p.note, p.purpose, p.requester_name, ...(PD[p.id] || []).map(l => l.ref_no + ' ' + (l.customer || ''))].join(' ').toLocaleLowerCase('tr').includes(ql))));
+    // talep eden listesinde yalnız şu an (sekme + diğer süzgeçler) talebi olanlar; seçili kişinin talebi kalmadıysa süzgeç temizlenir
+    const who = [...new Set(base.map(p => p.requester_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
+    if (s.who && !who.includes(s.who)) s.who = '';
+    q('#pwho').innerHTML = `<option value="">Talep eden: herkes</option>${who.map(w => `<option ${s.who === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}`;
+    const rows = base.filter(p => !s.who || p.requester_name === s.who);
+    if (s.tab === 'yolda') rows.sort((a, b) => (a.expected_at || '9999').localeCompare(b.expected_at || '9999')); // en yakın termin üstte
+    const rowH = (p, g) => { const sn = g === 'tedarikci' ? '' : supName(p.supplier_id) || p.supplier_text || ''; return `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
+        <td><b style="font-weight:600">${esc(p.item_name)}</b>${hasF.has(p.id) ? ' <span title="Proforma / belge var">📎</span>' : ''}${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.package ? ` <span class="chip pkgchip" title="Tedarik planı #${p.plan_id} alım paketi">📦 ${esc(p.package)}</span>` : ''}${p.general_use ? ' <span class="chip pkgchip">Genel kullanım</span>' : ''}${(PD[p.id] || []).map(l => ` <span class="chip bomchip mono" title="Bağlı sipariş · ${esc(l.customer || '')}">${esc(l.ref_no)}</span>`).join('')}${g === 'siparis' && (PD[p.id] || []).length > 1 ? `<div class="sub">${PD[p.id].length} siparişe bağlı</div>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
         <td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(p.requester_name || '') || '<span class="sub">—</span>'}<div class="sub opt">${esc([p.unit, p.area].filter(Boolean).join(' · '))}</div></td>
         <td>${sn ? esc(sn) : ''}${p.link ? `${sn ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub stopprop">bağlantı ↗</a>` : (sn ? '' : '<span class="sub">—</span>')}</td>
-        <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}</td></tr>`; };
-    const bodyH = list => { if (!grp) return list.map(p => rowH(p, false)).join('');
-      return purGroup(list, supName, p => PUR_OPEN.includes(p.status)).map(g => { const shut = purCollapsed.has(g.key), bl = g.sid && (S.suppliers || []).find(x => x.id === g.sid)?.blacklisted;
-        return `<tr class="grphead" tabindex="0" role="button" aria-expanded="${!shut}" data-g="${esc(g.key)}"><td colspan="7"><span class="gcaret">${shut ? '▸' : '▾'}</span> <b>${esc(g.name)}</b>${bl ? ' <span class="pill sp-high">⚠ kara liste</span>' : ''} <span class="sub">${g.rows.length} talep · ${sumPur(g.rows)}</span></td></tr>${shut ? '' : g.rows.map(p => rowH(p, true)).join('')}`; }).join(''); };
+        <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}${p.status === 'siparis_verildi' ? etaTxt(p) : ''}</td></tr>`; };
+    const bodyH = list => { if (!grp) return list.map(p => rowH(p, '')).join('');
+      return purGroups(grp, list, PD).map(g => { const k = grp + ':' + g.key, shut = purCollapsed.has(k), bl = g.sid && (S.suppliers || []).find(x => x.id === g.sid)?.blacklisted;
+        return `<tr class="grphead" tabindex="0" role="button" aria-expanded="${!shut}" data-g="${esc(k)}"><td colspan="7"><span class="gcaret">${shut ? '▸' : '▾'}</span> <b>${esc(g.name)}</b>${g.status ? ' ' + pill(g.status) : ''}${bl ? ' <span class="pill sp-high">⚠ kara liste</span>' : ''} <span class="sub">${g.rows.length} talep · ${sumPur(g.rows)}</span></td></tr>${shut ? '' : g.rows.map(p => rowH(p, grp)).join('')}`; }).join(''); };
     q('#ptbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Talep eden</th><th class="nosort">Tedarikçi</th><th class="nosort">Durum</th></tr></thead><tbody>
       ${bodyH(rows.slice(0, 800))}</tbody>
       <tfoot><tr class="tfoot"><td colspan="3">${rows.length} kayıt${rows.length > 800 ? ' (ilk 800)' : ''}</td><td class="num">${sumPur(rows)}</td><td colspan="3"></td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
@@ -3362,10 +3394,11 @@ async function viewPurchases(){
   q('#punit').onchange = e => { s.unit = e.target.value; draw(); };
   q('#pyear').onchange = e => { s.year = e.target.value; draw(); };
   q('#pwho').onchange = e => { s.who = e.target.value; draw(); };
+  q('#pst').onchange = e => { s.st = e.target.value; draw(); };
   q('#pbom').onchange = e => { s.bom = e.target.value; draw(); };
   q('#ppkg') && (q('#ppkg').onchange = e => { s.pkg = e.target.value; draw(); });
   q('#pdeal') && (q('#pdeal').onchange = e => { s.deal = e.target.value; draw(); });
-  q('#pgrp').onchange = e => { grp = e.target.checked; savePref(PUR_GRP_KEY, grp); draw(); };
+  q('#pgrp').onchange = e => { grp = e.target.value; savePref(PUR_GRP_KEY, grp); draw(); };
   qa('#purg button').forEach(b => b.onclick = () => { s.urg = b.dataset.u; qa('#purg button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
 }
 const bomById = id => (S.boms || []).find(b => b.id === id);
@@ -3377,6 +3410,7 @@ async function viewPurchase(id, preset){
   const p = id ? (await sb.from('purchases').select('*').eq('id', id).maybeSingle()).data : { kind:'alim', status:'talep', unit:'Mekanik', area:'Üretim', urgency:'normal', currency:'TRY', requested_at:today(), requester_name:S.profile.full_name || S.profile.email, ...(preset || {}) };
   if (!p) return shell('alimlar', `<h1>Kayıt bulunamadı</h1><p><a href="#/alimlar">Alımlara dön</a></p>`);
   const mine = p.created_by === S.profile.id, ed = canPurchase() || !id || (mine && p.status === 'talep');
+  const arrOk = id && p.status === 'siparis_verildi' && p.kind !== 'kontrol' && (mine || p.requester === S.profile.id || canPurchase()); // talebi açan da kapatabilir
   const v = k => esc(p[k] ?? '');
   const tx = (k, l, hint, t) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="${t || 'text'}" ${t === 'number' ? 'step="any"' : ''} name="${k}" value="${v(k)}"></label>`;
   const it = p.item_id ? itemById(p.item_id) : null;
@@ -3391,20 +3425,23 @@ async function viewPurchase(id, preset){
   shell(id ? 'alimlar' : 'alim-yeni', `<p><a href="#/alimlar">← Alımlar</a></p>
   <div class="pagehead"><div><h1>${id ? esc(p.item_name) : 'Yeni alım talebi'}</h1>${id ? `<p class="lede">${esc(p.source || 'Sitede açıldı')}${p.requester_name ? ' · talep eden ' + esc(p.requester_name) : ''}</p>` : '<p class="lede">Talep açıldıktan sonra Satın alma (ya da Depo / Stok, Üretim, Sipariş, Yönetici) onaylayıp siparişini takip eder.</p>'}</div>
     ${id ? `<div style="display:flex;gap:8px;align-items:center">${purPill(p.status)}${(can('admin') || (mine && p.status === 'talep')) ? '<button class="btn danger" id="pdel">Sil</button>' : ''}</div>` : ''}</div>
+  ${arrOk ? `<div class="banner info" id="parr"><b>Malzeme yolda.</b> Sipariş verildi${p.ordered_at ? ' ' + fmtD(p.ordered_at) : ''}${p.expected_at ? ` · tahmini termin <b class="${p.expected_at < today() ? 'late-txt' : ''}">${fmtD(p.expected_at)}</b>` : ''}. Elinize ulaştıysa talebi kapatın; gelmediyse satın almaya bildirin.
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" id="parbtn"><button class="btn sm primary" id="parok" type="button">Teslim alındı, talebi kapat</button><button class="btn sm" id="parno" type="button">Henüz gelmedi</button></div></div>` : ''}
   ${id && canPurchase() ? `<div class="pstatbox"><div class="pstatrow"><label class="f pstatf" for="pstsel">Talebin durumu</label>
       <select id="pstsel">${Object.entries(PUR_ST).map(([k, l]) => `<option value="${k}" ${p.status === k ? 'selected' : ''}>${l}${p.status === k ? ' (şu anki)' : ''}</option>`).join('')}</select>
       <button class="btn primary" id="pstok" type="button" disabled>Durumu kaydet</button><button class="btn" id="pstno" type="button" hidden>Vazgeç</button></div>
     <div id="pstconf" class="pstconf" hidden></div></div>` : ''}
   <div class="grid sup-grid"><div><form id="puf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
     <div class="row">${'<label class="f">Tür' + stkSel('kind', { alim:'Alım', kontrol:'Kontrol / takip' }, p.kind) + '</label>'}<label class="f">Birim${arrSel('unit', PUR_UNIT, p.unit, '—')}</label><label class="f">Kullanım alanı${arrSel('area', PUR_AREA, p.area, '—')}</label></div>
-    <div class="row r2">${tx('item_name', 'Ürün / iş adı')}<label class="f">Stoktaki parça <span class="hint">bağlarsanız "Alındı"da stoğa girer</span><input type="text" name="item_link" list="itemlist2" value="${esc(it ? it.name : '')}" autocomplete="off"></label></div>
+    <div class="row r2">${tx('item_name', 'Ürün / iş adı')}<label class="f">Stoktaki parça <span class="hint">bağlarsanız "Teslim alındı"da stoğa girer</span><input type="text" name="item_link" list="itemlist2" value="${esc(it ? it.name : '')}" autocomplete="off"></label></div>
     <div class="row">${tx('qty', 'Adet', '', 'number')}${tx('unit_price', 'Birim fiyat (KDV dahil)', '', 'number')}<label class="f">Para birimi${stkSel('currency', { TRY:'TRY', USD:'USD', EUR:'EUR' }, p.currency || 'TRY')}</label></div>
     <div class="row r2"><label class="f">İlgili ürün / proje <span class="hint">raporda bu başlıkta görünür</span><select name="bom_id"><option value="">—</option>${bomOpts(p.bom_id)}</select></label>${tx('project', 'Proje / sipariş notu', 'ör. ACRPO-540, ARGE denemesi')}</div>
     <div class="row r2"><label class="f">Aciliyet${stkSel('urgency', { acil:'Acil', normal:'Acil değil' }, p.urgency || 'normal', '—')}</label>${tx('priority', 'Ne zamana', 'ör. 1 hafta içinde')}</div>
     <div class="row r2"><label class="f">Tedarikçi<select name="supplier_id"><option value="">—</option>${S.suppliers.map(s => `<option value="${s.id}" ${p.supplier_id === s.id ? 'selected' : ''}>${esc(s.name)}${s.blacklisted ? ' ⚠ kara liste' : ''}</option>`).join('')}</select></label>${tx('supplier_text', 'Tedarikçi notu', 'listede yoksa')}</div>
     ${tx('link', 'Bağlantı', 'ürün sayfası, proforma, Drive')}
     <div class="row r2">${tx('requester_name', 'Talep eden')}${tx('requested_at', 'Talep tarihi', '', 'date')}</div>
-    ${canPurchase() ? `<div class="row r2">${tx('purchased_at', 'Alım tarihi', '', 'date')}</div>` : ''}
+    ${canPurchase() ? `<div class="row r2">${tx('expected_at', 'Tahmini termin', 'Sipariş verildi için zorunlu', 'date')}${tx('purchased_at', 'Teslim tarihi', 'Teslim alındı olunca kendiliğinden', 'date')}</div>` : ''}
+    <label class="chk" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:4px 0 8px;font-size:14px;cursor:pointer"><input type="checkbox" name="general_use" ${p.general_use ? 'checked' : ''}> Genel kullanım <span class="hint">birkaç siparişi etkileyen ya da ofis içi alım; işaretliyken aşağıya sipariş de eklenebilir</span></label>
     <div style="margin:4px 0 12px"><div style="font-weight:600;font-size:13px;margin-bottom:6px">Bağlı siparişler <span class="hint">bu talep hangi siparişlerle ilgili; adet siparişlere bölünmez</span></div>
       <div class="tablewrap"><table><thead><tr><th class="nosort">Sipariş</th><th class="nosort">Not</th><th class="nosort"></th></tr></thead><tbody id="pdrows">${[...links, ...Array(Math.max(0, 2 - links.length)).fill(null)].map(pdRow).join('')}</tbody></table></div>
       ${ed ? '<p style="margin:6px 0 0"><button type="button" class="btn sm" id="pdadd">+ Satır ekle</button></p>' : ''}</div>
@@ -3413,7 +3450,7 @@ async function viewPurchase(id, preset){
     ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Talebi aç'}</button></p>` : '<p class="note">Bu kaydı yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ya da Yönetici değiştirebilir.</p>'}
   </fieldset></form><datalist id="itemlist2">${S.items.map(i => `<option value="${esc(i.name)}">`).join('')}</datalist>
     ${links.length ? `<section class="panel mt"><h2>Bağlı sipariş${links.length > 1 ? 'ler' : ''}</h2>${links.map(pdCard).join('')}</section>` : ''}</div>
-  <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Tutar</dt><dd><b>${fmtMoney(p.total, p.currency)}</b></dd><dt>Durum</dt><dd>${purPill(p.status)}</dd>${p.purchased_at ? `<dt>Alındı</dt><dd>${fmtD(p.purchased_at)}</dd>` : ''}${p.received_into_stock ? '<dt>Stok</dt><dd class="ok-txt">Stoğa girdi</dd>' : ''}${p.link ? `<dt>Bağlantı</dt><dd><a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener">aç ↗</a></dd>` : ''}${p.bom_id && bomById(p.bom_id) ? `<dt>Ürün / proje</dt><dd><a href="#/bom/${p.bom_id}">${esc(bomById(p.bom_id).name)}</a></dd>` : ''}${it ? `<dt>Parça</dt><dd><a href="#/stok/${it.id}">${esc(it.name)}</a> · stok ${fmtQ(it.qty)}</dd>` : ''}</dl></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Aynı tedarikçiden birden fazla parça istiyorsanız her parçayı ayrı talep olarak açın; böylece her biri ayrı takip edilir ve stoğa ayrı girer.</p></section>`}
+  <aside>${id ? `<section class="panel"><h2>Özet</h2><dl class="kv"><dt>Tutar</dt><dd><b>${fmtMoney(p.total, p.currency)}</b></dd><dt>Durum</dt><dd>${purPill(p.status)}</dd>${p.ordered_at ? `<dt>Sipariş verildi</dt><dd>${fmtD(p.ordered_at)}</dd>` : ''}${p.expected_at && p.status !== 'alindi' ? `<dt>Tahmini termin</dt><dd class="${p.status === 'siparis_verildi' && p.expected_at < today() ? 'late-txt' : ''}">${fmtD(p.expected_at)}</dd>` : ''}${p.general_use ? '<dt>Kullanım</dt><dd>Genel kullanım</dd>' : ''}${p.purchased_at ? `<dt>Alındı</dt><dd>${fmtD(p.purchased_at)}</dd>` : ''}${p.received_into_stock ? '<dt>Stok</dt><dd class="ok-txt">Stoğa girdi</dd>' : ''}${p.link ? `<dt>Bağlantı</dt><dd><a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener">aç ↗</a></dd>` : ''}${p.bom_id && bomById(p.bom_id) ? `<dt>Ürün / proje</dt><dd><a href="#/bom/${p.bom_id}">${esc(bomById(p.bom_id).name)}</a></dd>` : ''}${it ? `<dt>Parça</dt><dd><a href="#/stok/${it.id}">${esc(it.name)}</a> · stok ${fmtQ(it.qty)}</dd>` : ''}</dl></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Aynı tedarikçiden birden fazla parça istiyorsanız her parçayı ayrı talep olarak açın; böylece her biri ayrı takip edilir ve stoğa ayrı girer.</p></section>`}
     ${id ? `<section class="panel mt"><h2>Belgeler</h2><div id="pfl"><p class="sub">Yükleniyor…</p></div></section>
       <section class="panel mt"><h2>Dekont</h2><div id="pdk"><p class="sub">Yükleniyor…</p></div><div id="pdka"></div></section>
       <div id="pinv"></div>` : ''}
@@ -3454,9 +3491,10 @@ async function viewPurchase(id, preset){
     if (link && !li) return toast('Stoktaki parça listede yok; listeden seçin ya da boş bırakın', true);
     const o = { kind:f.kind.value, unit:f.unit.value || null, area:f.area.value || null, item_name:g('item_name'), item_id:li ? li.id : null, qty:num0(g('qty')), unit_price:num0(g('unit_price')),
       currency:f.currency.value, bom_id:f.bom_id.value ? +f.bom_id.value : null, project:g('project') || null, urgency:f.urgency.value || null, priority:g('priority') || null, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
-      supplier_text:g('supplier_text') || null, link:normUrl(g('link')), requester_name:g('requester_name') || null, requested_at:g('requested_at') || null, purpose:g('purpose') || null, note:g('note') || null };
+      supplier_text:g('supplier_text') || null, general_use:f.general_use.checked, link:normUrl(g('link')), requester_name:g('requester_name') || null, requested_at:g('requested_at') || null, purpose:g('purpose') || null, note:g('note') || null };
     if (o.qty != null && o.unit_price != null) o.total = Math.round(o.qty * o.unit_price * 100) / 100;
     if (f.purchased_at) o.purchased_at = g('purchased_at') || null;
+    if (f.expected_at) o.expected_at = g('expected_at') || null;
     const pd = [...q('#pdrows').rows].map(tr => ({ deal_id:+tr.querySelector('select').value || null, note:tr.querySelector('input').value.trim() || null })).filter(r => r.deal_id);
     if (new Set(pd.map(r => r.deal_id)).size !== pd.length) return toast('Aynı sipariş iki kez seçilmiş', true);
     if (!id) { o.requester = S.profile.id; o.status = 'talep'; o.source = 'Sitede açıldı';
@@ -3478,15 +3516,25 @@ async function viewPurchase(id, preset){
       const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
       const warn = ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
         : back ? `Kaydedince stoğa girmiş ${fmtQ(p.qty)} adet geri düşülür.` : '';
-      const needPf = ns === 'proforma' && !pfN;
-      box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}${needPf ? '<div class="late-txt">Önce Belgeler bölümünden proforma yükleyin.</div>' : ''}`;
-      box.hidden = false; ok.disabled = needPf; no.hidden = false; sel.classList.add('pend'); };
+      const needPf = ns === 'proforma' && !pfN, needEta = ns === 'siparis_verildi';
+      box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}${needPf ? '<div class="late-txt">Önce Belgeler bölümünden proforma yükleyin.</div>' : ''}
+        ${needEta ? `<label class="f" style="max-width:220px;margin-top:6px">Tahmini termin <span class="hint">zorunlu; o gün talebi açana "geldi mi?" diye sorulur</span><input type="date" id="pseta" value="${esc(p.expected_at || '')}" min="${today()}"></label>` : ''}`;
+      const eta = q('#pseta'); if (eta) eta.oninput = () => { ok.disabled = !eta.value; };
+      box.hidden = false; ok.disabled = needPf || (needEta && !(eta && eta.value)); no.hidden = false; sel.classList.add('pend'); };
     pstRefresh = () => { if (sel.classList.contains('pend')) sel.onchange(); };
     no.onclick = clear;
-    ok.onclick = async () => { const ns = sel.value; if (ns === p.status) return; ok.disabled = true;
-      const { error } = await sb.from('purchases').update({ status:ns }).eq('id', id);
+    ok.onclick = async () => { const ns = sel.value; if (ns === p.status) return;
+      const up = { status:ns }; if (ns === 'siparis_verildi') { up.expected_at = (q('#pseta') || {}).value; if (!up.expected_at) return toast('Tahmini termin girin', true); }
+      ok.disabled = true;
+      const { error } = await sb.from('purchases').update(up).eq('id', id);
       if (error) { ok.disabled = false; return toast(dbErr(error), true); }
       toast('Durum kaydedildi: ' + PUR_ST[ns]); S.stockLoaded = false; loadPurCount(); viewPurchase(id); }; }
+  q('#parok') && (q('#parok').onclick = e => { if (!confirmInline(e.target, 'Talep kapanır; parça bağlıysa stoğa girer. Onaylamak için tekrar bas')) return;
+    busy(e.currentTarget, async () => { const { error } = await sb.rpc('purchase_arrived', { p_purchase:id }); if (error) return toast(dbErr(error), true);
+      toast('Teslim alındı; talep kapandı'); S.stockLoaded = false; loadPurCount(); await viewPurchase(id); }); });
+  q('#parno') && (q('#parno').onclick = () => { q('#parbtn').innerHTML = `<input type="text" id="parnote" maxlength="300" placeholder="Not (isteğe bağlı)" style="flex:1;min-width:200px"><button class="btn sm primary" id="parsend" type="button">Satın almaya bildir</button>`;
+    q('#parsend').onclick = e => busy(e.currentTarget, async () => { const { error } = await sb.rpc('purchase_not_arrived', { p_purchase:id, p_note:q('#parnote').value.trim() || null }); if (error) return toast(dbErr(error), true);
+      toast('Satın almaya bildirildi; yeni termin girilince o gün tekrar sorulur'); await viewPurchase(id); }); });
   q('#pdel') && (q('#pdel').onclick = async () => { if (!confirmTwice(q('#pdel'), 'Emin misin? Tekrar bas')) return;
     const { error } = await sb.from('purchases').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/alimlar'; });
 }
@@ -3784,7 +3832,7 @@ async function viewPurchaseItemReport(){
   const grp = (a, key) => { const m = new Map(); a.forEach(p => { const k = key(p) || '—'; const o = m.get(k) || { n:0, t:0, a:[] }; o.n++; o.a.push(p); if ((p.currency || 'TRY') === 'TRY') o.t += +p.total || 0; m.set(k, o); }); return [...m].sort((x, y) => y[1].t - x[1].t); };
   const tbl = (head, rows, tot) => rows.length ? `<table><thead><tr>${head.map((h, i) => `<th class="nosort${i ? ' num' : ''}">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr style="cursor:default">${r.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('')}</tr>`).join('')}</tbody>${tot ? `<tfoot><tr class="tfoot">${tot.map((c, i) => `<td${i ? ' class="num"' : ''}>${c}</td>`).join('')}</tr></tfoot>` : ''}</table>` : '<div class="empty">Kayıt yok.</div>';
   const top = Math.max(...mVal), topI = mVal.indexOf(top);
-  shell('alim-rapor', `${repTabs('talep')}<div class="pagehead"><div><h1>Aylık alım raporu</h1><p class="lede">"Alındı" durumundaki alım talepleri (kalem bazında), alım tarihine göre (alım tarihi yoksa ya da talepten önceyse talep tarihine göre). Tutarlar KDV dahil, para birimine göre ayrı (kur çevrilmez).</p></div><button class="btn" id="pcsv">CSV indir</button></div>
+  shell('alim-rapor', `${repTabs('talep')}<div class="pagehead"><div><h1>Aylık alım raporu</h1><p class="lede">"Teslim alındı" durumundaki alım talepleri (kalem bazında), alım tarihine göre (alım tarihi yoksa ya da talepten önceyse talep tarihine göre). Tutarlar KDV dahil, para birimine göre ayrı (kur çevrilmez).</p></div><button class="btn" id="pcsv">CSV indir</button></div>
   <div class="toolbar"><label class="f" style="width:120px">Yıl<select id="pry">${years.map(y => `<option ${y === st.year ? 'selected' : ''}>${y}</option>`).join('')}</select></label>
     <label class="f" style="width:150px">Ay<select id="prm"><option value="">Tüm yıl</option>${MONTHS_LONG.map((m, i) => `<option value="${i + 1}" ${+st.month === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}</select></label></div>
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
