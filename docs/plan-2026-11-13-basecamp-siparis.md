@@ -99,3 +99,10 @@ Var / Kısmen / Yok; "nerede" sütunu ERP'deki yeri.
 - e-Fatura eşiği "> 5000": hangi para birimi / kural?
 - Basecamp'teki açık siparişler (Orders : To-dos'ta ~17 liste) ERP'ye taşınacak mı, yoksa yeni siparişlerden mi başlanacak?
 - Geçişte Basecamp okunarak (basecamp-sync genişletme) mı, elle mi?
+
+## Yapıldı (13.11 gece): bekleme alanı + bildirimler
+- Yeni durum `waiting` ("Beklemede"): yeni sipariş ve siparişe çevrilen PROS önce buraya düşer (`save_deal`); muhasebe + yöneticiye zil bildirimi.
+  Satış / yönetici "Üretime al" deyince `production` olur; üretime bildirim gider, checklist'ler o anda açılır.
+  Beklemedeki siparişin ödemesi "Geldi" olunca satış + yöneticiye "üretime alınabilir" bildirimi. Fırsat aşamasında bildirim yok.
+  SQL: `sql/2026-11-13_bekleme_bildirim.sql` (canlıda, rol bazında denendi, deneme geri alındı). Arayüz gerçek hesapla denenmedi.
+- Şablon: ERP'de sipariş adım şablonu henüz yok. Ana şablon ile Amazon EU / Robotshop farkları B1 (satış kanalı alanı) ve B2'de (kanal şablonları) ayrılacak.

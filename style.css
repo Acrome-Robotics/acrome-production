@@ -150,6 +150,7 @@ tbody tr:hover td{background:var(--soft)}
 td .sub{color:var(--muted);font-size:12px}
 .mono{font-feature-settings:"tnum";font-stretch:88%;font-weight:600;white-space:nowrap}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:650;white-space:nowrap;line-height:1.5}
+.st-waiting{background:var(--amber-soft);color:var(--amber)}
 .st-production{background:var(--data-soft);color:var(--data)}
 .st-shipped{background:var(--green-soft);color:#276B43}
 .st-pipeline{background:var(--violet-soft);color:var(--violet)}
