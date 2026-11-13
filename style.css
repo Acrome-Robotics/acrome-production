@@ -689,3 +689,11 @@ ul.sugg .sg-t{min-width:0}
 ul.plain{list-style:none;padding:0;margin:0}
 ul.plain li{padding:5px 0;border-top:1px solid var(--soft)}
 ul.plain li:first-child{border-top:0}
+/* checklist: düzenleme tabloları */
+table.cltab tbody tr{cursor:default}
+table.cltab td{padding:5px 8px;vertical-align:middle}
+table.cltab input:not([type=checkbox]){width:100%;min-height:30px;padding:3px 7px}
+table.cltab td.clname{min-width:220px}
+table.cltab td.clqty{width:80px}
+table.cltab td.clact{white-space:nowrap;width:1%}
+table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
