@@ -636,9 +636,9 @@ function viewList(tab){
   const T = today();
   const tabs = { production:'Üretimde', pipeline:'Fırsatlar', shipped:'Gönderilenler', lost:'Kaybedilenler', archived:'Arşiv', all:'Tümü' };
   const base = tab === 'all' ? S.deals : S.deals.filter(d => d.status === tab);
-  if (listState._tab !== tab) { listState._tab = tab; listState.basis = defBasis(tab); listState.year = ''; listState.month = ''; }
+  if (listState._tab !== tab) { listState._tab = tab; listState.basis = defBasis(tab); listState.sort = 'date'; listState.dir = -1; const n = new Date(); listState.year = tab === 'shipped' ? n.getFullYear() : ''; listState.month = tab === 'shipped' ? n.getMonth() + 1 : ''; }
   const bdate = BASES[listState.basis][1];
-  const years = [...new Set(base.map(d => yearOf(bdate(d))).filter(Boolean))].sort().reverse();
+  const years = [...new Set([...base.map(d => yearOf(bdate(d))).filter(Boolean), ...(listState.year ? [+listState.year] : [])])].sort().reverse(); // seçili yıl veride yoksa da seçenek kalsın
   const ctrs = [...new Set(base.map(d => d.country).filter(Boolean))].sort((a,b)=>ctryName(a).localeCompare(ctryName(b),'tr'));
   const draw = () => {
     const s = listState, ql = s.q.toLocaleLowerCase('tr');
@@ -648,8 +648,8 @@ function viewList(tab){
       (!s.month || (bdate(d) && +bdate(d).slice(5,7) === +s.month)) &&
       (!s.country || d.country === s.country) &&
       (!s.product || (d.items||{})[s.product]));
-    const key = { date: d => d.order_date || d.lead_date || '', due: d => d.requested_ship_date || '9999', cust: d => custName(d).toLocaleLowerCase('tr'), amt: d => +d.amount_usd||0, ref: d => refNo(d) }[s.sort];
-    rows.sort((a,b) => { const x = key(a), y = key(b); return (x<y?-1:x>y?1:0) * s.dir; });
+    const key = { date: d => d.order_date || d.lead_date || (d.created_at||'').slice(0,10), due: d => d.requested_ship_date || '9999', cust: d => custName(d).toLocaleLowerCase('tr'), amt: d => +d.amount_usd||0, ref: d => refNo(d) }[s.sort];
+    rows.sort((a,b) => { const x = key(a), y = key(b); return (x<y?-1:x>y?1:0) * s.dir || b.id - a.id; });
     const total = rows.reduce((t,d) => t + (+d.amount_usd||0), 0);
     const ar = k => s.sort===k ? `<span class="ar">${s.dir>0?'▲':'▼'}</span>` : '';
     q('#tbl').innerHTML = rows.length ? `<table><thead><tr>
@@ -667,7 +667,8 @@ function viewList(tab){
         ${tab==='shipped'?`<td>${fmtShip(d)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}${tab==='production'?`<td style="white-space:nowrap">${stgDots(d.id)}<div class="sub">${esc(stgNow(d.id))}</div></td>`:''}
         <td class="num">${fmtUSD(d.amount_usd)}${d.currency!=='USD'&&d.amount_orig?`<div class="sub">${fmtN(d.amount_orig)} ${esc(d.currency)}</div>`:''}</td></tr>`; }).join('')}
       <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'||tab==='production'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
-      </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${can('sales','orders','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
+      </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${s.month?' <a href="#" id="allyear">Tüm yılı göster</a>':''}${can('sales','orders','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
+    const ay = q('#allyear'); if (ay) ay.onclick = e => { e.preventDefault(); s.month = ''; q('#fm').value = ''; draw(); };
     qa('#tbl th[data-s]').forEach(th => th.onclick = () => { const k = th.dataset.s; if (s.sort===k) s.dir*=-1; else { s.sort=k; s.dir = k==='cust'||k==='ref'||k==='due' ? 1 : -1; } draw(); });
     qa('#tbl tr[data-id]').forEach(tr => tr.onclick = () => location.hash = '#/kayit/' + tr.dataset.id);
     q('#csv').onclick = () => csv(rows, `acrome-${tab}-${T}.csv`);
