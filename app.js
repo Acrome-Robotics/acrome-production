@@ -973,6 +973,7 @@ async function viewBoard(){
 // Ürün şablonu → sipariş üretime girince her ürün adedi için kopyası (sunucuda _checklist_sync). Kopya şablondan bağımsızdır.
 const CL_SEC = [['component','Bileşenler','Components'], ['packaging','Paketleme','Packaging Checklist'], ['test','Test','Test Checklist'], ['final','Son kontrol','Final Inspection']];
 const CL_RES = { pass:['Uygun','PASS'], fail:['Red','REJECTED'], conditional:['Şartlı kabul','CONDITIONAL ACCEPTANCE'] };
+const CL_FILE = { rapor:'Test raporu', foto:'Fotoğraf', diger:'Diğer' };
 const canCl = () => can('production', 'admin');
 const clQty = k => k === 'component' || k === 'packaging';
 const clOrd = a => a.slice().sort((x, y) => CL_SEC.findIndex(s => s[0] === x.section) - CL_SEC.findIndex(s => s[0] === y.section) || x.sort - y.sort || x.id - y.id);
@@ -1102,7 +1103,7 @@ async function viewChecklist(id){
   const items = clOrd(b.data || []).map(clItem), ro = !canCl();
   const T = c.product_code && !c.edited_at && !ro ? ((await sb.from('checklist_templates').select('id,name').eq('product_code', c.product_code).eq('active', true).order('name')).data || []) : [];
   const qty = Math.floor(+(d.items || {})[c.product_code] || 0), canDel = !ro && (c.unit_no == null || c.unit_no > qty || can('admin'));
-  const H = { title:c.title, serial_no:c.serial_no || '', checked_by:c.checked_by || (ro ? '' : S.profile.full_name || ''), check_date:c.check_date || (ro ? '' : today()), result:c.result || '' };
+  const H = { title:c.title, serial_no:c.serial_no || '', checked_by:c.checked_by || (ro ? '' : S.profile.full_name || ''), check_date:c.check_date || (ro ? '' : today()), result:c.result || '', test_note:c.test_note || '' };
   shell('kayitlar/' + d.status, `<div class="noprint"><p><a href="#/kayit/${d.id}">← ${esc(refNo(d))} · ${esc(custName(d))}</a></p>
     <div class="pagehead"><div><h1>${esc(c.title)} <span class="mono" style="font-size:.7em">${esc(c.serial_no || '')}</span></h1><p class="lede">Müşteriye giden checklist. Satır ekleyip çıkarmak yalnız bu checklist'i değiştirir, şablonu etkilemez.${c.updated_by_name ? ` Son kayıt: ${esc(c.updated_by_name)} · ${fmtDT(c.updated_at)}.` : ''}</p></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="clprint" type="button">Yazdır / PDF</button>${canDel ? '<button class="btn danger" id="cldel" type="button">Sil</button>' : ''}</div></div>
@@ -1114,11 +1115,18 @@ async function viewChecklist(id){
       <div class="row"><label class="f">Genel sonuç<select name="result" ${ro ? 'disabled' : ''}><option value="">—</option>${Object.entries(CL_RES).map(([k, v]) => `<option value="${k}" ${k === H.result ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
       ${T.length > 1 ? `<label class="f">Şablonu değiştir <span class="hint">doldurulmadan önce</span><span style="display:flex;gap:6px"><select id="clrt">${T.map(t => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select><button class="btn sm" id="clrtb" type="button">Uygula</button></span></label>` : ''}</div>
       <div id="clits"></div>
+      <section class="panel mt"><h2>Test notu ve test raporu</h2>
+        <label class="f">Test notu <span class="hint">çıktıda görünür; ölçümler, kalibrasyon değerleri, yazılım sürümü…</span><textarea name="test_note" rows="6" maxlength="5000" ${ro ? 'disabled' : ''}>${esc(H.test_note)}</textarea></label>
+        <h3 style="font-size:14px;margin:14px 0 6px">Test raporu dosyaları <span class="sub" style="font-weight:400">· çıktıya eklenmez</span></h3><div id="clfiles"><span class="sub">Yükleniyor…</span></div></section>
       ${ro ? '<p class="note">Checklist\'i yalnız Üretim ve Yönetici doldurabilir.</p>' : '<p class="mt"><button class="btn primary" type="submit">Kaydet</button> <span class="sub">Yazdırmadan önce kaydedin; çıktı ekrandaki hâli basar.</span></p>'}</form></div>
     <div class="clprint" id="clpr"></div>`);
   clEditor(q('#clits'), items, true, ro);
-  const f = q('#clf'), head = () => ro ? H : Object.fromEntries(['title','serial_no','checked_by','check_date','result'].map(k => [k, f[k].value.trim()]));
+  const f = q('#clf'), head = () => ro ? H : Object.fromEntries(['title','serial_no','checked_by','check_date','result','test_note'].map(k => [k, f[k].value.trim()]));
   q('#clprint').onclick = () => { q('#clpr').innerHTML = clPrintHtml(d, { ...c, ...head() }, items); window.print(); };
+  const loadF = async () => { const { data } = await sb.from('checklist_files').select('*').eq('checklist_id', id).order('created_at');
+    fileList(q('#clfiles'), data || [], { bucket:'uretim', table:'checklist_files', kinds:CL_FILE, kind:'rapor', prefix:`c/${id}`, link:{ checklist_id:id }, canAdd:!ro,
+      canDel: x => !ro && (x.uploaded_by === S.profile.id || can('admin')), empty:'Henüz test raporu yüklenmedi.', reload:loadF }); };
+  loadF();
   if (ro) return;
   f.onsubmit = e => { e.preventDefault(); busy(e, async () => {
     const { error } = await sb.rpc('checklist_save', { p_id:id, p_head:head(), p_items:items.filter(x => x.name.trim()) });
@@ -1144,6 +1152,7 @@ function clPrintHtml(d, c, items){
     ${info([[['Order No', refNo(d)], ['Serial Number', c.serial_no]], [['Customer', custName(d)], ['Date', enD(c.check_date)]], [['Product', c.title], ['Checked by', c.checked_by]]])}
     ${listT('component', 'Components', true)}${listT('packaging', 'Packaging Checklist', true)}
     ${tests.length ? `<h3>Test Checklist</h3><table class="clp-t"><thead><tr><th>#</th><th>Test</th><th class="c">Result</th><th>Description</th></tr></thead><tbody>${tests.map((x, i) => `<tr><td class="n">${i + 1}</td><td>${esc(x.name)}</td><td class="c">${box(x.ok)}</td><td>${esc(x.note)}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${(c.test_note || '').trim() ? `<h3>Test Notes</h3><div class="clp-note">${esc(c.test_note.trim())}</div>` : ''}
     ${res && !fin.length ? `<p class="clp-res">Overall result: <b>${res}</b></p>` : ''}
     ${sign('Checked by (Acrome) · Signature', 'Received by (Customer) · Signature')}</div>`;
   if (!fin.length) return p1;
@@ -3949,25 +3958,25 @@ const fmtTL2 = n => n == null || n === '' || isNaN(n) ? '—' : (+n).toLocaleStr
 const FILE_KIND = { proforma:'Proforma', fatura:'Fatura', irsaliye:'İrsaliye', diger:'Diğer' };
 const monName = per => MONTHS_LONG[+per.slice(5, 7) - 1] + ' ' + per.slice(0, 4);
 
-async function openAlimFile(path){
+async function openAlimFile(path, bucket = 'alim'){
   const w = window.open('', '_blank');
-  const { data, error } = await sb.storage.from('alim').createSignedUrl(path, 300);
+  const { data, error } = await sb.storage.from(bucket).createSignedUrl(path, 300);
   if (error || !data) { w && w.close(); return toast('Dosya açılamadı: ' + (error ? error.message : ''), true); }
   if (w) w.location = data.signedUrl; else location.href = data.signedUrl;
 }
-// Belge listesi + yükleme (alım: p/<id>, fatura: f/<id>)
+// Belge listesi + yükleme (alım: p/<id>, fatura: f/<id>; checklist: o.bucket 'uretim', o.table checklist_files, c/<id>)
 function fileList(box, files, o){
   if (!box) return;
-  const K = o.kinds || FILE_KIND;
+  const K = o.kinds || FILE_KIND, B = o.bucket || 'alim', TB = o.table || 'purchase_files';
   box.innerHTML = `${files.length ? `<ul class="flist">${files.map(f => `<li><button type="button" class="linkbtn flink" data-fo="${esc(f.path)}">📎 ${esc(f.name || 'dosya')}</button> <span class="chip">${K[f.kind] || f.kind}</span>
       <div class="sub">${esc(f.uploaded_by_name || '')} · ${fmtDT(f.created_at)}${o.canDel(f) ? ` · <button type="button" class="linkbtn" data-fd="${f.id}">sil</button>` : ''}</div></li>`).join('')}</ul>` : `<p class="sub" style="margin:0">${o.empty || 'Henüz belge yok.'}</p>`}
     ${o.canAdd ? `<div class="fup"><select aria-label="Belge türü" ${Object.keys(K).length < 2 ? 'hidden' : ''}>${Object.entries(K).map(([k, l]) => `<option value="${k}" ${k === o.kind ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <label class="btn sm">Dosya seç (PDF / foto)<input type="file" accept="application/pdf,image/*" hidden></label></div><p class="note" style="margin:4px 0 0">En fazla 10 MB. Telefondan fotoğraf çekebilirsiniz.</p>` : ''}`;
-  qa('[data-fo]', box).forEach(b => b.onclick = () => openAlimFile(b.dataset.fo));
+  qa('[data-fo]', box).forEach(b => b.onclick = () => openAlimFile(b.dataset.fo, B));
   qa('[data-fd]', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'emin misin? tekrar bas')) return;
     const f = files.find(x => x.id === +b.dataset.fd);
-    const { error } = await sb.from('purchase_files').delete().eq('id', f.id); if (error) return toast(dbErr(error), true);
-    sb.storage.from('alim').remove([f.path]).catch(() => {}); toast('Belge silindi'); o.reload(); });
+    const { error } = await sb.from(TB).delete().eq('id', f.id); if (error) return toast(dbErr(error), true);
+    sb.storage.from(B).remove([f.path]).catch(() => {}); toast('Belge silindi'); o.reload(); });
   const inp = q('.fup input[type=file]', box);
   inp && (inp.onchange = async () => {
     const file = inp.files[0]; if (!file) return;
@@ -3978,12 +3987,12 @@ function fileList(box, files, o){
       if (fl.size > 10e6) throw new Error('Dosya 10 MB\'tan büyük; daha küçük bir PDF ya da fotoğraf seçin.');
       const safe = (fl.name || 'dosya').normalize('NFKD').replace(/[^\w.-]+/g, '_').replace(/^\.+/, '').slice(-80) || 'dosya';
       path = `${o.prefix}/${Date.now()}${Math.random().toString(36).slice(2, 6)}-${safe}`;
-      const { error: ue } = await sb.storage.from('alim').upload(path, fl, { contentType:fl.type || 'application/octet-stream', upsert:false });
+      const { error: ue } = await sb.storage.from(B).upload(path, fl, { contentType:fl.type || 'application/octet-stream', upsert:false });
       if (ue) { path = null; throw new Error('Dosya yüklenemedi: ' + ue.message); }
-      const { error } = await sb.from('purchase_files').insert({ ...o.link, kind, path, name:file.name.slice(0, 200), size_bytes:fl.size });
+      const { error } = await sb.from(TB).insert({ ...o.link, kind, path, name:file.name.slice(0, 200), size_bytes:fl.size });
       if (error) throw error;
       toast('Belge eklendi'); o.reload();
-    } catch (x) { if (path) sb.storage.from('alim').remove([path]).catch(() => {}); lab.classList.remove('busy'); toast(dbErr(x), true); }
+    } catch (x) { if (path) sb.storage.from(B).remove([path]).catch(() => {}); lab.classList.remove('busy'); toast(dbErr(x), true); }
   });
 }
 
