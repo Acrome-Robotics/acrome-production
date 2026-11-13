@@ -99,8 +99,8 @@ function q(sel, root=document){ return root.querySelector(sel); }
 function qa(sel, root=document){ return [...root.querySelectorAll(sel)]; }
 function dbErr(e){
   const m = e?.message || String(e);
-  if (/deals_order_no_uq/.test(m)) return 'Bu sipariş numarası zaten kayıtlı.';
-  if (/deals_opp_no_uq/.test(m)) return 'Bu PROS numarası zaten kayıtlı.';
+  if (/deals_order_no_uq/.test(m)) return 'Bu sipariş numarası zaten kayıtlı (Silinenler\'deki bir kayıtta olabilir; önce geri al ya da kalıcı sil).';
+  if (/deals_opp_no_uq/.test(m)) return 'Bu PROS numarası zaten kayıtlı (Silinenler\'deki bir kayıtta olabilir; önce geri al ya da kalıcı sil).';
   if (/customers_name_uq/.test(m)) return 'Bu müşteri zaten kayıtlı.';
   if (/row-level security|permission/.test(m)) return 'Bu işlem için yetkiniz yok.';
   if (/expense_items_receipt_uq/.test(m)) return 'Bu fiş başka bir masraf kaleminde kullanılmış.';
@@ -112,7 +112,7 @@ function dbErr(e){
 // ---------------------------------------------------------------- veri
 async function loadAll(){
   const [d,c,p,k,i] = await Promise.all([
-    sb.from('v_deals').select('*').order('id').range(0, 4999),
+    sb.from('v_deals').select('*').is('deleted_at', null).order('id').range(0, 4999),
     sb.from('customers').select('*').order('name'),
     sb.from('products').select('*').order('sort'),
     sb.from('countries').select('*').order('name'),
@@ -252,7 +252,6 @@ function shell(active, html){
     ['Üretim', 'gear', [
       ['uretim-pano','Üretim panosu', myDeps().length ? S.deals.filter(d => d.status === 'production' && myDeps().includes((curStage(d.id) || [])[0])).length || '' : ''],
       ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
-      ...(canSeePlan() ? [['tedarik','Tedarik planı', S.planPending || '', 'hot']] : []),
       ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
       ['checklist-sablon','Checklist şablonları'],
     ]],
@@ -261,6 +260,7 @@ function shell(active, html){
       ['kayitlar/all','Tüm kayıtlar', S.deals.length],
       ...(can('sales','orders','admin') ? [['yeni','Yeni kayıt']] : []),
       ['tahsilat','Tahsilat takibi'],
+      ...(can('sales','admin') ? [['silinenler','Silinenler']] : []),
     ]],
     ['Support', 'help', [
       ['support','Konular', supOpenCount() || '', 'hot'],
@@ -271,6 +271,7 @@ function shell(active, html){
     ['Alımlar', 'cart', [
       ['alimlar','Talepler', S.purOpen || ''],
       ['alim-yeni','Yeni talep'],
+      ...(canSeePlan() ? [['tedarik','Tedarik planı', S.planPending || '', 'hot']] : []),
       ['tedarikciler','Tedarikçiler'],
       ...(canPurchase() ? [['tedarikciler/hesaplar','Site hesapları', '', '', '', 'tedarikciler-hesap']] : []),
     ]],
@@ -348,6 +349,7 @@ function route(){
     case 'checklist': return viewChecklist(+a);
     case 'yeni': return can('sales','orders','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
+    case 'silinenler': return can('sales','admin') ? viewTrash() : viewReport();
     case 'duzenle': return viewForm(+a);
     case 'kaynaklar': return viewSources(a || 'musteriler');
     case 'uyarilar': return viewIssues();
@@ -831,7 +833,7 @@ function viewShipments(){
 // ---------------------------------------------------------------- DETAY
 function viewDetail(id){
   const d = S.deals.find(x => x.id === id);
-  if (!d) return shell('', `<h1>Kayıt bulunamadı</h1><p><a href="#/kayitlar/all">Tüm kayıtlara dön</a></p>`);
+  if (!d) return shell('', `<h1>Kayıt bulunamadı</h1><p><a href="#/kayitlar/all">Tüm kayıtlara dön</a>${can('sales','admin') ? ' · Silinmişse <a href="#/silinenler">Silinenler</a> listesindedir.' : ''}</p>`);
   const iss = S.issues.filter(i => i.deal_id === id && !i.resolved);
   const kv = (k,v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : '';
   shell('kayitlar/' + d.status, `
@@ -841,7 +843,7 @@ function viewDetail(id){
     ${can('sales','orders','admin') && d.status==='pipeline' ? `<a class="btn primary" href="#/duzenle/${d.id}?siparis">Siparişe çevir</a>`:''}
     ${can('production') && d.status==='production' ? `<a class="btn primary" href="#/duzenle/${d.id}">Sevk bilgisi gir</a>`:''}
     ${can('sales','orders','admin','production') ? `<a class="btn" href="#/duzenle/${d.id}">Düzenle</a>`:''}
-    ${can('admin') ? `<button class="btn danger" id="del">Sil</button>`:''}</div></div>
+    ${can('sales','admin') ? `<button class="btn danger" id="del">Sil</button>`:''}</div></div>
   ${iss.length ? `<div class="banner"><b>Excel'den aktarımda düzeltilen alanlar:</b><br>${iss.map(i=>esc(i.message)).join('<br>')}</div>`:''}
   <div class="grid g2">
     <section class="panel"><h2>Bilgiler</h2><dl class="kv">
@@ -874,11 +876,31 @@ function viewDetail(id){
     qa('#dpur tr[data-pid]').forEach(r => r.onclick = () => location.hash = '#/alimlar/' + r.dataset.pid); });
   const del = q('#del');
   if (del) del.onclick = async () => {
-    if (del.dataset.c !== '1') { del.dataset.c = '1'; del.textContent = 'Silmeyi onayla'; return; }
-    const { error } = await sb.from('deals').delete().eq('id', id);
+    if (del.dataset.c !== '1') { del.dataset.c = '1'; del.textContent = 'Silinenler\'e taşı'; return; }
+    const { error } = await sb.from('deals').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) return toast(dbErr(error), true);
-    S.deals = S.deals.filter(x => x.id !== id); toast('Kayıt silindi'); location.hash = '#/kayitlar/' + d.status;
+    S.deals = S.deals.filter(x => x.id !== id); toast('Silinenler\'e taşındı; oradan geri alınabilir'); location.hash = '#/kayitlar/' + d.status;
   };
+}
+
+// ---------------------------------------------------------------- SİLİNENLER (satış + yönetici; RLS diğerlerine göstermez)
+async function viewTrash(){
+  shell('silinenler', '<div class="empty">Yükleniyor…</div>');
+  const [{ data, error }] = await Promise.all([sb.from('v_deals').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending:false }), people()]);
+  if (error) return shell('silinenler', `<div class="empty">${esc(dbErr(error))}</div>`);
+  shell('silinenler', `<div class="pagehead"><div><h1>Silinenler</h1><p class="lede">Silinen sipariş ve fırsatlar. Geri alınan kayıt eski listesine döner; kalıcı silinen kayıt ödeme planı, checklist ve aşamalarıyla birlikte geri gelmez.</p></div></div>
+  <div class="tablewrap">${data.length ? `<table><thead><tr><th class="nosort">No</th><th class="nosort">Müşteri</th><th class="nosort">Açıklama</th><th class="nosort">Durum</th><th class="nosort num">Tutar</th><th class="nosort">Silen</th><th class="nosort"></th></tr></thead><tbody>
+    ${data.map(d => `<tr style="cursor:default"><td class="mono">${esc(refNo(d))}</td><td>${esc(custName(d))}</td><td>${esc(d.description)}</td><td>${pill(d.status)}</td><td class="num">${fmtUSD(d.amount_usd)}</td>
+      <td>${esc(personName(d.deleted_by) || '—')}<div class="sub">${fmtDT(d.deleted_at)}</div></td>
+      <td style="white-space:nowrap;text-align:right"><button class="btn sm" data-res="${d.id}">Geri al</button> <button class="btn sm danger" data-pur="${d.id}">Kalıcı sil</button></td></tr>`).join('')}
+    </tbody></table>` : '<div class="empty">Silinen kayıt yok.</div>'}</div>`);
+  qa('[data-res]').forEach(b => b.onclick = async () => {
+    const { error } = await sb.from('deals').update({ deleted_at: null }).eq('id', +b.dataset.res); if (error) return toast(dbErr(error), true);
+    await loadAll(); toast('Kayıt geri alındı'); location.hash = '#/kayit/' + b.dataset.res; });
+  qa('[data-pur]').forEach(b => b.onclick = async () => {
+    if (!confirmInline(b, 'Kalıcı silinir: ödeme planı, checklist ve aşamalar da gider. Onaylamak için tekrar bas')) return;
+    const { error } = await sb.from('deals').delete().eq('id', +b.dataset.pur); if (error) return toast(dbErr(error), true);
+    toast('Kalıcı olarak silindi'); viewTrash(); });
 }
 
 // ---------------------------------------------------------------- ÜRETİM AŞAMALARI (sipariş başına)

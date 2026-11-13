@@ -137,7 +137,14 @@ Hepsi Talepler sayfası (`viewPurchases`, `viewPurchase`); tek dalga, SQL yalnı
 - G5 "Açık talepler" sekmesinde yıl, birim ve ürün (BOM) süzgeçleri gösterilmez ve uygulanmaz; sipariş süzgeci kalır.
   Diğer sekmelerde (Alınanlar, Tümü…) yıl / birim / ürün süzgeçleri kalır — kullanıcı yalnız açık talepler dedi; doğrulanacak.
 - Kur: kullanıcı "bir önceki günün kuru" dedi; canlıdaki kural zaten bu (sipariş tarihinden önceki son TCMB bülteni). Değişiklik yok.
-- Depolama (karar bekliyor): canlıda 8 dosya, 1,4 MB (alim 1,1 MB, masraf 0,3 MB); veritabanı 53 MB. Öneri: şimdilik Supabase'te kal,
-  kullanım göstergesi + eşik uyarısı ekle; ürün dokümanı / video gibi büyük dosyalar Drive'da bağlantı olarak tutulur.
+- Depolama (karar verildi 13.11, ayrıntı plan-2026-11-13-basecamp-siparis.md B7): canlıda 8 dosya, 1,4 MB; veritabanı 53 MB.
+  Muhasebe / satış belgeleri Supabase'te; ürün dosyaları Drive bağlantısı; yöneticiye kullanım göstergesi, dolunca arşivleme.
 - Yöntem (kullanıcıyla konuşuldu): küçük işler doğrudan şef tarafından yapılır; ajan + bağımsız inceleme yalnız büyük ya da
   para / yetki / veri taşıma içeren işlerde. Bu grup küçük: doğrudan yapılacak, tek inceleme.
+
+## Silinenler + menü (13.11 gece)
+- Silinen sipariş / fırsat önce Silinenler'e düşer (`deals.deleted_at`, `deleted_by`; `sql/2026-11-13_silinenler.sql`, canlıya uygulandı).
+  Silinenler'i yalnız satış ve yönetici görür; ikisi de taşır, geri alır, kalıcı siler (kullanıcı kararı). Kalıcı silme yalnız Silinenler'den (RLS).
+  Orders / production taşıyamaz (`deals_validate`). Tahsilat raporu, talep–sipariş bağı ve checklist açma silinmişleri dışlar.
+  SQL'de rol bazında denendi (geri alınan işlemle); arayüz gerçek hesapla denenmedi. Menü: Satış → Silinenler.
+- Tedarik planı menüde Üretim'den Alımlar altına taşındı.
