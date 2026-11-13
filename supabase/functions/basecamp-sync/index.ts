@@ -5,7 +5,7 @@
 //  - POST ?check=1            : yalnız bağlantı kontrolü
 //  - POST ?peek=1             : son yorumlar / kart değişiklikleri (yalnız okur)
 //  - POST ?since=ISO          : o tarihten bu yana olanları yeniden tarar (geriye dönük doldurma)
-// Kartlar (Kanban::Card), Supports'a iletilen mailler (Inbox::Forward) ve ikisinin altındaki yorumlar aktarılır.
+// Kartlar (Kanban::Card) ve yorumları aktarılır; Supports'a iletilen maillerin (Inbox::Forward) yalnız altındaki yorumlar.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const BASE = Deno.env.get("SUPABASE_URL")!;
