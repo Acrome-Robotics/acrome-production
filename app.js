@@ -1470,10 +1470,10 @@ function viewSources(tab){
   qa('[data-st]').forEach(b => b.onclick = () => location.hash = '#/kaynaklar/' + b.dataset.st);
   const sq = q('#sq'); if (sq) sq.oninput = () => { const v = sq.value.toLocaleLowerCase('tr'); qa('#sb tr').forEach(r => r.style.display = r.dataset.n.includes(v) ? '' : 'none'); };
   qa('[data-ec]').forEach(b => b.onclick = () => editCustomer(+b.dataset.ec, b.closest('tr')));
-  qa('[data-tp]').forEach(b => b.onclick = async () => { const p = S.products.find(x=>x.code===b.dataset.tp); const { error } = await sb.from('products').update({ active: !p.active }).eq('code', p.code); if (error) return toast(dbErr(error), true); await loadAll(); viewSources('urunler'); });
+  qa('[data-tp]').forEach(b => b.onclick = async () => { const p = S.products.find(x=>x.code===b.dataset.tp); const { error } = await sb.from('products').update({ active: !p.active }).eq('code', p.code); if (error) return toast(dbErr(error), true); S.stockLoaded = false; await loadAll(); viewSources('urunler'); });
   const pf = q('#pf'); if (pf) pf.onsubmit = async e => { e.preventDefault(); const f = new FormData(pf); const code = String(f.get('code')).trim().toUpperCase(), name = String(f.get('name')).trim();
     if (!/^[A-Z0-9_]{2,20}$/.test(code)) return toast('Kod 2–20 karakter, büyük harf/rakam/alt çizgi olmalı', true); if (name.length < 2) return toast('Ürün adı gir', true);
-    const { error } = await sb.from('products').insert({ code, name, category: f.get('category'), sort: +f.get('sort')||50 }); if (error) return toast(dbErr(error), true); await loadAll(); toast('Ürün eklendi'); viewSources('urunler'); };
+    const { error } = await sb.from('products').insert({ code, name, category: f.get('category'), sort: +f.get('sort')||50 }); if (error) return toast(dbErr(error), true); S.stockLoaded = false; await loadAll(); toast('Ürün eklendi'); viewSources('urunler'); };
 }
 function confirmInline(btn, label){ if (btn.dataset.c === '1') return true; btn.dataset.c = '1'; btn.textContent = 'Onayla'; toast(label); return false; }
 function editCustomer(id, tr){
@@ -2623,9 +2623,10 @@ async function loadStock(force){
     sb.from('pcb_boards').select('*').order('pcb').order('version'),
   ]);
   S.items = it.data || []; S.boms = bm.data || []; S.suppliers = su.data || []; S.pcbs = pb.data || [];
-  const pl = await sb.from('bom_lines').select('item_id,bom_id').not('item_id', 'is', null).range(0, 9999);
+  const pl = await fetchAll(() => sb.from('bom_lines').select('item_id,bom_id').order('id'));
   const prodB = new Set(S.boms.filter(b => b.kind === 'product').map(b => b.id));
-  S.prodItemIds = new Set((pl.data || []).filter(l => prodB.has(l.bom_id)).map(l => l.item_id));
+  S.prodItemIds = new Set((pl.data || []).filter(l => l.item_id != null && prodB.has(l.bom_id)).map(l => l.item_id));
+  S.bomLineN = {}; (pl.data || []).forEach(l => S.bomLineN[l.bom_id] = (S.bomLineN[l.bom_id] || 0) + 1);
   S.stockLoaded = true;
 }
 async function loadPurCount(){
@@ -2870,7 +2871,7 @@ async function viewBomList(sec){
   const card = b => { const ls = by[b.id] || [], mx = bomBuildable(ls), cost = ls.reduce((a, l) => a + (+l.price || 0) * (+l.qty_per || 0), 0), unk = ls.filter(l => l.stock_qty == null).length;
     const deal = b.deal_id ? S.deals.find(d => d.id === b.deal_id) : null;
     return `<a class="bomcard${mx === 0 ? ' is-zero' : ''}" href="#/bom/${b.id}"><b>${esc(b.name)}</b>
-      <span class="sub">${ls.length} kalem${b.kind === 'product' && b.meta && b.meta.hazir_urun_stok != null ? ` · hazır ürün ${fmtQ(b.meta.hazir_urun_stok)}` : ''}${deal ? ' · ' + esc(refNo(deal)) : ''}${b.status !== 'aktif' ? ' · ' + esc(b.status) : ''}</span>
+      <span class="sub">${!ls.length && b.kind === 'product' ? '<span class="pill amber-txt">boş</span> ' : ''}${ls.length} kalem${b.kind === 'product' && b.meta && b.meta.hazir_urun_stok != null ? ` · hazır ürün ${fmtQ(b.meta.hazir_urun_stok)}` : ''}${deal ? ' · ' + esc(refNo(deal)) : ''}${b.status !== 'aktif' ? ' · ' + esc(b.status) : ''}</span>
       <span class="bc-row"><span>Üretilebilir</span><b class="${mx === 0 ? 'late-txt' : ''}">${mx == null ? '—' : fmtQ(mx)}</b></span>
       ${cost ? `<span class="bc-row"><span>Kalem maliyeti</span><b>${fmtTRY(cost)}</b></span>` : ''}${unk ? `<span class="sub">${unk} kalemde stok girilmemiş</span>` : ''}</a>`; };
   const group = (k, title, hint) => { const bs = S.boms.filter(b => b.kind === k); return `<section class="mt"><div class="board-head"><h2 style="margin:0">${title} <span class="tcount">${bs.length}</span></h2>${hint || ''}</div>
@@ -2942,7 +2943,7 @@ async function viewBom(id){
       const { error } = await sb.from('bom_lines').update({ qty_per:v || 1 }).eq('id', lid); if (error) return toast(dbErr(error), true); const l = L.find(x => x.id === lid); l.qty_per = v || 1; toast('Güncellendi'); draw(); });
     qa('.ldel').forEach(btn => btn.onclick = async () => { const lid = +btn.closest('tr').dataset.lid;
       if (!btn.dataset.ok) { btn.dataset.ok = 1; btn.textContent = 'Emin?'; return; }
-      const { error } = await sb.from('bom_lines').delete().eq('id', lid); if (error) return toast(dbErr(error), true); L.splice(L.findIndex(x => x.id === lid), 1); toast('Çıkarıldı'); draw(); });
+      const { error } = await sb.from('bom_lines').delete().eq('id', lid); if (error) return toast(dbErr(error), true); L.splice(L.findIndex(x => x.id === lid), 1); S.stockLoaded = false; toast('Çıkarıldı'); draw(); });
     q('#mkpur') && (q('#mkpur').onclick = e => { e.preventDefault(); return busy(e.currentTarget, async () => {
       const miss = rows.filter(r => r.short > 0 && (!r.alt_group || !rows.filter(x => x.alt_group === r.alt_group).some(x => !x.short)));
       const pick = miss.filter((r, i, a) => !r.alt_group || a.findIndex(x => x.alt_group === r.alt_group) === i);
@@ -2963,7 +2964,7 @@ async function viewBom(id){
     const it = S.items.find(i => i.name.toLocaleLowerCase('tr') === nm.toLocaleLowerCase('tr'));
     const { error } = await sb.from('bom_lines').insert({ bom_id:id, item_id:it ? it.id : null, item_name:it ? null : nm, qty_per:num0(f.qp.value) || 1, section:f.sec.value,
       unit_price:num0(f.pr.value), notes:f.nt.value.trim() || null, sort:L.length });
-    if (error) return toast(dbErr(error), true); toast(it ? 'Stoktaki parça eklendi' : 'Yeni kalem eklendi (stok takibi yok)'); viewBom(id); });
+    if (error) return toast(dbErr(error), true); S.stockLoaded = false; toast(it ? 'Stoktaki parça eklendi' : 'Yeni kalem eklendi (stok takibi yok)'); viewBom(id); });
   if (q('#altpick')) q('#altpick').innerHTML = groups.map((g, gi) => `<label class="f">${esc(g)}<select name="alt${gi}">${L.filter(l => l.alt_group === g).map(l => `<option value="${l.id}">${esc(l.name)} (stok ${fmtQ(l.stock_qty)})</option>`).join('')}</select></label>`).join('');
   q('#bpf') && (q('#bpf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const f = e.target, n = Math.round(+f.n.value || 0); if (n < 1) return toast('Adet girin', true);
     const chosen = new Set(groups.map((g, gi) => +f['alt' + gi].value));
@@ -3228,10 +3229,12 @@ async function viewPurchase(id, preset){
       <textarea id="pct" rows="2" maxlength="2000" placeholder="Yorum yaz (talep sahibi ve Satın alma görür, bildirim alır)" style="width:100%;margin-top:8px"></textarea>
       <p style="margin:6px 0 0"><button class="btn sm primary" id="pcadd" type="button">Yorum ekle</button></p></section>
       <section class="panel mt"><h2>Durum geçmişi</h2><div id="pev"><p class="sub">Yükleniyor…</p></div></section>` : ''}</aside></div>`);
+  let pfN = null, pstRefresh = () => {}; // proforma dosya sayısı (Belgeler panelinden); durum seçici de kullanır
   if (id) {
     const canAdd = canPurchase() || can('muhasebe') || mine, loadF = async () => {
       const { data } = await sb.from('purchase_files').select('*').eq('purchase_id', id).order('created_at');
       const all = data || [], dk = all.filter(f => f.kind === 'dekont'), acc = can('muhasebe', 'admin');
+      pfN = all.filter(f => f.kind === 'proforma').length; pstRefresh();
       fileList(q('#pfl'), all.filter(f => f.kind !== 'dekont'), { canAdd, canDel: f => f.uploaded_by === S.profile.id || can('admin'), prefix:'p/' + id, link:{ purchase_id:id }, kind:'proforma', reload:loadF });
       fileList(q('#pdk'), dk, { canAdd: acc && !p.receipt_approved_at, canDel: f => !p.receipt_approved_at && (f.uploaded_by === S.profile.id || can('admin')), prefix:'p/' + id, link:{ purchase_id:id },
         kind:'dekont', kinds:{ dekont:'Dekont' }, empty:'Dekont yüklenmedi. Ödeme yapılınca muhasebe yükler ve onaylar.', reload:loadF });
@@ -3275,8 +3278,10 @@ async function viewPurchase(id, preset){
       const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
       const warn = ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
         : back ? `Kaydedince stoğa girmiş ${fmtQ(p.qty)} adet geri düşülür.` : '';
-      box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}`;
-      box.hidden = false; ok.disabled = false; no.hidden = false; sel.classList.add('pend'); };
+      const needPf = ns === 'proforma' && !pfN;
+      box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}${needPf ? '<div class="late-txt">Önce Belgeler bölümünden proforma yükleyin.</div>' : ''}`;
+      box.hidden = false; ok.disabled = needPf; no.hidden = false; sel.classList.add('pend'); };
+    pstRefresh = () => { if (sel.classList.contains('pend')) sel.onchange(); };
     no.onclick = clear;
     ok.onclick = async () => { const ns = sel.value; if (ns === p.status) return; ok.disabled = true;
       const { error } = await sb.from('purchases').update({ status:ns }).eq('id', id);
@@ -3297,7 +3302,11 @@ const fmtUSD2 = n => n == null || isNaN(n) ? '—' : '$' + (+n).toLocaleString('
 const toUSD = (price, cur, fx) => { if (price == null || price === '') return null; const p = +price;
   if (cur === 'USD') return p; if (cur === 'EUR') return fx.eur && fx.usd ? p * fx.eur / fx.usd : null; return fx.usd ? p / fx.usd : null; };
 const planProdQty = () => { const m = {}; S.deals.filter(d => d.status === 'production').forEach(d => Object.entries(d.items || {}).forEach(([c, n]) => m[c] = (m[c] || 0) + +n)); return m; };
-const prodHasBom = code => (S.boms || []).some(b => b.kind === 'product' && b.product_code === code && (b.status || 'aktif') === 'aktif');
+const prodBoms = code => (S.boms || []).filter(b => b.kind === 'product' && b.product_code === code && (b.status || 'aktif') === 'aktif');
+const prodHasBom = code => prodBoms(code).length > 0;
+// boş BOM ürünü plana sokar ama malzeme çıkarmaz; bunu kullanıcıya göstermek için
+const prodBomEmpty = code => { const bs = prodBoms(code); return !bs.length || bs.every(b => !(S.bomLineN || {})[b.id]); };
+const prodBomLink = code => { const b = prodBoms(code)[0]; return b ? `<a href="#/bom/${b.id}">${esc(prodName(code))}</a>` : esc(prodName(code)); };
 async function loadPlanCount(){ if (!can('admin')) { S.planPending = 0; return; } const { count } = await sb.from('supply_plans').select('id', { count:'exact', head:true }).eq('status', 'gonderildi'); S.planPending = count || 0; }
 const planTotals = (lines, fx) => { let usd = 0, miss = 0; const pk = {};
   lines.forEach(l => { if (!(+l.order_qty > 0)) return; const u = toUSD(l.unit_price, l.currency, fx); const v = u == null ? null : u * l.order_qty;
@@ -3339,7 +3348,7 @@ async function viewPlanEdit(id){
   const prods = S.products.filter(p => p.active !== false && (prodHasBom(p.code) || inOrders[p.code] || +s.products[p.code]));
   const fx = { usd:+s.fx_usd || 0, eur:+s.fx_eur || 0 };
   const t = planTotals(s.lines, fx), pkgs = [...new Set(s.lines.map(l => l.package))].sort((a, b) => a.localeCompare(b, 'tr'));
-  const noBom = Object.entries(s.products).filter(([c, n]) => +n > 0 && !prodHasBom(c)).map(([c]) => prodName(c));
+  const noBom = Object.entries(s.products).filter(([c, n]) => +n > 0 && prodBomEmpty(c)).map(([c]) => prodBomLink(c));
   const vis = l => s.showAll || +l.order_qty > 0 || +l.net > 0;
   const lineRow = l => { const u = toUSD(l.unit_price, l.currency, fx), v = u == null ? null : u * (+l.order_qty || 0);
     return `<tr data-k="${esc(l.k)}"><td><b style="font-weight:600">${esc(l.name)}</b><div class="sub">${esc(l.products || '')}${l.section ? ' · ' + esc(l.section) : ''}${l.lead_days ? ` · teslim ${l.lead_days} gün` : ''}</div>
@@ -3356,7 +3365,7 @@ async function viewPlanEdit(id){
       <div class="tablewrap"><table class="plprod"><thead><tr><th class="nosort">Ürün</th><th class="nosort num">Siparişte</th><th class="nosort num">Plan adedi</th><th class="nosort">Malzeme listesi</th></tr></thead><tbody>
         ${prods.map(p => `<tr style="cursor:default"><td>${esc(p.name)}</td><td class="num">${inOrders[p.code] ? fmtN(inOrders[p.code]) : '<span class="sub">—</span>'}</td>
           <td class="num"><input type="number" class="pl-n" data-c="${p.code}" min="0" step="1" value="${+s.products[p.code] || 0}" style="width:80px;text-align:right" aria-label="${esc(p.name)} adedi"></td>
-          <td>${prodHasBom(p.code) ? '<span class="sub">var</span>' : '<span class="amber-txt">BOM yok, hesaplanamaz</span>'}</td></tr>`).join('')}</tbody></table></div>
+          <td>${!prodHasBom(p.code) ? '<span class="amber-txt">BOM yok, hesaplanamaz</span>' : prodBomEmpty(p.code) ? `<a class="amber-txt" href="#/bom/${prodBoms(p.code)[0].id}">boş, malzeme çıkmaz</a>` : '<span class="sub">var</span>'}</td></tr>`).join('')}</tbody></table></div>
       <p class="note">"Siparişte" = üretimdeki siparişlerin toplamı. Stok için fazladan üretilecekse plan adedini artır.</p>
       <div class="toolbar" style="align-items:flex-end"><label class="chk" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="plmin" ${s.fill_min ? 'checked' : ''}> Minimum stok seviyesini de tamamla</label>
         <label class="f" style="width:150px">1 USD = TL<input type="number" id="plfx" step="0.01" min="0" value="${esc(s.fx_usd || '')}"></label>
@@ -3368,7 +3377,7 @@ async function viewPlanEdit(id){
         <div class="kpi"><div class="v">${s.lines.filter(l => +l.order_qty > 0).length}</div><div class="l">Alınacak kalem</div><div class="d">${s.lines.length} kalemden</div></div>
         <div class="kpi"><div class="v">${Object.keys(t.pk).length}</div><div class="l">Alım paketi</div><div class="d">tedarikçiye göre</div></div>
         <div class="kpi"><div class="v">${Math.max(0, ...Object.values(t.pk).map(p => p.lead)) || '—'}</div><div class="l">En uzun teslim (gün)</div><div class="d">parça kartındaki teslim süresi</div></div></div>
-      ${noBom.length ? `<div class="banner">Malzeme listesi olmadığı için hesaba girmeyenler: <b>${noBom.map(esc).join(', ')}</b>. Bunlar için gerekenleri ayrıca talep edin ya da BOM ekleyin.</div>` : ''}
+      ${noBom.length ? `<div class="banner">BOM'u yok ya da boş olduğu için hesaba girmeyenler: <b>${noBom.join(', ')}</b>. Bunlar için malzeme çıkmadı; BOM'larına kalem ekleyin ya da gerekenleri ayrıca talep edin.</div>` : ''}
       ${pkgs.map(pk => { const L = s.lines.filter(l => l.package === pk), V = L.filter(vis), sub = t.pk[pk];
         return `<section class="panel mt plpkg" data-pkg="${esc(pk)}"><div class="board-head"><h3 style="margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="pl-pkname" value="${esc(pk)}" aria-label="Paket adı" style="font-weight:650;min-width:220px">
             <span class="tcount">${sub ? sub.n : 0} kalem</span></h3><span><b>${sub && fx.usd ? fmtUSD2(sub.usd) : '—'}</b>${sub && sub.miss ? ` <span class="amber-txt">(${sub.miss} kalem fiyatsız)</span>` : ''}${sub && sub.lead ? ` · teslim ${sub.lead} gün` : ''}</span></div>
@@ -3743,7 +3752,7 @@ async function exportInvXlsx(I, year){
 
 async function viewInvoice(id){
   await loadStock();
-  const ed = canInvEdit(), qp = new URLSearchParams(location.hash.split('?')[1] || '');
+  const ed = canInvEdit(), noteOnly = !ed && can('purchasing'), qp = new URLSearchParams(location.hash.split('?')[1] || '');
   shell('alim-rapor', `<div class="empty">Yükleniyor…</div>`);
   const iv = id ? (await sb.from('purchase_invoices').select('*').eq('id', id).maybeSingle()).data
     : { period:(/^\d{4}-\d{2}$/.test(qp.get('ay') || '') ? qp.get('ay') : today().slice(0, 7)) + '-01', inv_date:today(), is_return:false };
@@ -3759,7 +3768,7 @@ async function viewInvoice(id){
   <div class="pagehead"><div><h1>${id ? esc(iv.supplier_name || 'Fatura') : 'Yeni fatura'}</h1><p class="lede">${id ? `${monName(iv.period)} raporunda · ${iv.is_return ? 'iade faturası' : 'fatura'}${iv.created_by_name ? ' · ekleyen ' + esc(iv.created_by_name) : ''}` : 'Muhasebenin aylık fatura listesine yeni satır.'}</p></div>
     ${id && ed ? '<button class="btn danger" id="ivdel">Sil</button>' : ''}</div>
   ${D.length ? `<div class="banner">Aynı fatura numarası başka satırda da var: ${D.map(x => `<a href="#/fatura/${x.id}">${monName(x.period)} · ${esc(x.supplier_name || '')} · ${fmtTL2(x.total_try)}</a>`).join(', ')}. Mükerrerse birini silin.</div>` : ''}
-  <div class="grid sup-grid"><div><form id="ivf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
+  <div class="grid sup-grid"><div><form id="ivf" class="fs" novalidate><fieldset ${ed || noteOnly ? '' : 'disabled'} class="plainfs">
     <div class="row"><label class="f">Muhasebe ayı <span class="hint">raporda bu ayda görünür</span><input type="month" name="period" value="${iv.period.slice(0, 7)}" required></label>
       <label class="f">Fatura tarihi<input type="date" name="inv_date" value="${v('inv_date')}" min="${MIN_DATE}"></label>
       <label class="f">Genel toplam (TL, KDV dahil)<input type="number" step="0.01" min="0" name="total_try" value="${v('total_try')}" required inputmode="decimal"></label></div>
@@ -3769,7 +3778,7 @@ async function viewInvoice(id){
       <label class="f chk" style="align-self:end"><input type="checkbox" name="is_return" ${iv.is_return ? 'checked' : ''}> İade faturası <span class="hint">aylık toplamdan düşülür</span></label></div>
     <label class="f">Açıklama<input name="description" value="${v('description')}" maxlength="1000" placeholder="ör. Stewart elektronik parçaları"></label>
     <label class="f">Not<input name="note" value="${v('note')}" maxlength="1000"></label>
-    ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Faturayı ekle'}</button></p>` : '<p class="note">Faturaları Muhasebe ve yöneticiler değiştirebilir.</p>'}
+    ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Faturayı ekle'}</button></p>` : noteOnly ? '<p><button class="btn primary">Notu kaydet</button></p><p class="note">Satın alma yalnız Açıklama ve Not alanını değiştirebilir.</p>' : '<p class="note">Faturaları Muhasebe ve yöneticiler değiştirebilir.</p>'}
   </fieldset></form><datalist id="ivnames">${nm.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
   ${id ? `<section class="mt"><h2>Bağlı alım talepleri <span class="sub">${L.length}</span></h2>
     <div class="tablewrap">${L.length ? `<table><thead><tr><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Durum</th><th class="nosort"></th></tr></thead><tbody>
@@ -3783,8 +3792,10 @@ async function viewInvoice(id){
     <section class="panel mt"><h2>Belgeler</h2><div id="ivfl"><p class="sub">Yükleniyor…</p></div></section>` : `<section class="panel"><h2>İpucu</h2><p class="note" style="margin:0">Faturayı ekledikten sonra PDF'ini yükleyebilir ve ilgili alım taleplerini bağlayabilirsiniz.</p></section>`}</aside></div>`);
   const goMonth = e => { e && e.preventDefault(); prState.mode = 'fatura'; prState.year = iv.period.slice(0, 4); prState.month = String(+iv.period.slice(5, 7)); location.hash = '#/alim-rapor'; };
   q('#ivback').onclick = goMonth; q('#ivmon') && (q('#ivmon').onclick = goMonth);
+  if (noteOnly) qa('#ivf input, #ivf select').forEach(el => { if (el.name !== 'description' && el.name !== 'note') el.disabled = true; });
   q('#ivf').onsubmit = async e => {
     e.preventDefault(); const f = e.target, g = n => f[n].value.trim();
+    if (noteOnly) { const { error } = await sb.rpc('purchase_invoice_note_set', { p_id:id, p_description:g('description'), p_note:g('note') }); if (error) return toast(dbErr(error), true); toast('Not kaydedildi'); return viewInvoice(id); }
     const o = { period:g('period') + '-01', inv_date:g('inv_date') || null, total_try:num0(g('total_try')), supplier_name:g('supplier_name') || null, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
       invoice_no:g('invoice_no') || null, is_return:f.is_return.checked, description:g('description') || null, note:g('note') || null };
     if (!/^\d{4}-\d{2}-01$/.test(o.period)) return toast('Muhasebe ayını seçin', true);
