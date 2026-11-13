@@ -844,6 +844,7 @@ function viewDetail(id){
     <div style="display:flex;gap:8px;flex-wrap:wrap">${pill(d.status)}
     ${can('sales','orders','admin') && d.status==='pipeline' ? `<a class="btn primary" href="#/duzenle/${d.id}?siparis">Siparişe çevir</a>`:''}
     ${can('sales','orders','admin') && d.status==='waiting' ? `<button class="btn primary" id="toprod">Üretime al</button>`:''}
+    ${can('sales','orders','admin') && d.status==='production' ? `<button class="btn" id="towait">Beklemeye al</button>`:''}
     ${can('production') && d.status==='production' ? `<a class="btn primary" href="#/duzenle/${d.id}">Sevk bilgisi gir</a>`:''}
     ${can('sales','orders','admin','production') ? `<a class="btn" href="#/duzenle/${d.id}">Düzenle</a>`:''}
     ${can('sales','admin') ? `<button class="btn danger" id="del">Sil</button>`:''}</div></div>
@@ -883,6 +884,10 @@ function viewDetail(id){
     if (!confirmInline(e.target, 'Üretime alınsın mı? Üretime bildirim gider; onaylamak için tekrar bas')) return;
     const { error } = await sb.from('deals').update({ status:'production' }).eq('id', id); if (error) return toast(dbErr(error), true);
     await loadAll(); toast('Üretime alındı'); viewDetail(id); });
+  q('#towait') && (q('#towait').onclick = async e => {
+    if (!confirmInline(e.target, 'Beklemeye alınsın mı? Üretimdeki listeden çıkar, üretime bildirim gider; onaylamak için tekrar bas')) return;
+    const { error } = await sb.from('deals').update({ status:'waiting' }).eq('id', id); if (error) return toast(dbErr(error), true);
+    await loadAll(); toast('Beklemeye alındı'); viewDetail(id); });
   const del = q('#del');
   if (del) del.onclick = async () => {
     if (del.dataset.c !== '1') { del.dataset.c = '1'; del.textContent = 'Silinenler\'e taşı'; return; }

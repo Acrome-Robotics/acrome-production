@@ -91,6 +91,10 @@ Var / Kısmen / Yok; "nerede" sütunu ERP'deki yeri.
 - Muhasebe ve satış belgeleri (fatura, proforma, irsaliye, PO…) Supabase'te kalır; ürünle ilgili dosyalar (test videosu,
   ürün dokümanı) Drive'da, ERP'de bağlantı olarak.
 - Yöneticiler Veri menüsünde depolama kullanımını görecek; dolunca indirip yedekleme + boşaltma (arşivleme) yapılacak.
+- (14.11) Sipariş adımları sadeleşir: form alanına dönüşen maddeler adım olmaz.
+- (14.11) Muhasebe siparişleri tutarlarıyla görür (B5).
+- (14.11) ERP kurulum maili göndermez; teslim onayı girilince Support'a (Parsa) zil bildirimi gider (B4).
+- (14.11) Basecamp'teki açık siparişler taşınmaz; kullanıcı elle taşıdı. basecamp-sync genişletilmez.
 
 ## Kullanıcının karar vereceği
 - Adımlar 24 maddeyi birebir mi alsın, yoksa form alanına dönüşenler çıkarılıp sadeleşsin mi (öneri: sadeleşsin)?
