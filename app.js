@@ -3225,10 +3225,12 @@ async function viewPurchase(id, preset){
       <textarea id="pct" rows="2" maxlength="2000" placeholder="Yorum yaz (talep sahibi ve Satın alma görür, bildirim alır)" style="width:100%;margin-top:8px"></textarea>
       <p style="margin:6px 0 0"><button class="btn sm primary" id="pcadd" type="button">Yorum ekle</button></p></section>
       <section class="panel mt"><h2>Durum geçmişi</h2><div id="pev"><p class="sub">Yükleniyor…</p></div></section>` : ''}</aside></div>`);
+  let pfN = null, pstRefresh = () => {}; // proforma dosya sayısı (Belgeler panelinden); durum seçici de kullanır
   if (id) {
     const canAdd = canPurchase() || can('muhasebe') || mine, loadF = async () => {
       const { data } = await sb.from('purchase_files').select('*').eq('purchase_id', id).order('created_at');
       const all = data || [], dk = all.filter(f => f.kind === 'dekont'), acc = can('muhasebe', 'admin');
+      pfN = all.filter(f => f.kind === 'proforma').length; pstRefresh();
       fileList(q('#pfl'), all.filter(f => f.kind !== 'dekont'), { canAdd, canDel: f => f.uploaded_by === S.profile.id || can('admin'), prefix:'p/' + id, link:{ purchase_id:id }, kind:'proforma', reload:loadF });
       fileList(q('#pdk'), dk, { canAdd: acc && !p.receipt_approved_at, canDel: f => !p.receipt_approved_at && (f.uploaded_by === S.profile.id || can('admin')), prefix:'p/' + id, link:{ purchase_id:id },
         kind:'dekont', kinds:{ dekont:'Dekont' }, empty:'Dekont yüklenmedi. Ödeme yapılınca muhasebe yükler ve onaylar.', reload:loadF });
@@ -3272,8 +3274,10 @@ async function viewPurchase(id, preset){
       const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
       const warn = ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
         : back ? `Kaydedince stoğa girmiş ${fmtQ(p.qty)} adet geri düşülür.` : '';
-      box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}`;
-      box.hidden = false; ok.disabled = false; no.hidden = false; sel.classList.add('pend'); };
+      const needPf = ns === 'proforma' && pfN === 0;
+      box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}${needPf ? '<div class="late-txt">Önce Belgeler bölümünden proforma yükleyin.</div>' : ''}`;
+      box.hidden = false; ok.disabled = needPf; no.hidden = false; sel.classList.add('pend'); };
+    pstRefresh = () => { if (sel.classList.contains('pend')) sel.onchange(); };
     no.onclick = clear;
     ok.onclick = async () => { const ns = sel.value; if (ns === p.status) return; ok.disabled = true;
       const { error } = await sb.from('purchases').update({ status:ns }).eq('id', id);
