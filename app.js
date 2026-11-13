@@ -2623,7 +2623,7 @@ async function loadStock(force){
     sb.from('pcb_boards').select('*').order('pcb').order('version'),
   ]);
   S.items = it.data || []; S.boms = bm.data || []; S.suppliers = su.data || []; S.pcbs = pb.data || [];
-  const pl = await sb.from('bom_lines').select('item_id,bom_id').range(0, 9999);
+  const pl = await fetchAll(() => sb.from('bom_lines').select('item_id,bom_id').order('id'));
   const prodB = new Set(S.boms.filter(b => b.kind === 'product').map(b => b.id));
   S.prodItemIds = new Set((pl.data || []).filter(l => l.item_id != null && prodB.has(l.bom_id)).map(l => l.item_id));
   S.bomLineN = {}; (pl.data || []).forEach(l => S.bomLineN[l.bom_id] = (S.bomLineN[l.bom_id] || 0) + 1);
@@ -3278,7 +3278,7 @@ async function viewPurchase(id, preset){
       const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
       const warn = ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
         : back ? `Kaydedince stoğa girmiş ${fmtQ(p.qty)} adet geri düşülür.` : '';
-      const needPf = ns === 'proforma' && pfN === 0;
+      const needPf = ns === 'proforma' && !pfN;
       box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}${needPf ? '<div class="late-txt">Önce Belgeler bölümünden proforma yükleyin.</div>' : ''}`;
       box.hidden = false; ok.disabled = needPf; no.hidden = false; sel.classList.add('pend'); };
     pstRefresh = () => { if (sel.classList.contains('pend')) sel.onchange(); };
@@ -3377,7 +3377,7 @@ async function viewPlanEdit(id){
         <div class="kpi"><div class="v">${s.lines.filter(l => +l.order_qty > 0).length}</div><div class="l">Alınacak kalem</div><div class="d">${s.lines.length} kalemden</div></div>
         <div class="kpi"><div class="v">${Object.keys(t.pk).length}</div><div class="l">Alım paketi</div><div class="d">tedarikçiye göre</div></div>
         <div class="kpi"><div class="v">${Math.max(0, ...Object.values(t.pk).map(p => p.lead)) || '—'}</div><div class="l">En uzun teslim (gün)</div><div class="d">parça kartındaki teslim süresi</div></div></div>
-      ${noBom.length ? `<div class="banner">BOM'u boş olduğu için hesaba girmeyenler: <b>${noBom.join(', ')}</b>. Bunlar için malzeme çıkmadı; BOM'larına kalem ekleyin ya da gerekenleri ayrıca talep edin.</div>` : ''}
+      ${noBom.length ? `<div class="banner">BOM'u yok ya da boş olduğu için hesaba girmeyenler: <b>${noBom.join(', ')}</b>. Bunlar için malzeme çıkmadı; BOM'larına kalem ekleyin ya da gerekenleri ayrıca talep edin.</div>` : ''}
       ${pkgs.map(pk => { const L = s.lines.filter(l => l.package === pk), V = L.filter(vis), sub = t.pk[pk];
         return `<section class="panel mt plpkg" data-pkg="${esc(pk)}"><div class="board-head"><h3 style="margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="pl-pkname" value="${esc(pk)}" aria-label="Paket adı" style="font-weight:650;min-width:220px">
             <span class="tcount">${sub ? sub.n : 0} kalem</span></h3><span><b>${sub && fx.usd ? fmtUSD2(sub.usd) : '—'}</b>${sub && sub.miss ? ` <span class="amber-txt">(${sub.miss} kalem fiyatsız)</span>` : ''}${sub && sub.lead ? ` · teslim ${sub.lead} gün` : ''}</span></div>
