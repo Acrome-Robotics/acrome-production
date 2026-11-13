@@ -135,7 +135,7 @@ Hepsi Talepler sayfası (`viewPurchases`, `viewPurchase`); tek dalga, SQL yalnı
 - G3 Acil ihtiyaç: Aciliyet gruplamasında "Acil" ve "Acil değil" grupları, başlıkta talep sayısı ve toplam (para birimine göre ayrı, `sumPur`).
   Ayrıca sayfa üstündeki göstergelere "Acil açık talepler: N · toplam" kutusu (durumu açık olanlar: PUR_OPEN).
 - G4 Talep eden süzgeci: listede yalnız o anda (seçili sekme ve diğer süzgeçlerle) talebi olan kişiler; talebi kalmayan kişi seçiliyse süzgeç temizlenir.
-- G5 "Açık talepler" sekmesinde yıl, birim ve ürün (BOM) süzgeçleri gösterilmez ve uygulanmaz; sipariş süzgeci kalır.
+- G5 (YAPILDI 14.11, v=20261114c) "Açık talepler" sekmesinde yıl, birim ve ürün (BOM) süzgeçleri gösterilmez ve uygulanmaz; sipariş süzgeci kalır.
   Diğer sekmelerde (Alınanlar, Tümü…) yıl / birim / ürün süzgeçleri kalır — kullanıcı yalnız açık talepler dedi; doğrulanacak.
 - Kur: kullanıcı "bir önceki günün kuru" dedi; canlıdaki kural zaten bu (sipariş tarihinden önceki son TCMB bülteni). Değişiklik yok.
 - Depolama (karar verildi 13.11, ayrıntı plan-2026-11-13-basecamp-siparis.md B7): canlıda 8 dosya, 1,4 MB; veritabanı 53 MB.

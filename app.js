@@ -3323,10 +3323,10 @@ async function viewPurchases(){
     <div class="kpi"><div class="v">${sumPur(P.filter(p => p.status === 'alindi' && (p.requested_at || '').startsWith(String(Y))))}</div><div class="l">${Y} toplam alım</div><div class="d">${P.filter(p => p.status === 'alindi' && (p.requested_at || '').startsWith(String(Y))).length} kalem</div></div></div>
   <div class="toolbar"><div class="seg" id="ptab">${Object.entries(tabs).map(([k, v]) => `<button data-t="${k}" class="${s.tab === k ? 'on' : ''}">${v} <span class="sub">${k === 'all' ? P.length : P.filter(p => tabOf(p) === k).length}</span></button>`).join('')}</div></div>
   <div class="toolbar"><input type="search" id="pq" placeholder="Ara: ürün, proje, tedarikçi, not…" value="${esc(s.q)}">
-    <select id="punit"><option value="">Tüm birimler</option>${PUR_UNIT.map(u => `<option ${s.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
-    <select id="pyear"><option value="">Tüm yıllar</option>${years.map(y => `<option ${s.year === y ? 'selected' : ''}>${y}</option>`).join('')}</select>
+    <select id="punit" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm birimler</option>${PUR_UNIT.map(u => `<option ${s.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
+    <select id="pyear" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm yıllar</option>${years.map(y => `<option ${s.year === y ? 'selected' : ''}>${y}</option>`).join('')}</select>
     <select id="pwho"><option value="">Talep eden: herkes</option>${who.map(w => `<option ${s.who === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select>
-    <select id="pbom"><option value="">Tüm ürün / projeler</option>${bomOpts(+s.bom)}</select>
+    <select id="pbom" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm ürün / projeler</option>${bomOpts(+s.bom)}</select>
     ${pkgOpts.length ? `<select id="ppkg" aria-label="Alım paketi"><option value="">Tüm paketler</option>${planIds.map(pid => `<option value="plan:${pid}" ${s.pkg === 'plan:' + pid ? 'selected' : ''}>Plan #${pid} (tümü)</option>${pkgOpts.filter(p => p.plan_id === pid).map(p => `<option value="${pid}|${esc(p.package || '')}" ${s.pkg === pid + '|' + (p.package || '') ? 'selected' : ''}>&nbsp;&nbsp;${esc(p.package || '—')}</option>`).join('')}`).join('')}</select>` : ''}
     ${dealOpts.length ? `<select id="pdeal" aria-label="Bağlı sipariş"><option value="">Tüm siparişler</option>${dealOpts.map(l => `<option value="${l.deal_id}" ${s.deal === String(l.deal_id) ? 'selected' : ''}>${esc(l.ref_no)} · ${esc(l.customer || '')}</option>`).join('')}</select>` : ''}
     <div class="seg" id="purg">${[['', 'Hepsi'], ['acil', 'Acil'], ['normal', 'Acil değil']].map(([k, v]) => `<button data-u="${k}" class="${s.urg === k ? 'on' : ''}">${v}</button>`).join('')}</div>
@@ -3335,7 +3335,8 @@ async function viewPurchases(){
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
     const pkgOk = p => !s.pkg || (s.pkg.startsWith('plan:') ? p.plan_id === +s.pkg.slice(5) : `${p.plan_id}|${p.package || ''}` === s.pkg);
-    const rows = P.filter(p => pkgOk(p) && (s.tab === 'all' || tabOf(p) === s.tab) && (!s.unit || p.unit === s.unit) && (!s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (!s.year || (p.requested_at || '').startsWith(s.year)) && (!s.who || p.requester_name === s.who)
+    const op = s.tab === 'open'; // Açık talepler'de yıl / birim / ürün süzgeci yok (kullanıcı kararı)
+    const rows = P.filter(p => pkgOk(p) && (s.tab === 'all' || tabOf(p) === s.tab) && (op || !s.unit || p.unit === s.unit) && (op || !s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (op || !s.year || (p.requested_at || '').startsWith(s.year)) && (!s.who || p.requester_name === s.who)
       && (!s.deal || (PD[p.id] || []).some(l => l.deal_id === +s.deal))
       && (!ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id), p.note, p.purpose, p.requester_name, ...(PD[p.id] || []).map(l => l.ref_no + ' ' + (l.customer || ''))].join(' ').toLocaleLowerCase('tr').includes(ql)));
     const rowH = (p, g) => { const sn = g ? '' : supName(p.supplier_id) || p.supplier_text || ''; return `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
@@ -3356,7 +3357,7 @@ async function viewPurchases(){
       const { error } = await sb.from('purchases').update({ urgency:nu }).eq('id', pr.id); if (error) return toast(dbErr(error), true); pr.urgency = nu; toast(nu === 'acil' ? 'Acil olarak işaretlendi' : 'Aciliyet kaldırıldı'); loadPurCount(); draw(); });
   };
   draw();
-  qa('#ptab button').forEach(b => b.onclick = () => { s.tab = b.dataset.t; qa('#ptab button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  qa('#ptab button').forEach(b => b.onclick = () => { s.tab = b.dataset.t; qa('#ptab button').forEach(x => x.classList.toggle('on', x === b)); qa('select.noopen').forEach(x => x.hidden = s.tab === 'open'); draw(); });
   q('#pq').oninput = e => { s.q = e.target.value; draw(); };
   q('#punit').onchange = e => { s.unit = e.target.value; draw(); };
   q('#pyear').onchange = e => { s.year = e.target.value; draw(); };
