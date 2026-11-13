@@ -571,6 +571,8 @@ a.brand.homelink *{text-decoration:none}
 .pl-alimlar{background:var(--green-soft);color:var(--green)}
 .pl-iptal{background:var(--soft);color:var(--muted);text-decoration:line-through}
 .pkgchip{background:var(--data-soft);color:var(--data)}
+.pdcard + .pdcard{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.pdcard .kv{margin-top:6px}
 .plpkg .board-head{margin-bottom:8px}
 .plpkg input.pl-pkname{font-size:15px;padding:4px 8px;min-height:32px}
 .plpkg select{max-width:220px;font-size:13px;min-height:30px;padding:2px 6px}
