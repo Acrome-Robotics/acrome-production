@@ -3288,6 +3288,7 @@ async function viewPurchases(){
   const { data: pl } = await fetchAll(() => sb.rpc('purchase_deal_info')), PD = {};
   (pl || []).forEach(l => (PD[l.purchase_id] = PD[l.purchase_id] || []).push(l));
   const dealOpts = [...new Map((pl || []).map(l => [l.deal_id, l])).values()].sort((a, b) => (b.ref_no || '').localeCompare(a.ref_no || ''));
+  if (s.deal && !dealOpts.some(l => String(l.deal_id) === s.deal)) s.deal = ''; // bağı kalmamış sipariş süzgeci gizli kalmasın
   { const qp = new URLSearchParams(location.hash.split('?')[1] || ''); if (qp.get('plan')) { s.pkg = 'plan:' + qp.get('plan'); s.tab = 'all'; } if (qp.get('siparis')) { s.deal = qp.get('siparis'); s.tab = 'all'; } }
   const pkgOpts = [...new Map(P.filter(p => p.plan_id).map(p => [`${p.plan_id}|${p.package || ''}`, p])).values()].sort((a, b) => b.plan_id - a.plan_id || (a.package || '').localeCompare(b.package || '', 'tr'));
   const planIds = [...new Set(pkgOpts.map(p => p.plan_id))];

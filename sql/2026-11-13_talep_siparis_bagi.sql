@@ -21,8 +21,12 @@ create or replace function public.purchase_can_edit(p_purchase bigint)
     and (public.can_purchase() or (p.created_by = auth.uid() and p.status = 'talep'))) $function$;
 
 alter table public.purchase_deals enable row level security;
+drop policy if exists purchase_deals_read on public.purchase_deals;
+drop policy if exists purchase_deals_ins on public.purchase_deals;
+drop policy if exists purchase_deals_upd on public.purchase_deals;
+drop policy if exists purchase_deals_del on public.purchase_deals;
 create policy purchase_deals_read on public.purchase_deals for select using ((select public.can_read_app()));
-create policy purchase_deals_ins on public.purchase_deals for insert with check (public.purchase_can_edit(purchase_id));
+create policy purchase_deals_ins on public.purchase_deals for insert with check (public.purchase_can_edit(purchase_id) and (select public.has_role(array['viewer','sales','production','orders','support','purchasing','stock','admin']))); -- yeni bağ: siparişleri okuyabilen (muhasebe bağ kurup purchase_deal_info ile sipariş okuyamasın)
 create policy purchase_deals_upd on public.purchase_deals for update using (public.purchase_can_edit(purchase_id)) with check (public.purchase_can_edit(purchase_id));
 create policy purchase_deals_del on public.purchase_deals for delete using (public.purchase_can_edit(purchase_id));
 
@@ -34,7 +38,7 @@ on conflict do nothing;
 create or replace function public.purchase_deal_legacy_trg()
  returns trigger language plpgsql security definer set search_path to 'public' as $function$
 begin
-  if new.deal_id is not null and (tg_op = 'INSERT' or new.deal_id is distinct from old.deal_id) then
+  if new.deal_id is not null and (tg_op = 'INSERT' or new.deal_id is distinct from old.deal_id) and public.has_role(array['viewer','sales','production','orders','support','purchasing','stock','admin']) then
     insert into public.purchase_deals(purchase_id, deal_id) values (new.id, new.deal_id) on conflict do nothing;
   end if;
   return null;
@@ -63,9 +67,13 @@ begin
   select array_agg((x->>'deal_id')::bigint) into v_ids from jsonb_array_elements(p_rows) x where nullif(x->>'deal_id', '') is not null;
   if v_ids is not null and cardinality(v_ids) <> (select count(distinct u) from unnest(v_ids) u) then raise exception 'Aynı sipariş iki kez seçilmiş'; end if;
   delete from public.purchase_deals where purchase_id = p_purchase and (v_ids is null or deal_id <> all(v_ids));
+  -- mevcut bağın notu update ile (ekleme kuralı sipariş okuma rolü ister; muhasebe var olan bağın notunu yazabilsin)
+  update public.purchase_deals l set note = v.note
+  from (select (x->>'deal_id')::bigint as deal_id, left(nullif(trim(x->>'note'), ''), 200) as note from jsonb_array_elements(p_rows) x where nullif(x->>'deal_id', '') is not null) v
+  where l.purchase_id = p_purchase and l.deal_id = v.deal_id and l.note is distinct from v.note;
   insert into public.purchase_deals(purchase_id, deal_id, note)
-  select p_purchase, (x->>'deal_id')::bigint, left(nullif(trim(x->>'note'), ''), 200) from jsonb_array_elements(p_rows) x where nullif(x->>'deal_id', '') is not null
-  on conflict (purchase_id, deal_id) do update set note = excluded.note where purchase_deals.note is distinct from excluded.note;
+  select p_purchase, (x->>'deal_id')::bigint, left(nullif(trim(x->>'note'), ''), 200) from jsonb_array_elements(p_rows) x
+  where nullif(x->>'deal_id', '') is not null and not exists (select 1 from public.purchase_deals l where l.purchase_id = p_purchase and l.deal_id = (x->>'deal_id')::bigint);
 end $function$;
 
 -- bağlı siparişlerin ayrıntısı; muhasebe siparişleri okuyamaz, bu yüzden tutar içermeyen alanlar buradan gelir.
