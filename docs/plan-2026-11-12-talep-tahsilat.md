@@ -121,3 +121,23 @@ Canlıda (main 980e906, v=20261113e):
   Sonra düzeltilebilir bulgular: doldurulmuş checklist'i üretim rolünün silebilmesi, eşzamanlı kayıtta son yazan kazanır,
   seri no eki tutarsızlığı, kaydedilmemiş değişiklik uyarısı.
 Kullanıcıya açık: "SMD" BOM'u (id 18) ve "4-Axis Robot Arm" BOM'u hangi ürüne ait; "Excel'den güncelle" işlevinin sunucu fonksiyonu (`admin_sync`) canlıda yok.
+
+## Yeni istekler (13.11 gece) — yalnız plan, kod yazılmadı
+Hepsi Talepler sayfası (`viewPurchases`, `viewPurchase`); tek dalga, SQL yalnız G1'de.
+- G1 Genel kullanım: bağlı sipariş yerine "Genel kullanım" seçilebilsin (birkaç siparişi etkileyen ya da ofis içi alım).
+  `purchases.general_use boolean not null default false`; talep formunda "Bağlı siparişler" tablosunun üstünde onay kutusu
+  (işaretliyken sipariş satırları da eklenebilir: "genel + şu siparişler"). Liste ve sipariş gruplarında "Genel kullanım" etiketi.
+- G2 Gruplama seçimi: bugünkü "Tedarikçiye göre grupla" kutusu yerine seçim kutusu: Gruplama yok / Tedarikçi / Bağlı sipariş / Aciliyet
+  (tercih `savePref('alim_grupla')`, eski true/false değeri Tedarikçi / yok sayılır). Bağlı siparişe göre: her sipariş bir grup
+  (başlıkta sipariş no + müşteri + durum), "Genel kullanım" grubu, en sonda "Siparişe bağlı değil". Birden çok siparişe bağlı talep
+  her siparişin grubunda görünür ("2 siparişe bağlı" notuyla); alt toplam satırı talebi bir kez sayar.
+- G3 Acil ihtiyaç: Aciliyet gruplamasında "Acil" ve "Acil değil" grupları, başlıkta talep sayısı ve toplam (para birimine göre ayrı, `sumPur`).
+  Ayrıca sayfa üstündeki göstergelere "Acil açık talepler: N · toplam" kutusu (durumu açık olanlar: PUR_OPEN).
+- G4 Talep eden süzgeci: listede yalnız o anda (seçili sekme ve diğer süzgeçlerle) talebi olan kişiler; talebi kalmayan kişi seçiliyse süzgeç temizlenir.
+- G5 "Açık talepler" sekmesinde yıl, birim ve ürün (BOM) süzgeçleri gösterilmez ve uygulanmaz; sipariş süzgeci kalır.
+  Diğer sekmelerde (Alınanlar, Tümü…) yıl / birim / ürün süzgeçleri kalır — kullanıcı yalnız açık talepler dedi; doğrulanacak.
+- Kur: kullanıcı "bir önceki günün kuru" dedi; canlıdaki kural zaten bu (sipariş tarihinden önceki son TCMB bülteni). Değişiklik yok.
+- Depolama (karar bekliyor): canlıda 8 dosya, 1,4 MB (alim 1,1 MB, masraf 0,3 MB); veritabanı 53 MB. Öneri: şimdilik Supabase'te kal,
+  kullanım göstergesi + eşik uyarısı ekle; ürün dokümanı / video gibi büyük dosyalar Drive'da bağlantı olarak tutulur.
+- Yöntem (kullanıcıyla konuşuldu): küçük işler doğrudan şef tarafından yapılır; ajan + bağımsız inceleme yalnız büyük ya da
+  para / yetki / veri taşıma içeren işlerde. Bu grup küçük: doğrudan yapılacak, tek inceleme.
