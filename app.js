@@ -246,7 +246,7 @@ function shell(active, html){
     ]];
   const nav = staffOnly() ? [ekip] : accOnly() ? [
     ['Alımlar', 'cart', [['alimlar','Talepler', S.purOpen || ''], ['tedarik','Tedarik planları'], ['alim-rapor','Aylık alım raporu'], ['tedarikciler','Tedarikçiler']]],
-    ['Tahsilat', 'chart', [['tahsilat','Tahsilat takibi']]],
+    ['Tahsilat', 'chart', [['tahsilat','Tahsilat takibi'], ['tahsilat-rapor','Tahsilat raporu']]],
     ekip,
   ] : [
     ['Üretim', 'gear', [
@@ -292,6 +292,7 @@ function shell(active, html){
       ['rma-rapor','RMA 3 aylık rapor'],
       ['support-rapor','Support raporu'],
       ['alim-rapor','Aylık alım raporu'],
+      ['tahsilat-rapor','Tahsilat raporu'],
     ]],
     ['Veri', 'db', [
       ['kaynaklar','Kaynak tablolar'],
@@ -340,6 +341,7 @@ function route(){
     case 'kayitlar': return viewList(a || 'all');
     case 'gonderim': return viewShipments();
     case 'tahsilat': return viewCollections();
+    case 'tahsilat-rapor': return viewCollReport();
     case 'uretim-pano': case 'pano': return viewBoard();
     case 'yeni': return can('sales','orders','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
@@ -1236,6 +1238,78 @@ async function viewCollections(){
     const cell = v => { v = csvSafe(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     const txt = '﻿' + [cols.map(c => c[0]).join(';'), ...all.map(r => cols.map(c => cell(c[1](r))).join(';'))].join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type:'text/csv;charset=utf-8' })); a.download = `acrome-tahsilat-${T}.csv`; a.click();
+  };
+}
+
+// dönem anahtarı: aylık 2026-03, çeyreklik 2026-Q1, yıllık 2026
+const colKey = (dt, v) => !dt ? null : v === 'y' ? dt.slice(0, 4) : v === 'q' ? dt.slice(0, 4) + '-Q' + Math.ceil(+dt.slice(5, 7) / 3) : dt.slice(0, 7);
+// beklenen = vadesi dönemde (gecikmiş: tahsil edilmemiş ve vadesi geçmiş), gelen = dönemde tahsil edilen
+function colAgg(rows, v, year, T){
+  const ys = rows.flatMap(r => [r.due_date, r.received_at]).filter(Boolean).map(d => +d.slice(0, 4));
+  const keys = v === 'y' ? (ys.length ? Array.from({ length:Math.max(...ys) - Math.min(...ys) + 1 }, (_, i) => String(Math.min(...ys) + i)) : [String(year)])
+    : v === 'q' ? [1, 2, 3, 4].map(i => year + '-Q' + i) : Array.from({ length:12 }, (_, i) => year + '-' + String(i + 1).padStart(2, '0'));
+  const P = keys.map(k => ({ k, exp:0, paid:0, late:0, open:0, got:0, n:0 })), at = Object.fromEntries(P.map(p => [p.k, p]));
+  rows.forEach(r => { const a = +r.amount || 0, e = at[colKey(r.due_date, v)], g = at[colKey(r.received_at, v)];
+    if (e) { e.exp += a; e.n++; if (r.received_at) e.paid += a; else if (r.due_date < T) e.late += a; else e.open += a; }
+    if (g) g.got += a; });
+  return P;
+}
+const colLabel = (k, v) => v === 'm' ? MONTHS[+k.slice(5, 7) - 1] : v === 'q' ? k.slice(5) : k;
+const colState2 = { v:'m', year:null, sel:null, data:null };
+async function viewCollReport(again){
+  const st = colState2;
+  if (!again || !st.data) { // dönem/yıl değişince yeniden çekme
+    shell('tahsilat-rapor', '<h1>Tahsilat raporu</h1><p class="sub">Yükleniyor…</p>');
+    const { data, error } = await sb.rpc('deal_payment_report');
+    if (error) return shell('tahsilat-rapor', `<h1>Tahsilat raporu</h1><div class="banner">${esc(dbErr(error))}</div>`);
+    st.data = data || [];
+  }
+  const T = today(), data = st.data;
+  const live = (data || []).filter(r => ['production', 'shipped'].includes(r.status) && !r.is_internal);
+  const all = live.filter(r => r.currency === 'USD' && r.amount != null), other = live.filter(r => r.currency !== 'USD' && r.amount != null); // eski USD dışı planlar grafiğe girmez, ayrı gösterilir
+  const years = [...new Set([...all.flatMap(r => [r.due_date, r.received_at]).filter(Boolean).map(d => +d.slice(0, 4)), +T.slice(0, 4)])].sort();
+  if (!years.includes(st.year)) st.year = +T.slice(0, 4);
+  const P = colAgg(all, st.v, st.year, T), mMax = Math.max(1, ...P.map(p => Math.max(p.exp, p.got)));
+  if (st.sel && !P.some(p => p.k === st.sel)) st.sel = null;
+  const usd = n => fmtMoney(Math.round(n * 100) / 100, 'USD'), tot = f => P.reduce((t, p) => t + p[f], 0);
+  const vName = { m:'Aylık', q:'Çeyreklik', y:'Yıllık' }, scope = st.v === 'y' ? 'tüm yıllar' : st.year;
+  const selRows = st.sel ? all.filter(r => colKey(r.due_date, st.v) === st.sel || colKey(r.received_at, st.v) === st.sel).sort((a, b) => (a.due_date < b.due_date ? -1 : 1)) : [];
+  const ref = r => S.deals.some(d => d.id === r.deal_id) ? `<a href="#/kayit/${r.deal_id}" class="mono">${esc(r.ref_no || '')}</a>` : `<span class="mono">${esc(r.ref_no || '')}</span>`;
+  const selLabel = k => st.v === 'm' ? MONTHS_LONG[+k.slice(5, 7) - 1] + ' ' + k.slice(0, 4) : st.v === 'q' ? k.slice(5) + ' ' + k.slice(0, 4) : k;
+  shell('tahsilat-rapor', `<div class="pagehead"><div><h1>Tahsilat raporu</h1>
+    <p class="lede">Ödeme planlarından dönem dönem beklenen (vadesi o dönemde) ve gelen (o dönemde tahsil edilen) para, USD. Dahili siparişler hariç. Günlük işaretleme <a href="#/tahsilat">Tahsilat takibi</a> sayfasında.</p></div>
+    <div><button class="btn" id="crcsv">CSV indir</button></div></div>
+  <div class="toolbar"><div class="seg" id="crv">${Object.entries(vName).map(([k, l]) => `<button type="button" data-v="${k}" class="${st.v === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    ${st.v === 'y' ? '' : `<label class="f" style="width:120px">Yıl<select id="cry">${years.map(y => `<option ${y === st.year ? 'selected' : ''}>${y}</option>`).join('')}</select></label>`}</div>
+  ${other.length ? `<div class="banner">${other.length} ödeme satırı USD dışı para biriminde (eski kayıt): ${esc(sumByCur(other.map(r => ({ currency:r.currency, amount:r.amount }))))}. Grafiğe ve tabloya katılmadı.</div>` : ''}
+  <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="kpi"><div class="v" style="font-size:18px">${usd(tot('exp'))}</div><div class="l">Beklenen</div><div class="d">vadesi ${scope} içinde</div></div>
+    <div class="kpi"><div class="v" style="font-size:18px">${usd(tot('got'))}</div><div class="l">Gelen</div><div class="d">${scope} içinde tahsil edilen</div></div>
+    <div class="kpi${tot('late') ? ' alert' : ''}"><div class="v" style="font-size:18px">${usd(tot('late'))}</div><div class="l">Gecikmiş</div><div class="d">vadesi geçmiş, gelmemiş</div></div>
+    <div class="kpi"><div class="v" style="font-size:18px">${usd(tot('open'))}</div><div class="l">Bekleyen</div><div class="d">vadesi gelmemiş</div></div>
+  </div>
+  <section class="panel"><h2>${vName[st.v]} beklenen ve gelen — ${scope}</h2>
+    <p class="note" style="margin-top:-6px">Bir döneme tıklayınca o dönemin ödemeleri listelenir.</p>
+    <div class="bars" style="height:220px;grid-template-columns:repeat(${P.length},minmax(0,1fr))">${P.map(p => `<button type="button" class="m" data-p="${p.k}" style="border:0;background:${st.sel === p.k ? 'var(--brand-soft)' : 'none'};cursor:pointer;border-radius:4px;padding:2px 0" title="${esc(selLabel(p.k))}: beklenen ${usd(p.exp)} (gecikmiş ${usd(p.late)}), gelen ${usd(p.got)}" aria-label="${esc(selLabel(p.k))}: beklenen ${usd(p.exp)}, gelen ${usd(p.got)}"><span style="font-size:11px;color:var(--muted)">${p.exp || p.got ? (Math.max(p.exp, p.got) >= 1000 ? Math.round(Math.max(p.exp, p.got) / 1000) + 'K' : Math.round(Math.max(p.exp, p.got))) : ''}</span><div class="pair"><div class="b" style="height:${p.exp / mMax * 100}%">${p.late ? `<div style="height:${p.late / p.exp * 100}%;background:var(--red);border-radius:2px 2px 0 0"></div>` : ''}</div><div class="b" style="height:${p.got / mMax * 100}%;background:var(--green)"></div></div><div class="lbl">${colLabel(p.k, st.v)}</div></button>`).join('')}</div>
+    <div class="legend" style="margin-top:6px"><span><i style="background:var(--data)"></i>Beklenen (vadesi dönemde)</span><span><i style="background:var(--red)"></i>Bunun gecikmiş kısmı</span><span><i style="background:var(--green)"></i>Gelen (dönemde tahsil edilen)</span></div>
+  </section>
+  ${st.sel ? `<section class="mt"><h2>${esc(selLabel(st.sel))} ödemeleri <button type="button" class="linkbtn" id="crclr" style="font-size:13px;font-weight:400">kapat</button></h2>
+    <div class="tablewrap">${selRows.length ? `<table><thead><tr><th class="nosort">Vade</th><th class="nosort">Geldiği gün</th><th class="nosort">Sipariş</th><th class="nosort">Müşteri</th><th class="nosort num">Tutar</th><th class="nosort">Durum</th></tr></thead><tbody>
+      ${selRows.map(r => `<tr style="cursor:default"><td style="white-space:nowrap">${fmtD(r.due_date)}${colKey(r.due_date, st.v) === st.sel ? '' : '<div class="sub">başka dönem</div>'}</td><td style="white-space:nowrap">${r.received_at ? fmtD(r.received_at) : '—'}</td>
+        <td>${ref(r)}<div class="sub">${esc(r.description || '')}</div></td><td>${esc(r.customer || '')}${r.note ? `<div class="sub">${esc(r.note)}</div>` : ''}</td><td class="num">${usd(+r.amount)}</td><td>${payPill(r)}</td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty">Bu dönemde ödeme yok.</div>'}</div></section>` : ''}
+  <section class="mt"><h2>Dönem tablosu</h2><div class="tablewrap"><table><thead><tr><th class="nosort">Dönem</th><th class="nosort num">Ödeme</th><th class="nosort num">Beklenen</th><th class="nosort num">Bunun gelen</th><th class="nosort num">Gecikmiş</th><th class="nosort num">Bekleyen</th><th class="nosort num">Dönemde gelen</th></tr></thead><tbody>
+    ${P.map(p => `<tr data-p="${p.k}" style="${st.sel === p.k ? 'background:var(--brand-soft)' : ''}"><td>${esc(selLabel(p.k))}</td><td class="num">${p.n || ''}</td><td class="num">${p.exp ? usd(p.exp) : ''}</td><td class="num">${p.paid ? usd(p.paid) : ''}</td><td class="num">${p.late ? `<span class="late-txt">${usd(p.late)}</span>` : ''}</td><td class="num">${p.open ? usd(p.open) : ''}</td><td class="num">${p.got ? usd(p.got) : ''}</td></tr>`).join('')}
+    <tr class="tfoot"><td>Toplam</td><td class="num">${tot('n')}</td><td class="num">${usd(tot('exp'))}</td><td class="num">${usd(tot('paid'))}</td><td class="num">${usd(tot('late'))}</td><td class="num">${usd(tot('open'))}</td><td class="num">${usd(tot('got'))}</td></tr></tbody></table></div></section>`);
+  qa('#crv button').forEach(b => b.onclick = () => { st.v = b.dataset.v; st.sel = null; viewCollReport(true); });
+  q('#cry') && (q('#cry').onchange = e => { st.year = +e.target.value; st.sel = null; viewCollReport(true); });
+  qa('[data-p]').forEach(b => b.onclick = () => { st.sel = st.sel === b.dataset.p ? null : b.dataset.p; viewCollReport(true); });
+  q('#crclr') && (q('#crclr').onclick = () => { st.sel = null; viewCollReport(true); });
+  q('#crcsv').onclick = () => {
+    const n2 = v => String(Math.round(v * 100) / 100);
+    const cols = [['Dönem', p => selLabel(p.k)], ['Ödeme sayısı', p => p.n], ['Beklenen USD', p => n2(p.exp)], ['Bunun gelen USD', p => n2(p.paid)], ['Gecikmiş USD', p => n2(p.late)], ['Bekleyen USD', p => n2(p.open)], ['Dönemde gelen USD', p => n2(p.got)]];
+    const txt = '﻿' + [cols.map(c => c[0]).join(';'), ...P.map(p => cols.map(c => csvSafe(c[1](p))).join(';'))].join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type:'text/csv;charset=utf-8' })); a.download = `acrome-tahsilat-raporu-${st.v === 'y' ? 'yillik' : st.year + (st.v === 'q' ? '-ceyrek' : '-aylik')}.csv`; a.click();
   };
 }
 
