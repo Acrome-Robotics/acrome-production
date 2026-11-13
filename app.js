@@ -1274,7 +1274,8 @@ async function viewCollReport(again){
   }
   const T = today(), data = st.data;
   const live = (data || []).filter(r => ['production', 'shipped'].includes(r.status) && !r.is_internal);
-  const all = live.filter(r => r.currency === 'USD' && r.amount != null), other = live.filter(r => r.currency !== 'USD' && r.amount != null); // eski USD dışı planlar grafiğe girmez, ayrı gösterilir
+  const all = live.filter(r => r.currency === 'USD' && r.amount != null), other = live.filter(r => r.currency !== 'USD' && r.amount != null), noAmt = live.filter(r => r.amount == null); // eski USD dışı planlar grafiğe girmez, ayrı gösterilir
+  const lateAll = all.filter(r => !r.received_at && r.due_date < T).reduce((t, r) => t + +r.amount, 0); // Tahsilat takibindeki Gecikmiş ile aynı: dönemden bağımsız
   const years = [...new Set([...all.flatMap(r => [r.due_date, r.received_at]).filter(Boolean).map(d => +d.slice(0, 4)), +T.slice(0, 4)])].sort();
   if (!years.includes(st.year)) st.year = +T.slice(0, 4);
   const P = colAgg(all, st.v, st.year, T), mMax = Math.max(1, ...P.map(p => Math.max(p.exp, p.got)));
@@ -1289,11 +1290,12 @@ async function viewCollReport(again){
     <div><button class="btn" id="crcsv">CSV indir</button></div></div>
   <div class="toolbar"><div class="seg" id="crv">${Object.entries(vName).map(([k, l]) => `<button type="button" data-v="${k}" class="${st.v === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     ${st.v === 'y' ? '' : `<label class="f" style="width:120px">Yıl<select id="cry">${years.map(y => `<option ${y === st.year ? 'selected' : ''}>${y}</option>`).join('')}</select></label>`}</div>
+  ${noAmt.length ? `<div class="banner">${noAmt.length} ödeme satırının tutarı yok (siparişte USD tutar girilmemiş); grafiğe, tabloya ve göstergelere katılmadı.</div>` : ''}
   ${other.length ? `<div class="banner">${other.length} ödeme satırı USD dışı para biriminde (eski kayıt): ${esc(sumByCur(other.map(r => ({ currency:r.currency, amount:r.amount }))))}. Grafiğe ve tabloya katılmadı.</div>` : ''}
   <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
     <div class="kpi"><div class="v" style="font-size:18px">${usd(tot('exp'))}</div><div class="l">Beklenen</div><div class="d">vadesi ${scope} içinde</div></div>
     <div class="kpi"><div class="v" style="font-size:18px">${usd(tot('got'))}</div><div class="l">Gelen</div><div class="d">${scope} içinde tahsil edilen</div></div>
-    <div class="kpi${tot('late') ? ' alert' : ''}"><div class="v" style="font-size:18px">${usd(tot('late'))}</div><div class="l">Gecikmiş</div><div class="d">vadesi geçmiş, gelmemiş</div></div>
+    <div class="kpi${lateAll ? ' alert' : ''}"><div class="v" style="font-size:18px">${usd(lateAll)}</div><div class="l">Gecikmiş (tüm zamanlar)</div><div class="d">bugüne kadar vadesi geçmiş, gelmemiş</div></div>
     <div class="kpi"><div class="v" style="font-size:18px">${usd(tot('open'))}</div><div class="l">Bekleyen</div><div class="d">vadesi gelmemiş</div></div>
   </div>
   <section class="panel"><h2>${vName[st.v]} beklenen ve gelen — ${scope}</h2>
@@ -1342,13 +1344,21 @@ function viewForm(id){
   const payNeeded = () => kind === 'order' && (!ex || convert) && !d.is_internal; // eski siparişlerde zorunlu değil
   const dealTotal = () => +d.amount_usd || 0;
   // USD dışı tutar: kur TCMB'den (fx-rate) gelir; gelmezse elle kur kutusu açılır
-  const fx = { rate:ex && ex.fx_rate ? +ex.fx_rate : null, date:ex && ex.fx_date || null, src:ex && ex.fx_source || null, busy:false, fail:false, seq:0 };
-  const fxDay = () => (kind === 'order' ? d.order_date : d.lead_date) || today();
-  const fxLoad = async () => { const cur = F().currency.value, day = fxDay(), my = ++fx.seq;
-    Object.assign(fx, { rate:null, date:null, src:null, busy:true, fail:false }); onChange();
+  let fxForm = false; // F() aşağıda tanımlı; form kurulmadan d'den oku
+  const fxDay = () => { const el = fxForm && F() && F().elements[kind === 'order' ? 'order_date' : 'lead_date']; return (el ? el.value : kind === 'order' ? d.order_date : d.lead_date) || today(); }; // change anında d henüz toplanmamış
+  // cur/day: kurun ait olduğu para birimi ve sipariş günü (bayat kurla kayıt olmasın)
+  const fx = { rate:ex && ex.fx_rate ? +ex.fx_rate : null, date:ex && ex.fx_date || null, src:ex && ex.fx_source || null, cur:ex ? ex.currency : null, day:fxDay(), busy:false, fail:false, seq:0 };
+  const fx0day = fx.day;
+  const fxByDate = () => !ex || !!ex.fx_rate || fx.seq > 0; // kursuz eski kayıtta yalnız tarih değişince kur çekilmez
+  const fxLoad = async () => { const f = F(), cur = f.currency.value, day = fxDay(), my = ++fx.seq;
+    if (cur !== fx.cur) f.rate.value = ''; // elle kur başka para birimine taşınmasın
+    Object.assign(fx, { rate:null, date:null, src:null, cur, day, busy:true, fail:false }); onChange();
     const r = await fxRate(cur, day); if (my !== fx.seq || !F()) return;
-    const m = +F().rate.value; // elle yazılmış kur varsa onunla devam
+    const m = +F().rate.value; // aynı para birimi için elle yazılmış kur varsa onunla devam
     Object.assign(fx, r ? { rate:+r.usd_rate, date:r.rate_date, src:'TCMB', busy:false } : { busy:false, fail:true, rate: m > 0 ? m : null, date: m > 0 ? day : null, src: m > 0 ? 'elle' : null }); onChange(); };
+  // USD dışında orijinal tutar / para birimi (kurlu kayıtta tarih) değiştiyse geçerli kur şart
+  const fxNeeded = () => d.currency !== 'USD' && (!ex || d.currency !== ex.currency || +d.amount_orig !== +ex.amount_orig || (fxByDate() && fxDay() !== fx0day));
+  const fxValid = () => fx.rate > 0 && fx.cur === d.currency && (fx.src === 'elle' || fx.day === fxDay());
 
   const stageOpts = () => kind==='order' ? ['won'] : ['qualify','advance','closing','lost'];
   const statusOpts = () => kind==='order' ? ['production','shipped'] : ['pipeline','lost','archived'];
@@ -1443,7 +1453,7 @@ function viewForm(id){
     qa('.paydel').forEach(b => b.onclick = () => { collect(); d.pays.splice(+b.dataset.i, 1); mount(); });
     const f = q('#df');
     f.addEventListener('input', onChange); f.addEventListener('change', onChange);
-    f.onsubmit = submit;
+    f.onsubmit = submit; fxForm = true;
     onChange();
     if (convert && !fx.seq && f.currency.value !== 'USD') fxLoad(); // siparişe çevirirken kur sipariş gününden
   };
@@ -1473,16 +1483,17 @@ function viewForm(id){
     if (e && e.target.name === 'stage') { if (f.stage.value === 'lost') f.status.value = 'lost'; else if (f.status.value === 'lost') f.status.value = 'pipeline'; }
     const cur = f.currency.value;
     qa('.orig', f).forEach(l => l.style.display = cur === 'USD' ? 'none' : '');
-    if (e && e.target.name === 'rate') Object.assign(fx, { rate: +e.target.value > 0 ? +e.target.value : null, date:fxDay(), src:'elle' });
-    if (cur !== 'USD' && fx.rate && f.amount_orig.value !== '') f.amount_usd.value = (Math.round(+f.amount_orig.value * fx.rate * 100) / 100).toFixed(2);
+    if (e && e.target.name === 'rate') Object.assign(fx, { rate: +e.target.value > 0 ? +e.target.value : null, date:fxDay(), src:'elle', cur, day:fxDay() });
+    // istek burada, senkron başlar: bekleme durumu Enter'la gönderimden önce kurulur
+    if (cur !== 'USD' && e && e.type === 'change' && (e.target.name === 'currency' || (['order_date', 'lead_date'].includes(e.target.name) && fxByDate()) || (e.target.name === 'amount_orig' && !fx.rate && !fx.busy && !fx.fail))) fxLoad();
+    if (cur !== 'USD' && fx.rate && fx.cur === cur && f.amount_orig.value !== '') f.amount_usd.value = (Math.round(+f.amount_orig.value * fx.rate * 100) / 100).toFixed(2);
     if (cur !== 'USD' && !fx.rate && (fx.busy || fx.fail || fx.src)) f.amount_usd.value = ''; // kur yoksa eski USD tutarı kalmasın
-    if (cur !== 'USD' && e && e.type === 'change' && (['currency', 'order_date', 'lead_date'].includes(e.target.name) || (e.target.name === 'amount_orig' && !fx.rate && !fx.busy && !fx.fail))) setTimeout(fxLoad);
     f.amount_usd.readOnly = cur !== 'USD';
     q('#fxman', f).style.display = cur !== 'USD' && (fx.fail || fx.src === 'elle') ? '' : 'none';
     const fr = n => (+n).toLocaleString('tr-TR', { maximumFractionDigits:6 });
     q('#fxinfo', f).textContent = cur === 'USD' ? '' : fx.busy ? 'TCMB kuru alınıyor…'
-      : fx.rate ? `1 ${cur} = ${fr(fx.rate)} USD · ${fx.src === 'elle' ? 'elle girilen kur' : `TCMB döviz satış, ${fmtD(fx.date)}${fx.date && fx.date !== fxDay() ? ' (o gün bülten yok, önceki iş günü)' : ''}`}. USD tutarı orijinal tutar × kur.`
-      : fx.fail ? 'TCMB kuru alınamadı; kuru elle gir.' : 'Bu kayıtta kur bilgisi yok. Orijinal tutar, para birimi ya da tarih değişirse kur TCMB\'den çekilir.';
+      : fx.rate ? `1 ${cur} = ${fr(fx.rate)} USD · ${fx.src === 'elle' ? 'elle girilen kur' : `TCMB döviz satış, ${fmtD(fx.date)} bülteni`}. USD tutarı orijinal tutar × kur.`
+      : fx.fail ? 'TCMB kuru alınamadı; kuru elle gir.' : 'Bu kayıtta kur bilgisi yok. Orijinal tutar ya da para birimi değişirse kur TCMB\'den çekilir.';
     // oran ya da tutar: biri yazılınca diğeri boşalır, hesaplanan değer soluk (placeholder) görünür
     const pw = e && /^pay_(pct|amt)_(\d+)$/.exec(e.target.name);
     if (pw && e.target.value !== '') { const o = f.elements[`pay_${pw[1] === 'pct' ? 'amt' : 'pct'}_${pw[2]}`]; if (o) o.value = ''; }
@@ -1527,6 +1538,7 @@ function viewForm(id){
     if (d.currency !== 'USD' && !d.amount_orig) errs.amount_orig = `${d.currency} tutarını gir.`;
     else if (d.currency !== 'USD' && fx.busy) errs.rate = 'TCMB kuru alınıyor, bekle.';
     else if (d.currency !== 'USD' && fx.fail && !fx.rate) errs.rate = 'Kur alınamadı; 1 birimin USD karşılığını gir.';
+    else if (fxNeeded() && !fxValid()) errs.rate = 'Tutar, para birimi ya da tarih değişti ama geçerli kur yok; kur alınmadan kaydedilmez.';
     const badQty = Object.entries(d.items||{}).find(([,q]) => isNaN(+q) || +q < 0 || +q > 1000 || Math.round(+q*100) !== +q*100);
     if (badQty) errs.items = `${prodName(badQty[0])}: adet 0–1000 arası olmalı.`;
     if (kind==='order' && !Object.keys(d.items||{}).length && !d.amount_usd) errs.items = 'Sipariş için en az bir ürün ya da tutar gir.';
@@ -1556,6 +1568,7 @@ function viewForm(id){
   async function submit(e){
     e.preventDefault(); const f = F(); f.dataset.tried = '1';
     const errs = validate(true);
+    if (errs.rate && fxNeeded() && !fx.busy && !fx.fail) fxLoad(); // kur hiç istenmemişse şimdi iste
     if (Object.keys(errs).length) { toast(`${Object.keys(errs).length} alan düzeltilmeli`, true); const first = qa('[aria-invalid=true]', f)[0]; first && first.focus(); return; }
     const btn = q('#save'); btn.disabled = true; btn.textContent = 'Kaydediliyor…';
     const existingCust = S.customers.find(c => c.name.toLocaleLowerCase('tr') === d.customer.toLocaleLowerCase('tr'));
@@ -1564,7 +1577,7 @@ function viewForm(id){
       payload[k] = d[k] === '' ? null : d[k] ?? null;
     if (kind==='opp') { payload.order_date = d.order_date || null; }
     if (payload.currency === 'USD') payload.amount_orig = null;
-    const hasFx = payload.currency !== 'USD' && fx.rate > 0; // fx_* sütunları yoksa (SQL öncesi) save_deal bunları yok sayar
+    const hasFx = payload.currency !== 'USD' && fx.rate > 0 && fx.cur === payload.currency; // fx_* sütunları yoksa (SQL öncesi) save_deal bunları yok sayar
     Object.assign(payload, { fx_rate: hasFx ? fx.rate : null, fx_date: hasFx ? fx.date || fxDay() : null, fx_source: hasFx ? fx.src || 'elle' : null });
     payload.customer_id = existingCust ? existingCust.id : null;
     const { data, error } = await sb.rpc('save_deal', { p_deal: payload, p_items: prodOnly ? null : (d.items||{}), p_customer_name: existingCust ? null : d.customer, p_customer_country: d.country || null });

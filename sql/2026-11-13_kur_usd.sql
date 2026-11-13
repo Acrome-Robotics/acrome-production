@@ -1,5 +1,6 @@
 -- Resmi kurla USD'ye çevirme (İş 5). Önce 2026-11-13_odeme_tutar.sql.
 -- Kur: TCMB döviz satış (ForexSelling), Edge Function fx-rate çeker ve fx_rates'e önbellekler.
+-- Kur günü: D tarihli sipariş için D'den önceki son TCMB bülteni (15:30 kuru ertesi iş günü geçerli).
 -- Siparişte kullanılan kur kayıtta: fx_rate (1 birim = ? USD), fx_date (bülten günü), fx_source (TCMB / elle).
 -- Ödeme planı, tahsilat ve rapor artık amount_usd üzerinden. Eski kayıtların tutarlarına dokunulmaz.
 
@@ -10,6 +11,7 @@ do $$ begin
   end if;
 end $$;
 
+-- day = sipariş tarihi (önbellek anahtarı), rate_day = kullanılan bülten günü
 create table if not exists public.fx_rates (
   day date not null,
   currency text not null check (currency ~ '^[A-Z]{3}$'),
@@ -21,6 +23,7 @@ create table if not exists public.fx_rates (
 );
 alter table public.fx_rates enable row level security;
 -- yazma yalnız fx-rate fonksiyonu (service role)
+drop policy if exists fx_rates_read on public.fx_rates;
 create policy fx_rates_read on public.fx_rates for select to authenticated using (true);
 
 alter table public.deals add column if not exists fx_rate numeric(14,8) check (fx_rate > 0);
