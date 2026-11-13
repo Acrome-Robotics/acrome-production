@@ -120,7 +120,8 @@ Canlıda (main 980e906, v=20261113e):
   Kullanıcıda: BBT / Ball&Beam / 3DOF adetleri (çoğu 0), paketleme listeleri (aktarılmadı), Son Kontrol çevirileri, ürün–şablon eşlemeleri.
   Sonra düzeltilebilir bulgular: doldurulmuş checklist'i üretim rolünün silebilmesi, eşzamanlı kayıtta son yazan kazanır,
   seri no eki tutarsızlığı, kaydedilmemiş değişiklik uyarısı.
-Kullanıcıya açık: "SMD" BOM'u (id 18) ve "4-Axis Robot Arm" BOM'u hangi ürüne ait; "Excel'den güncelle" işlevinin sunucu fonksiyonu (`admin_sync`) canlıda yok.
+14.11: "SMD RED Base Kit" → "SMD RED Motion Kit" (kod SMD_BASE aynı); BOM 18 "SMD ortak parçalar" olarak kaldı; 4-Axis Robot Arm zaten ARM4'e bağlı.
+"Excel'den güncelle" sayfası kaldırıldı (14.11); gerekirse kullanıcı Excel'i verir, farklar Claude tarafından çıkarılıp onayla SQL ile uygulanır.
 
 ## Yeni istekler (13.11 gece) — yalnız plan, kod yazılmadı
 Hepsi Talepler sayfası (`viewPurchases`, `viewPurchase`); tek dalga, SQL yalnız G1'de.

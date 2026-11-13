@@ -35,7 +35,7 @@ Var / Kısmen / Yok; "nerede" sütunu ERP'deki yeri.
 | 12 | Gönderi evrakları yüklenecek | Belgeler | Yok | — |
 | 13 | Teslim Onayı | Kargoyu izle, hasarsız teslimi müşteriyle doğrula; kapanınca kurulum maili | Kısmen: Gönderim aşaması "Gönderildi" + sevk tarihi | Teslim tarihi, hasarsız teslim onayı, kurulum maili hatırlatması |
 | 14 | Müşteri Ödemesi | Ödeme durumu, gelince satışa haber, hatırlatma | Var (kısmen): Tahsilat, "Geldi" işareti, rapor, ödeme planı paneli | Ödeme gelince satışa bildirim, gecikme uyarısı |
-| 15 | Proforma / Fatura (>5000 e-Fatura), PDF | PDF | Yok | Müşteri proforma / fatura kaydı (ERP'deki proforma şartı yalnız alım talebinde) |
+| 15 | Proforma / Fatura (PDF) | PDF | Yok | Müşteri proforma / fatura kaydı (ERP'deki proforma şartı yalnız alım talebinde) |
 
 **Üretim birimi**
 | # | Madde | Basecamp içeriği | ERP | Eksik |
@@ -82,7 +82,7 @@ Var / Kısmen / Yok; "nerede" sütunu ERP'deki yeri.
 - **B4 Sevkiyat**: paket bilgileri (koli, ölçü, ağırlık, REGULAR / MICRO / DEMO, hibe proje kodu), ürün paket ölçüleri tablosu
   (öneri değer), kurye firması, takip no, teslim tarihi, hasarsız teslim onayı → "kurulum maili gönder" hatırlatması.
 - **B5 Muhasebe**: muhasebe rolüne sipariş okuma ve operasyon adımları; müşteri proforma / fatura kaydı + onay (satış + müşteri),
-  e-Fatura eşiği; ödeme gelince satışa bildirim, gecikme uyarısı.
+  (fatura türü / e-Fatura kararı muhasebede, ERP karışmaz); ödeme gelince satışa bildirim, gecikme uyarısı.
 - **B6 Test bilgisi**: ünite başına sürücü kartı ve kontrol kartı seri no, ünite bazında montaj / test tarihleri (checklist'e alan).
 - **B7 Depolama**: Veri menüsünde yöneticilere kullanım göstergesi (klasör kırılımı + veritabanı) ve eşik uyarısı.
   Arşivleme (eski dosyaları zip indir → depodan sil → kayda "arşivlendi") yer azalınca.
@@ -100,7 +100,6 @@ Var / Kısmen / Yok; "nerede" sütunu ERP'deki yeri.
 - Adımlar 24 maddeyi birebir mi alsın, yoksa form alanına dönüşenler çıkarılıp sadeleşsin mi (öneri: sadeleşsin)?
 - Muhasebe rolü siparişleri tutarlarıyla görsün mü?
 - "Alıcı ile iletişim" ve kurulum maili: ERP e-posta göndersin mi, yoksa yalnız hatırlatma + kayıt mı?
-- e-Fatura eşiği "> 5000": hangi para birimi / kural?
 - Basecamp'teki açık siparişler (Orders : To-dos'ta ~17 liste) ERP'ye taşınacak mı, yoksa yeni siparişlerden mi başlanacak?
 - Geçişte Basecamp okunarak (basecamp-sync genişletme) mı, elle mi?
 
