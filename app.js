@@ -3072,6 +3072,18 @@ async function viewMotorTests(){
 }
 
 // ---------------------------------------------------------------- ALIMLAR
+// Alım talepleri tedarikçiye göre gruplama (saf): kayıtlı tedarikçi > serbest metin (normalleştirilmiş) > belirtilmemiş (hep sonda)
+const PUR_GRP_KEY = 'alim_grupla', purCollapsed = new Set();
+function purGroup(rows, supName, isOpen){
+  const m = new Map();
+  for (const p of rows){
+    const t = (p.supplier_text || '').trim(), key = p.supplier_id ? 's' + p.supplier_id : t ? 't' + t.toLocaleLowerCase('tr').replace(/\s+/g, ' ') : 'none';
+    if (!m.has(key)) m.set(key, { key, name: p.supplier_id ? (supName(p.supplier_id) || t || 'Tedarikçi #' + p.supplier_id) : t || 'Tedarikçi belirtilmemiş', sid: p.supplier_id || null, rows: [], urgent: false, open: false });
+    const g = m.get(key), o = isOpen(p); g.rows.push(p); g.open = g.open || o; g.urgent = g.urgent || (o && p.urgency === 'acil');
+  }
+  const rank = g => g.urgent ? 0 : g.open ? 1 : 2;
+  return [...m.values()].sort((a, b) => (a.key === 'none') - (b.key === 'none') || rank(a) - rank(b) || a.name.localeCompare(b.name, 'tr'));
+}
 const purState = { tab:'open', q:'', unit:'', year:'', who:'', bom:'', urg:'', pkg:'' };
 async function viewPurchases(){
   await loadStock();
@@ -3082,6 +3094,7 @@ async function viewPurchases(){
   { const qp = new URLSearchParams(location.hash.split('?')[1] || ''); if (qp.get('plan')) { s.pkg = 'plan:' + qp.get('plan'); s.tab = 'all'; } }
   const pkgOpts = [...new Map(P.filter(p => p.plan_id).map(p => [`${p.plan_id}|${p.package || ''}`, p])).values()].sort((a, b) => b.plan_id - a.plan_id || (a.package || '').localeCompare(b.package || '', 'tr'));
   const planIds = [...new Set(pkgOpts.map(p => p.plan_id))];
+  let grp = (S.prefs || {})[PUR_GRP_KEY] !== false;
   const open = P.filter(p => PUR_OPEN.includes(p.status) && p.kind === 'alim');
   const years = [...new Set(P.map(p => (p.requested_at || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   const who = [...new Set(P.map(p => p.requester_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
@@ -3102,20 +3115,27 @@ async function viewPurchases(){
     <select id="pwho"><option value="">Talep eden: herkes</option>${who.map(w => `<option ${s.who === w ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select>
     <select id="pbom"><option value="">Tüm ürün / projeler</option>${bomOpts(+s.bom)}</select>
     ${pkgOpts.length ? `<select id="ppkg" aria-label="Alım paketi"><option value="">Tüm paketler</option>${planIds.map(pid => `<option value="plan:${pid}" ${s.pkg === 'plan:' + pid ? 'selected' : ''}>Plan #${pid} (tümü)</option>${pkgOpts.filter(p => p.plan_id === pid).map(p => `<option value="${pid}|${esc(p.package || '')}" ${s.pkg === pid + '|' + (p.package || '') ? 'selected' : ''}>&nbsp;&nbsp;${esc(p.package || '—')}</option>`).join('')}`).join('')}</select>` : ''}
-    <div class="seg" id="purg">${[['', 'Hepsi'], ['acil', 'Acil'], ['normal', 'Acil değil']].map(([k, v]) => `<button data-u="${k}" class="${s.urg === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
+    <div class="seg" id="purg">${[['', 'Hepsi'], ['acil', 'Acil'], ['normal', 'Acil değil']].map(([k, v]) => `<button data-u="${k}" class="${s.urg === k ? 'on' : ''}">${v}</button>`).join('')}</div>
+    <label class="chk"><input type="checkbox" id="pgrp" ${grp ? 'checked' : ''}> Tedarikçiye göre grupla</label></div>
   <div class="tablewrap" id="ptbl"></div>`);
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
     const pkgOk = p => !s.pkg || (s.pkg.startsWith('plan:') ? p.plan_id === +s.pkg.slice(5) : `${p.plan_id}|${p.package || ''}` === s.pkg);
     const rows = P.filter(p => pkgOk(p) && (s.tab === 'all' || tabOf(p) === s.tab) && (!s.unit || p.unit === s.unit) && (!s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (!s.year || (p.requested_at || '').startsWith(s.year)) && (!s.who || p.requester_name === s.who)
       && (!ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id), p.note, p.purpose, p.requester_name].join(' ').toLocaleLowerCase('tr').includes(ql)));
-    q('#ptbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Talep eden</th><th class="nosort">Tedarikçi</th><th class="nosort">Durum</th></tr></thead><tbody>
-      ${rows.slice(0, 800).map(p => `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
+    const rowH = (p, g) => { const sn = g ? '' : supName(p.supplier_id) || p.supplier_text || ''; return `<tr data-pid="${p.id}"><td style="white-space:nowrap">${fmtD(p.requested_at)}${PUR_OPEN.includes(p.status) && canPurchase() ? ` <button type="button" class="urgbtn${p.urgency === 'acil' ? ' on' : ''}" title="${p.urgency === 'acil' ? 'Aciliyeti kaldır' : 'Acil olarak işaretle'}">Acil</button>` : p.urgency === 'acil' && PUR_OPEN.includes(p.status) ? ' <span class="pill sp-high">Acil</span>' : ''}</td>
         <td><b style="font-weight:600">${esc(p.item_name)}</b>${hasF.has(p.id) ? ' <span title="Proforma / belge var">📎</span>' : ''}${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.package ? ` <span class="chip pkgchip" title="Tedarik planı #${p.plan_id} alım paketi">📦 ${esc(p.package)}</span>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
         <td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(p.requester_name || '') || '<span class="sub">—</span>'}<div class="sub opt">${esc([p.unit, p.area].filter(Boolean).join(' · '))}</div></td>
-        <td>${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.link ? `${supName(p.supplier_id) || p.supplier_text ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub stopprop">bağlantı ↗</a>` : (supName(p.supplier_id) || p.supplier_text ? '' : '<span class="sub">—</span>')}</td>
-        <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}</td></tr>`).join('')}</tbody>
+        <td>${sn ? esc(sn) : ''}${p.link ? `${sn ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub stopprop">bağlantı ↗</a>` : (sn ? '' : '<span class="sub">—</span>')}</td>
+        <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}</td></tr>`; };
+    const bodyH = list => { if (!grp) return list.map(p => rowH(p, false)).join('');
+      return purGroup(list, supName, p => PUR_OPEN.includes(p.status)).map(g => { const shut = purCollapsed.has(g.key), bl = g.sid && (S.suppliers || []).find(x => x.id === g.sid)?.blacklisted;
+        return `<tr class="grphead" tabindex="0" role="button" aria-expanded="${!shut}" data-g="${esc(g.key)}"><td colspan="7"><span class="gcaret">${shut ? '▸' : '▾'}</span> <b>${esc(g.name)}</b>${bl ? ' <span class="pill sp-high">⚠ kara liste</span>' : ''} <span class="sub">${g.rows.length} talep · ${sumPur(g.rows)}</span></td></tr>${shut ? '' : g.rows.map(p => rowH(p, true)).join('')}`; }).join(''); };
+    q('#ptbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Ürün / iş</th><th class="nosort num">Adet</th><th class="nosort num">Tutar</th><th class="nosort">Talep eden</th><th class="nosort">Tedarikçi</th><th class="nosort">Durum</th></tr></thead><tbody>
+      ${bodyH(rows.slice(0, 800))}</tbody>
       <tfoot><tr class="tfoot"><td colspan="3">${rows.length} kayıt${rows.length > 800 ? ' (ilk 800)' : ''}</td><td class="num">${sumPur(rows)}</td><td colspan="3"></td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+    qa('#ptbl tr.grphead').forEach(r => { const go = () => { const k = r.dataset.g; purCollapsed.has(k) ? purCollapsed.delete(k) : purCollapsed.add(k); draw(); qa('#ptbl tr.grphead').find(x => x.dataset.g === k)?.focus(); };
+      r.onclick = go; r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }; });
     qa('#ptbl tr[data-pid]').forEach(r => r.onclick = () => location.hash = '#/alimlar/' + r.dataset.pid);
     qa('#ptbl .urgbtn').forEach(bt => bt.onclick = async e => { e.stopPropagation(); const pr = P.find(x => x.id === +bt.closest('tr').dataset.pid), nu = pr.urgency === 'acil' ? 'normal' : 'acil';
       const { error } = await sb.from('purchases').update({ urgency:nu }).eq('id', pr.id); if (error) return toast(dbErr(error), true); pr.urgency = nu; toast(nu === 'acil' ? 'Acil olarak işaretlendi' : 'Aciliyet kaldırıldı'); loadPurCount(); draw(); });
@@ -3128,6 +3148,7 @@ async function viewPurchases(){
   q('#pwho').onchange = e => { s.who = e.target.value; draw(); };
   q('#pbom').onchange = e => { s.bom = e.target.value; draw(); };
   q('#ppkg') && (q('#ppkg').onchange = e => { s.pkg = e.target.value; draw(); });
+  q('#pgrp').onchange = e => { grp = e.target.checked; savePref(PUR_GRP_KEY, grp); draw(); };
   qa('#purg button').forEach(b => b.onclick = () => { s.urg = b.dataset.u; qa('#purg button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
 }
 const bomById = id => (S.boms || []).find(b => b.id === id);
