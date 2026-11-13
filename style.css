@@ -620,10 +620,23 @@ tr.ldrow > td{background:var(--soft);padding:8px 10px}
 .bcard{min-width:0;overflow-wrap:anywhere}
 .bcard .items span{white-space:normal}
 /* Bugün: bildirimler en üstte */
-.tnotif{margin-bottom:16px}
-.tnotif li.unread .tm{font-weight:600}
-.tnotif.is-calm .tm{color:var(--muted)}
-.tnotif header .sub{font-size:12.5px}
+.bellbtn{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px}
+.bellbtn svg{width:20px;height:20px}
+.bellb{position:absolute;top:1px;right:1px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;font-weight:700;line-height:17px;text-align:center}
+.bellb[hidden]{display:none}
+.bellpop{position:fixed;z-index:80;width:min(380px,calc(100vw - 16px));overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18)}
+.bellhead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 6px 0 14px;min-height:44px;border-bottom:1px solid var(--line)}
+.belllist{list-style:none;margin:0;padding:4px}
+.belllist li{display:flex;align-items:center;gap:6px;border-radius:8px}
+.belllist li a{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:8px 10px;min-height:40px;justify-content:center;border-radius:8px;color:var(--ink);text-decoration:none;font-size:14px}
+.belllist li a .sub{font-size:12px}
+.belllist li a:hover,.belllist li a:focus-visible{background:var(--paper)}
+.belllist li.unread{background:var(--data-soft)}
+.belllist li.unread .tm{font-weight:600}
+.belllist li.read{opacity:.6}
+.bellhead .linkbtn,.belllist .linkbtn{min-height:40px;padding:0 10px;white-space:nowrap}
+.bellempty{padding:16px;color:var(--muted);justify-content:center}
+.bellfoot{display:flex;align-items:center;min-height:44px;padding:0 14px;border-top:1px solid var(--line);color:var(--link);font-size:14px;text-decoration:none}
 /* kutu başlığı: "Tümü →" tek satır, uzun başlık kendi içinde kırılır */
 .tday header h2{min-width:0;overflow-wrap:anywhere}
 .tday .more{white-space:nowrap;flex:none}
