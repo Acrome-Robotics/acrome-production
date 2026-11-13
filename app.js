@@ -345,6 +345,7 @@ function route(){
     case 'tahsilat-rapor': return viewCollReport();
     case 'uretim-pano': case 'pano': return viewBoard();
     case 'checklist-sablon': return a ? viewClTemplate(a === 'yeni' ? null : +a) : viewClTemplates();
+    case 'checklist': return viewChecklist(+a);
     case 'yeni': return can('sales','orders','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
     case 'duzenle': return viewForm(+a);
@@ -857,10 +858,12 @@ function viewDetail(id){
   </div>
   ${payPanel(d)}
   ${stagePanel(d)}
+  ${clBox(d)}
   ${rmaBox({ deal_id:d.id }, (S.rmas||[]).filter(x => x.deal_id === d.id), 'mt')}
   ${(S.tickets||[]).some(x => x.deal_id === d.id) ? `<section class="panel mt"><h2>Support konuları</h2><ul class="sugg">${S.tickets.filter(x => x.deal_id === d.id).map(x => `<li><a href="#/support/${x.id}"><span class="mono">#${x.id}</span> ${esc(x.subject)}</a> ${supPill(x.status)} <span class="sub">${fmtD(x.opened_at.slice(0,10))}</span></li>`).join('')}</ul></section>` : ''}
   <section class="panel mt"><h2>Açıklama ve notlar</h2><dl class="kv">${kv('Detay', esc(d.details))}${kv('Not', esc(d.notes))}${kv('Kaynak', esc(d.source))}${kv('Son güncelleme', new Date(d.updated_at).toLocaleString('tr-TR'))}</dl></section>`);
   bindStagePanel(d);
+  loadClBox(d);
   const del = q('#del');
   if (del) del.onclick = async () => {
     if (del.dataset.c !== '1') { del.dataset.c = '1'; del.textContent = 'Silmeyi onayla'; return; }
@@ -1059,6 +1062,73 @@ async function viewClTemplate(id){
     const { error } = await sb.rpc('checklist_template_delete', { p_id:id }); if (error) return toast(dbErr(error), true);
     toast('Şablon silindi'); location.hash = '#/checklist-sablon'; });
 }
+
+// sipariş sayfasındaki kutu: bu siparişin checklist'leri + elle ekleme
+const clBox = d => (d.status === 'production' || d.status === 'shipped') ? `<section class="panel mt" id="clbox"><h2>Checklist</h2><div class="sub">Yükleniyor…</div></section>` : '';
+async function loadClBox(d){
+  const box = q('#clbox'); if (!box) return;
+  const [a, b] = await Promise.all([sb.from('checklists').select('id,product_code,title,serial_no,unit_no,result,check_date,checked_by,checklist_items(ok)').eq('deal_id', d.id).order('product_code').order('unit_no', { nullsFirst:false }).order('id'),
+    sb.from('checklist_templates').select('id,name,product_code,is_default').eq('active', true).order('name')]);
+  if (!q('#clbox')) return;
+  if (a.error) { box.innerHTML = `<h2>Checklist</h2><div class="banner">${esc(dbErr(a.error))}</div>`; return; }
+  const C = a.data || [], T = b.data || [], items = d.items || {}, ed = canCl();
+  const over = c => c.unit_no != null && c.unit_no > Math.floor(+items[c.product_code] || 0);
+  const noTpl = Object.keys(items).filter(k => !T.some(t => t.is_default && t.product_code === k) && (S.products.find(p => p.code === k) || {}).category !== 'kontrolcu');
+  const opts = [...new Set([...Object.keys(items), ...T.map(t => t.product_code).filter(Boolean)])];
+  box.innerHTML = `<h2>Checklist <span class="sub" style="font-weight:400">· müşteriye giden belge, her ürün adedi için bir tane</span></h2>
+    ${C.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Seri no</th><th class="nosort">Ürün</th><th class="nosort num">İşaretli</th><th class="nosort">Kontrol</th><th class="nosort">Sonuç</th></tr></thead><tbody>
+      ${C.map(c => `<tr data-cl="${c.id}"><td class="mono">${esc(c.serial_no || '—')}</td><td>${esc(c.title)}${c.unit_no == null ? ' <span class="chip">elle</span>' : ''}${over(c) ? ' <span class="chip dupchip" title="Sipariş adedi azaldı; doldurulmuş olduğu için silinmedi">adetten fazla</span>' : ''}</td>
+        <td class="num">${clCount(c.checklist_items)}</td><td>${c.checked_by ? esc(c.checked_by) + (c.check_date ? ` <span class="sub">${fmtD(c.check_date)}</span>` : '') : '<span class="sub">—</span>'}</td><td>${c.result ? esc(CL_RES[c.result][0]) : '<span class="sub">—</span>'}</td></tr>`).join('')}</tbody></table></div>`
+      : `<p class="sub" style="margin:0">${d.status === 'production' ? 'Bu siparişte şablonu olan ürün yok.' : 'Checklist açılmamış.'}</p>`}
+    ${noTpl.length ? `<p class="note">Şablonu olmayan ürün: ${noTpl.map(k => esc(prodName(k)) + ' ×' + fmtN(items[k])).join(', ')} — gerekirse aşağıdan boş checklist ekleyin.</p>` : ''}
+    ${ed ? `<div class="fup"><select id="clp" aria-label="Ürün">${opts.map(k => `<option value="${esc(k)}">${esc(prodName(k))}</option>`).join('')}</select><select id="clt" aria-label="Şablon"></select><button class="btn sm" id="cladd" type="button">+ Checklist ekle</button>
+      ${d.status === 'production' ? '<button class="btn sm" id="clsync" type="button" title="Sipariş kalemlerine göre eksik checklist\'leri varsayılan şablondan açar">Eksikleri şablondan aç</button>' : ''}</div>` : ''}`;
+  qa('tr[data-cl]', box).forEach(tr => tr.onclick = () => location.hash = '#/checklist/' + tr.dataset.cl);
+  if (!ed) return;
+  const fillT = () => { const p = q('#clp').value; q('#clt').innerHTML = T.filter(t => t.product_code === p).map(t => `<option value="${t.id}">${esc(t.name)}${t.is_default ? ' (varsayılan)' : ''}</option>`).join('') + '<option value="">Boş checklist</option>'; };
+  q('#clp').onchange = fillT; fillT();
+  q('#cladd').onclick = e => busy(e.target, async () => { const { data, error } = await sb.rpc('checklist_add', { p_deal:d.id, p_product:q('#clp').value || null, p_template:+q('#clt').value || null });
+    if (error) return toast(dbErr(error), true); location.hash = '#/checklist/' + data; });
+  q('#clsync') && (q('#clsync').onclick = e => busy(e.target, async () => { const { data, error } = await sb.rpc('checklist_sync', { p_deal:d.id });
+    if (error) return toast(dbErr(error), true); toast(data ? `${data} checklist açıldı` : 'Eksik checklist yok'); loadClBox(d); }));
+}
+
+// doldurma ekranı
+async function viewChecklist(id){
+  shell('kayitlar/production', '<div class="empty">Yükleniyor…</div>');
+  const [a, b] = await Promise.all([sb.from('checklists').select('*').eq('id', id).maybeSingle(), sb.from('checklist_items').select('*').eq('checklist_id', id)]);
+  const c = a.data, d = c && S.deals.find(x => x.id === c.deal_id);
+  if (!c || !d) return shell('kayitlar/production', `<h1>Checklist bulunamadı</h1><p><a href="#/kayitlar/production">Üretimdeki siparişler</a></p>`);
+  const items = clOrd(b.data || []).map(clItem), ro = !canCl();
+  const T = c.product_code && !c.edited_at && !ro ? ((await sb.from('checklist_templates').select('id,name').eq('product_code', c.product_code).eq('active', true).order('name')).data || []) : [];
+  const qty = Math.floor(+(d.items || {})[c.product_code] || 0), canDel = !ro && (c.unit_no == null || c.unit_no > qty || can('admin'));
+  const H = { title:c.title, serial_no:c.serial_no || '', checked_by:c.checked_by || (ro ? '' : S.profile.full_name || ''), check_date:c.check_date || (ro ? '' : today()), result:c.result || '' };
+  shell('kayitlar/' + d.status, `<div class="noprint"><p><a href="#/kayit/${d.id}">← ${esc(refNo(d))} · ${esc(custName(d))}</a></p>
+    <div class="pagehead"><div><h1>${esc(c.title)} <span class="mono" style="font-size:.7em">${esc(c.serial_no || '')}</span></h1><p class="lede">Müşteriye giden checklist. Satır ekleyip çıkarmak yalnız bu checklist'i değiştirir, şablonu etkilemez.${c.updated_by_name ? ` Son kayıt: ${esc(c.updated_by_name)} · ${fmtDT(c.updated_at)}.` : ''}</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${canDel ? '<button class="btn danger" id="cldel" type="button">Sil</button>' : ''}</div></div>
+    <form id="clf" class="fs" novalidate><div class="row r4">
+      <label class="f">Ürün başlığı <span class="hint">çıktıda</span><input name="title" maxlength="120" value="${esc(H.title)}" ${ro ? 'disabled' : ''}></label>
+      <label class="f">Seri no<input name="serial_no" maxlength="60" value="${esc(H.serial_no)}" ${ro ? 'disabled' : ''}></label>
+      <label class="f">Checked by<input name="checked_by" maxlength="120" value="${esc(H.checked_by)}" ${ro ? 'disabled' : ''}></label>
+      <label class="f">Tarih<input name="check_date" type="date" value="${esc(H.check_date)}" min="${MIN_DATE}" max="${MAX_DATE}" ${ro ? 'disabled' : ''}></label></div>
+      <div class="row"><label class="f">Genel sonuç<select name="result" ${ro ? 'disabled' : ''}><option value="">—</option>${Object.entries(CL_RES).map(([k, v]) => `<option value="${k}" ${k === H.result ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>
+      ${T.length > 1 ? `<label class="f">Şablonu değiştir <span class="hint">doldurulmadan önce</span><span style="display:flex;gap:6px"><select id="clrt">${T.map(t => `<option value="${t.id}" ${t.id === c.template_id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select><button class="btn sm" id="clrtb" type="button">Uygula</button></span></label>` : ''}</div>
+      <div id="clits"></div>
+      ${ro ? '<p class="note">Checklist\'i yalnız Üretim ve Yönetici doldurabilir.</p>' : '<p class="mt"><button class="btn primary" type="submit">Kaydet</button> </p>'}</form></div>
+    <div class="clprint" id="clpr"></div>`);
+  clEditor(q('#clits'), items, true, ro);
+  const f = q('#clf'), head = () => ro ? H : Object.fromEntries(['title','serial_no','checked_by','check_date','result'].map(k => [k, f[k].value.trim()]));
+  if (ro) return;
+  f.onsubmit = e => { e.preventDefault(); busy(e, async () => {
+    const { error } = await sb.rpc('checklist_save', { p_id:id, p_head:head(), p_items:items.filter(x => x.name.trim()) });
+    if (error) return toast(dbErr(error), true); toast('Checklist kaydedildi'); viewChecklist(id); }); };
+  q('#clrtb') && (q('#clrtb').onclick = e => busy(e.target, async () => { const { error } = await sb.rpc('checklist_retemplate', { p_id:id, p_template:+q('#clrt').value });
+    if (error) return toast(dbErr(error), true); toast('Şablon değiştirildi'); viewChecklist(id); }));
+  q('#cldel') && (q('#cldel').onclick = async e => { if (!confirmTwice(e.target, 'Silinsin mi? Tekrar bas')) return;
+    const { error } = await sb.rpc('checklist_delete', { p_id:id }); if (error) return toast(dbErr(error), true);
+    toast('Checklist silindi'); location.hash = '#/kayit/' + d.id; });
+}
+
 
 // ---------------------------------------------------------------- MASRAF FORMU
 // Herkes kendi harcamalarını fiş/fatura görseliyle gönderir; formların hepsini Muhasebe ve Yönetici görür, onaylar, ödendi işaretler.
