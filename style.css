@@ -728,3 +728,77 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
   .clp-sign{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:34px;break-inside:avoid}
   .clp-sign div{border-top:1px solid #000;padding-top:4px;font-size:10.5px}
 }
+
+/* ---------- Kalite ---------- */
+.qp-onayli{background:var(--green-soft);color:var(--green)} .qp-sartli{background:var(--amber-soft);color:var(--amber)}
+.qp-aday{background:var(--data-soft);color:var(--data)} .qp-onaysiz{background:var(--red-soft);color:var(--red)}
+.qchips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}
+.qchips a{border:1px solid var(--line);border-radius:var(--radius);padding:1px 8px;font-size:12.5px;background:var(--surface);color:var(--ink)}
+.qchips a:hover{border-color:var(--brand);text-decoration:none}
+.mtin{width:96px !important}
+#nf h2,#suf h2{font-size:15px;margin:18px 0 10px}
+#nf fieldset:disabled{opacity:.75}
+.kys h1{margin:0 0 6px}
+.kys h2{margin:26px 0 10px}
+.kys h3{font-weight:650;font-size:15px;margin:0 0 8px}
+.kys .knav select{width:auto;min-width:240px}
+.kys .small{font-size:12.5px;color:var(--muted)}
+.kys .crumbs{font-size:13px;color:var(--muted);margin-bottom:8px}
+.kys .p-green{background:var(--green-soft);color:var(--green)} .kys .p-amber{background:var(--amber-soft);color:var(--amber)} .kys .p-brand{background:var(--brand-soft);color:var(--brand-text)}
+.kys .kpis.k5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.kys .chips{display:flex;flex-wrap:wrap;gap:5px}
+.kys .chip{border-radius:var(--radius);padding:2px 8px;font-size:12.5px;color:var(--ink);line-height:1.5}
+.kys a.chip:hover{border-color:var(--brand);text-decoration:none}
+.kys .kind{font-size:10.5px;font-weight:750;letter-spacing:.04em;padding:0 5px;border-radius:3px}
+.kys .k-doc{background:var(--data-soft);color:var(--data)} .kys .k-form{background:var(--brand-soft);color:var(--brand-text)}
+.kys .k-register{background:var(--green-soft);color:var(--green)} .kys .k-report{background:var(--violet-soft);color:var(--violet)}
+.kys .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.kys .card{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;color:var(--ink)}
+.kys a.card:hover{border-color:var(--brand);text-decoration:none}
+.kys .card .t{font-weight:650;font-size:14.5px;line-height:1.3} .kys .card .m{font-size:12px;color:var(--muted)}
+.kys .flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 6px}
+.kys .flow span{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:3px 10px;font-size:12.5px;font-weight:550}
+.kys .flow i{color:var(--muted);font-style:normal}
+.kys .sheet{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px 32px;max-width:1080px}
+.kys .dochead{display:grid;grid-template-columns:150px 1fr 230px;border:1.5px solid var(--ink);margin-bottom:20px}
+.kys .dochead>div{padding:8px 12px}
+.kys .dochead .lg{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;border-right:1.5px solid var(--ink);letter-spacing:.02em}
+.kys .dochead .tt{display:flex;flex-direction:column;justify-content:center;text-align:center;font-weight:700;font-size:16px;border-right:1.5px solid var(--ink)}
+.kys .dochead .tt small{font-weight:500;font-size:12px;color:var(--muted)}
+.kys .dochead .mt{font-size:12px;padding:0;margin:0}
+.kys .dochead .mt div{display:flex;justify-content:space-between;gap:8px;padding:3px 10px;border-bottom:1px solid var(--line)} .kys .dochead .mt div:last-child{border-bottom:0}
+.kys .dochead .mt b{font-weight:650}
+.kys .sec h3{margin:18px 0 6px}
+.kys .sec div.p{margin:0 0 6px;font-size:14px}
+.kys .sec ul,.kys .sec ol{margin:4px 0 8px;padding-left:22px;font-size:14px} .kys .sec li{margin:2px 0}
+.kys .sheet table{font-size:13px;border:1px solid var(--line)} .kys .sheet th{white-space:normal}
+.kys .sheet td,.kys .sheet th{border:1px solid var(--line);vertical-align:top}
+.kys .sheet tr{cursor:default}
+.kys .cap{font-size:12.5px;font-weight:650;color:var(--muted);margin:14px 0 6px}
+.kys .sheet fieldset{border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px 14px;margin:0 0 14px}
+.kys .sheet legend{font-weight:700;font-size:13.5px;padding:0 6px}
+.kys .fgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 14px}
+.kys .fgrid>label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;font-weight:600}
+.kys .fgrid .hint{font-weight:400;color:var(--muted);font-size:11.5px}
+.kys .fgrid input[type=text],.kys .fgrid select,.kys .fgrid textarea{width:100%}
+.kys .w2{grid-column:span 2} .kys .w3{grid-column:1/-1}
+.kys .opts{display:flex;flex-wrap:wrap;gap:4px 14px;padding-top:3px}
+.kys .opts label{display:flex;align-items:center;gap:5px;font-weight:450;font-size:13px}
+.kys .ftable input{border:0;border-bottom:1px dotted var(--line);border-radius:0;min-height:26px;padding:2px 4px;background:transparent;width:100%}
+.kys input.calc{background:var(--soft);font-weight:650}
+.kys .signs{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));border:1px solid var(--line);margin-top:16px}
+.kys .signs div{padding:8px 12px;border-left:1px solid var(--line);min-height:74px;font-size:12px;font-weight:650;color:var(--muted)}
+.kys .signs div:first-child{border-left:0}
+.kys .signs div span{display:block;font-weight:400;margin-top:26px;border-top:1px dotted var(--line);padding-top:2px}
+.kys td.nw{white-space:nowrap}
+.kys .practice{border-left:3px solid var(--green);background:var(--green-soft);padding:8px 14px;border-radius:0 var(--radius) var(--radius) 0;font-size:13.5px;margin:4px 0 14px}
+.kys .practice b{color:var(--green);display:block;margin-bottom:2px}
+@media (max-width:960px){.kys .kpis.k5{grid-template-columns:repeat(2,1fr)}.kys .fgrid{grid-template-columns:1fr}.kys .w2,.kys .w3{grid-column:auto}.kys .dochead{grid-template-columns:1fr}.kys .dochead .lg,.kys .dochead .tt{border-right:0;border-bottom:1.5px solid var(--ink)}.kys .sheet{padding:16px}}
+@media print{
+  .kys .sheet{border:0;padding:0;max-width:none}
+  .kys .sheet input,.kys .sheet select,.kys .sheet textarea{border:0;border-bottom:1px solid #999;border-radius:0;padding:1px 2px;min-height:20px;-webkit-appearance:none;appearance:none;background:transparent}
+  .kys .sheet textarea{min-height:52px;border:1px solid #999}
+  .kys .sheet fieldset,.kys .sheet table,.kys .signs{break-inside:avoid}
+  .kys .tablewrap{overflow:visible;border:0}
+  .kys .practice{border-left:2px solid #444;background:#fff}
+}

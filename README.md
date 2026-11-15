@@ -160,3 +160,21 @@ Geri dönülebilir sabit nokta. Kapsam: satış/sipariş, support + RMA, stok (m
 - **Basecamp senkronu (10 Kasım):** artık Supports panosundaki kartlara ek olarak Supports'a iletilen mailleri (Forwards / Inbox::Forward) ve altlarına yazılan ekip yorumlarını da alıyor; kartın tarihi değişmeden yazılan yorumlar da yakalanıyor. Başlık eşleştirmesi Re:/Fwd:/AW: ve [EXT] gibi etiketleri yok sayıyor. Geriye dönük doldurma: `basecamp-sync?since=ISO` (yetkili çağrı).
 - **Bugün düzeni:** her kutu ▾ ile küçültülebilir; "Düzeni değiştir" ile kutular iki sütun arasında sürüklenir ya da ↑ ↓ ⇄ ile taşınır. Düzen kullanıcıya özel `user_prefs` tablosunda (anahtar `bugun_layout`) tutulur, her cihazda aynıdır; "Varsayılana dön" siler. SQL: `sql/2026-11-10_kullanici_tercihleri.sql`.
 - **Support raporu (`#/support-rapor`, 11 Kasım):** aylık gelen / kapanan konu, ay sonunda açık kalan, kapanma ve ilk cevap süreleri (medyan), 48 saatte ilk cevap oranı, ürüne ve sorumluya göre kırılım, açık konuların yaşı ve en eski açık konular; dönem (son 12 ay / yıl / tümü) ve kategori seçimi, CSV. Veri: `support_report_rows()`. Toplu aktarımdaki eski konularda kapanış son mesaj tarihinden tahmin edilir. SQL: `sql/2026-11-11_support_raporu.sql`.
+
+## Milestone 2 — 15 Kasım 2026 (`milestone-2-2026-11-15`)
+Kalite bölümü eklenmeden hemen önceki geri dönülebilir nokta.
+- **Kod:** `git checkout milestone-2-2026-11-15` (GitHub'da aynı adlı dal; `main`'in e0e29d6 hâli).
+- **Veri:** Supabase'te `snap_20261115` şemasında tüm public tabloların (63) kopyası. Tek tablo geri yükleme: `truncate public.X cascade; insert into public.X select * from snap_20261115.X;` (yalnızca yönetici, önce yeni bir yedek alın).
+- **Şema:** migration geçmişinde `milestone_snapshot_20261115`; Kalite değişiklikleri bundan sonraki `kalite_2026_11_15` kaydıdır.
+- **Kalite bölümünü geri almak:** `main`'i bu dala döndürmek yeterli (eski arayüz yeni sütunları okumaz). Veritabanında yalnız ekleme yapıldı: `kys_content`, `kys_records`, `ncr`, `q_devices` tabloları; `suppliers`, `pcb_log`, `bom_lines` tablolarına boş sütunlar; `kalite` rolü.
+
+## Kalite (15 Kasım 2026)
+- Yeni rol **Kalite**. Menüde "Kalite" başlığını yalnız Kalite ve Yönetici görür. Kalite rolü ek roldür; diğer sayfalar için yanına İzleyici ya da başka bir rol verilir.
+- **Kalite belgeleri (`#/kalite`)**: Kalite Yönetim Sistemi belgeleri (prosedür, plan, talimat, form, liste, rapor), süreç ve proje görünümü, doküman ana listesi, yazdır / PDF. **Belge içeriği depoda değildir**: `kys_content` tablosunda durur, `#/kalite/yukle` sayfasından JSON dosyası olarak yüklenir (`kys_import`). Yeni revizyon aynı sayfadan yüklenir.
+- Formlar sitede doldurulup kaydedilir (`kys_records`, kayıt no otomatik: `FR-MM-01-2026-001`); listelere satır eklenir. Güncel kaydı sitede tutulan belgeler ilgili sayfaya bağlanır (Uygunsuzluklar, Kalibrasyon, Tedarikçiler, RMA, PCB, Motor testleri).
+- **Uygunsuzluklar (`#/uygunsuzluk`)**: tekil numara `NCR-yıl-sıra`; kaynak (RMA, motor testi, PCB takip kaydı, alım), uygunsuz ürünün kimliği ve ayrıştırma yeri, tedarikçi ve kontrol yöntemi, sorumlu, kök neden analizi (5 Neden, Balık kılçığı, 8D), düzeltici faaliyet ve termin, doğrulama. Doğrulama "Etkin" girilmeden kayıt kapatılamaz (veritabanı kuralı). RMA, motor testi, PCB takip ve alım sayfalarında **"Uygunsuzluk aç"** tuşu. Personel dışındaki her rol kayıt açar ve okur; inceleme alanlarını Kalite doldurur.
+- **Kalibrasyon (`#/kalibrasyon`)**: ölçü aleti envanteri, son / sonraki kalibrasyon, hizmet sağlayıcı, sertifika no; süresi geçen ve 30 gün içinde dolacaklar işaretlenir (`q_devices`).
+- **Tedarikçiler**: onay durumu (Onaylı / Şartlı / Aday / Onaysız), onay tarihi, puan, belgeler; listede süzgeç.
+- **PCB takip kaydı**: sıcaklık (°C) ve nem (%RH) alanları. **BOM**: kalem başına MTBF (saat), altta seri sistem MTBF'i.
+- Hiçbir tabloya kayıt tohumlanmadı; uygunsuzluk, cihaz ve form kayıtları boş başlar.
+- Veritabanı: `sql/2026-11-15_kalite.sql`.

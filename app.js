@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------- sabitler
 const STAGES = { qualify:'1 · Nitelendirme', advance:'2 · İlerliyor', closing:'3 · Kapanış', won:'Kazanıldı', lost:'Kaybedildi' };
 const STATUSES = { pipeline:'Fırsat', waiting:'Beklemede', production:'Üretimde', shipped:'Gönderildi', lost:'Kaybedildi', archived:'Arşiv' };
-const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', orders:'Sipariş', support:'Support', purchasing:'Satın alma', stock:'Depo / Stok', muhasebe:'Muhasebe', personel:'Personel', admin:'Yönetici' };
+const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', orders:'Sipariş', support:'Support', purchasing:'Satın alma', stock:'Depo / Stok', muhasebe:'Muhasebe', kalite:'Kalite', personel:'Personel', admin:'Yönetici' };
 // rol ayrıntıları (Kullanıcılar sayfası)
 const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sales:'Fırsat ve sipariş girer, düzenler; müşteri ekler.',
   production:'Üretim alanlarını (planlanan sevk, sevk tarihi, durum, gecikme) değiştirir; sipariş aşamalarını günceller (bölüm seçildiyse yalnız o aşamaları); stok, BOM ve alım taleplerini yönetir.',
@@ -15,6 +15,7 @@ const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sale
   stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller. Her ayın ilk cuması sayım e-postası alır.',
   muhasebe:'Masraf formlarının hepsini görür; onaylar, reddeder, ödendi işaretler. Diğer sayfaları izleyici gibi görür.',
   personel:'Yalnızca haftalık yoklamayı, daily notlarını ve kendi masraf formunu görür (atölye, stajyer vb.).',
+  kalite:'Kalite menüsünü görür: kalite belgeleri ve form kayıtları, uygunsuzlukların incelenmesi ve kapatılması, kalibrasyon envanteri, tedarikçi onay durumu ve puanı. Diğer sayfalar için yanına İzleyici ya da başka bir rol verin.',
   admin:'Her şey + silme, ürün yönetimi, rol verme.' };
 // yalnız Muhasebe (ve Personel) rolü olan: menüde Ekip + Alımlar (görme ve yorum)
 const accOnly = () => !!S.profile && userRoles(S.profile).includes('muhasebe') && userRoles(S.profile).every(r => r === 'muhasebe' || r === 'personel');
@@ -124,7 +125,7 @@ async function loadAll(){
   await loadSupport();
   await loadRma();
   await loadPrefs().catch(() => { S.prefs = {}; });
-  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadPlanCount().catch(() => {}), loadAttToday().catch(() => {})]);
+  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadPlanCount().catch(() => {}), loadAttToday().catch(() => {}), canQ() ? loadNcrCount().catch(() => {}) : null]);
   if (isCountDay() && can('stock')) sb.rpc('stock_count_notify_me').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
 // aylık stok sayımı: her ayın ilk cuması
@@ -223,6 +224,7 @@ const ICON = {
   gear: svgI('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
   report: svgI('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 17v-3M12 17v-6M16 17v-2"/>'),
   db: svgI('<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
+  shield: svgI('<path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>'),
   users: svgI('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>'),
   chev: '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
 };
@@ -289,6 +291,12 @@ function shell(active, html){
       ['pcb','PCB kartları'],
       ['motor-test','Motor testleri'],
     ]],
+    ...(canQ() ? [['Kalite', 'shield', [
+      ['kalite','Kalite belgeleri'],
+      ['uygunsuzluk','Uygunsuzluklar', S.ncrOpen || ''],
+      ['uygunsuzluk-yeni','Yeni uygunsuzluk'],
+      ['kalibrasyon','Kalibrasyon'],
+    ]]] : []),
     ekip,
     ['Rapor', 'report', [
       ['rapor','Üretim ve satış raporu'],
@@ -387,6 +395,10 @@ function route(){
       return viewPurchase(null, it ? { item_id:it.id, item_name:it.name, unit:grpOfCat(it.category) === 'm' ? 'Mekanik' : 'Elektronik', supplier_id:it.supplier_id, unit_price:it.unit_price, currency:it.currency } : {}); }
     case 'tedarikciler': return viewSuppliers(a);
     case 'rapor': return viewReport();
+    case 'kalite': return canQ() ? viewKys() : viewToday();
+    case 'uygunsuzluk': return a ? viewNcr(+a) : viewNcrList();
+    case 'uygunsuzluk-yeni': return viewNcr(null, a);
+    case 'kalibrasyon': return a ? viewDevice(a === 'yeni' ? null : +a) : viewDevices();
     default: return viewToday();
   }
 }
@@ -2652,7 +2664,7 @@ async function viewRmaForm(id, preset){
   const costs = cr.data || [], evs = er.data || [];
   const d = r.deal_id ? S.deals.find(x => x.id === r.deal_id) : null;
   const avg = r.product ? avgRepairDays(r.product) : null;
-  const ed = canRma();
+  const ed = canRma(), ncrs = id ? await ncrLinked('rma', id) : [];
   const v = k => esc(r[k] ?? '');
   const sel = (name, o, val, blank) => `<select name="${name}">${blank!==undefined?`<option value="">${blank}</option>`:''}${Object.entries(o).map(([k,l])=>`<option value="${k}" ${val===k?'selected':''}>${l}</option>`).join('')}</select>`;
   const cur = (name, val) => `<select name="${name}">${CURR.map(c=>`<option ${c===(val||'USD')?'selected':''}>${c}</option>`).join('')}</select>`;
@@ -2665,8 +2677,8 @@ async function viewRmaForm(id, preset){
 
   shell(id ? 'rma' : 'rma-yeni', `<p><a href="#/rma">← RMA listesi</a></p>
   <div class="pagehead"><div><h1>${id ? esc(r.code) : 'Yeni RMA'}</h1>
-    <p class="lede">${esc(r.customer || r.customer_name || 'Müşteri belirtilmemiş')}${r.order_no?` · <a href="#/kayit/${r.deal_id}" class="mono">${esc(r.order_no)}</a>`:''}${r.ticket_id?` · <a href="#/support/${r.ticket_id}">Support #${r.ticket_id}</a>`:''}</p></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${r.is_draft?'<span class="pill rp-draft">Taslak</span>':''}${id?rmaPill(r.status):''}
+    <p class="lede">${esc(r.customer || r.customer_name || 'Müşteri belirtilmemiş')}${r.order_no?` · <a href="#/kayit/${r.deal_id}" class="mono">${esc(r.order_no)}</a>`:''}${r.ticket_id?` · <a href="#/support/${r.ticket_id}">Support #${r.ticket_id}</a>`:''}</p>${ncrChips(ncrs)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${r.is_draft?'<span class="pill rp-draft">Taslak</span>':''}${id?rmaPill(r.status):''}${id && !r.is_draft ? ncrBtn('rma', id, 'btn') : ''}
       ${id && ed && r.is_draft ? '<button class="btn" id="rconfirm">Taslağı onayla</button>' : ''}
       ${id && ed && nextSt && r.status!=='cancelled' ? `<button class="btn primary" id="rnext">→ ${RMA_ST[nextSt]}</button>` : ''}
       ${id && (can('admin') || (ed && r.is_draft)) ? '<button class="btn danger" id="rdel">Sil</button>' : ''}</div></div>
@@ -2800,7 +2812,7 @@ async function loadStock(force){
   const [it, bm, su, pb] = await Promise.all([
     sb.from('stock_items').select('*').order('name').range(0, 9999),
     sb.from('boms').select('*').order('kind').order('name'),
-    sb.from('suppliers').select('id,name,kind,grp,blacklisted,blacklist_reason').order('name'),
+    sb.from('suppliers').select('id,name,kind,grp,blacklisted,blacklist_reason,approval').order('name'),
     sb.from('pcb_boards').select('*').order('pcb').order('version'),
   ]);
   S.items = it.data || []; S.boms = bm.data || []; S.suppliers = su.data || []; S.pcbs = pb.data || [];
@@ -3069,6 +3081,10 @@ async function viewBom(id){
   const [br, lr] = await Promise.all([sb.from('boms').select('*').eq('id', id).maybeSingle(), sb.from('v_bom_lines').select('*').eq('bom_id', id).order('section').order('sort')]);
   const b = br.data; if (!b) return shell('bom', `<h1>BOM bulunamadı</h1><p><a href="#/bom">BOM listesine dön</a></p>`);
   const L = lr.data || [], ed = canStock();
+  { const mr = await sb.from('bom_lines').select('id,mtbf_hours').eq('bom_id', id), mm = new Map((mr.data || []).map(x => [x.id, x.mtbf_hours])); L.forEach(l => l.mtbf_hours = mm.get(l.id) ?? null); }
+  // seri sistem: λ = Σ adet / MTBF; yalnız MTBF girilen, seçenek grubunda olmayan kalemler
+  const mtbfTxt = () => { const base = L.filter(l => !l.alt_group), w = base.filter(l => +l.mtbf_hours > 0); if (!w.length) return '';
+    return ` · Seri sistem MTBF ≈ <b>${fmtQ(Math.round(1 / w.reduce((a, l) => a + (+l.qty_per || 1) / +l.mtbf_hours, 0)))} saat</b> <span class="sub">(${w.length} / ${base.length} kalemde veri var; mekanik + elektronik)</span>`; };
   let N = +b.qty_to_build || 1;
   const deal = b.deal_id ? S.deals.find(d => d.id === b.deal_id) : null;
   const mx = bomBuildable(L);
@@ -3111,15 +3127,17 @@ async function viewBom(id){
     q('#kmiss').className = 'kpi' + (missing ? ' alert' : ''); q('#kmiss').innerHTML = `<div class="v">${missing}</div><div class="l">Eksik kalem${cntG.m && cntG.e ? ' · ' + TABN[tab] : ''} (${N} adet için)</div><div class="d">${missing ? '<a href="#" id="mkpur">Eksikler için alım talebi aç</a>' : 'Stok yeterli'}</div>`;
     q('#kcost').innerHTML = `<div class="v">${fmtTRY(cost)}</div><div class="l">${cntG.m && cntG.e ? TABN[tab] + ' maliyeti' : 'Kalem maliyeti'} (${N} adet)</div><div class="d">seçenekli kalemler hariç</div>`;
     const sec = [...new Set(rows.map(r => r.section))];
-    q('#btbl').innerHTML = `<table><thead><tr><th class="nosort">Kalem</th><th class="nosort num">Ürün başı</th><th class="nosort num">Gereken</th><th class="nosort num">Stok</th><th class="nosort num">Eksik</th><th class="nosort num">Birim fiyat</th><th class="nosort">Konum / tedarik</th>${ed ? '<th class="nosort"></th>' : ''}</tr></thead><tbody>
-      ${sec.map(sname => `<tr class="secrow"><td colspan="${ed ? 8 : 7}">${SECT[sname] || sname}</td></tr>` + rows.filter(r => r.section === sname).map(r => `<tr data-lid="${r.id}">
+    q('#btbl').innerHTML = `<table><thead><tr><th class="nosort">Kalem</th><th class="nosort num">Ürün başı</th><th class="nosort num">Gereken</th><th class="nosort num">Stok</th><th class="nosort num">Eksik</th><th class="nosort num">Birim fiyat</th><th class="nosort num" title="Arızalar arası ortalama süre, saat (üretici verisi)">MTBF saat</th><th class="nosort">Konum / tedarik</th>${ed ? '<th class="nosort"></th>' : ''}</tr></thead><tbody>
+      ${sec.map(sname => `<tr class="secrow"><td colspan="${ed ? 9 : 8}">${SECT[sname] || sname}</td></tr>` + rows.filter(r => r.section === sname).map(r => `<tr data-lid="${r.id}">
         <td>${r.item_id ? `<a href="#/stok/${r.item_id}">${esc(r.name)}</a>` : r.pcb_board_id ? `<a href="#/pcb">${esc(r.name)}</a> <span class="sub">PCB</span>` : esc(r.name || '')}${r.alt_group ? `<div class="sub">seçenek: ${esc(r.alt_group)}</div>` : ''}${r.notes ? `<div class="sub opt">${esc(r.notes)}</div>` : ''}</td>
         <td class="num">${ed ? `<input type="number" step="any" class="qpin" value="${r.qty_per}" aria-label="Ürün başına adet">` : fmtQ(r.qty_per)}</td><td class="num">${fmtQ(r.need)}</td>
         <td class="num">${r.stock_qty == null ? '<span class="sub">takip yok</span>' : fmtQ(r.stock_qty)}</td>
         <td class="num">${r.short == null ? '' : r.short > 0 ? `<b class="late-txt">${fmtQ(r.short)}</b>` : '<span class="ok-txt">✓</span>'}</td>
-        <td class="num">${fmtMoney(r.price)}</td><td><span class="sub">${esc([r.location, r.supplier_text].filter(Boolean).join(' · '))}</span></td>
+        <td class="num">${fmtMoney(r.price)}</td><td class="num">${ed ? `<input type="number" step="any" min="0" class="pcin mtin" value="${r.mtbf_hours ?? ''}" aria-label="MTBF saat">` : r.mtbf_hours != null ? fmtQ(r.mtbf_hours) : ''}</td><td><span class="sub">${esc([r.location, r.supplier_text].filter(Boolean).join(' · '))}</span></td>
         ${ed ? '<td><button class="btn sm ldel" title="Kalemi çıkar" aria-label="Kalemi çıkar">Çıkar</button></td>' : ''}</tr>`).join('')).join('')}</tbody>
-      <tfoot><tr class="tfoot"><td colspan="${ed ? 8 : 7}">${LT.length} kalem${cntG.m && cntG.e ? ' · ' + TABN[tab] : ''}</td></tr></tfoot></table>`;
+      <tfoot><tr class="tfoot"><td colspan="${ed ? 9 : 8}">${LT.length} kalem${cntG.m && cntG.e ? ' · ' + TABN[tab] : ''}${mtbfTxt()}</td></tr></tfoot></table>`;
+    qa('.mtin').forEach(inp => inp.onchange = async () => { const lid = +inp.closest('tr').dataset.lid, v = num0(inp.value); if (v != null && !(v > 0)) return toast('MTBF sıfırdan büyük olmalı', true);
+      const { error } = await sb.from('bom_lines').update({ mtbf_hours:v }).eq('id', lid); if (error) return toast(dbErr(error), true); L.find(x => x.id === lid).mtbf_hours = v; toast('Güncellendi'); draw(); });
     qa('.qpin').forEach(inp => inp.onchange = async () => { const lid = +inp.closest('tr').dataset.lid, v = num0(inp.value);
       const { error } = await sb.from('bom_lines').update({ qty_per:v || 1 }).eq('id', lid); if (error) return toast(dbErr(error), true); const l = L.find(x => x.id === lid); l.qty_per = v || 1; toast('Güncellendi'); draw(); });
     qa('.ldel').forEach(btn => btn.onclick = async () => { const lid = +btn.closest('tr').dataset.lid;
@@ -3203,7 +3221,7 @@ function pcbForm(id, l){
   const me = l.id ? null : S.profile.full_name;
   return `<form id="${id}" class="fs plain" novalidate><div class="row r4"><label class="f">PCB<input type="text" name="pcb" list="pcbnames" value="${esc(l.pcb || '')}"></label><label class="f">Versiyon<input type="text" name="version" value="${esc(l.version || '')}"></label><label class="f">Tarih<input type="date" name="at" value="${esc(l.at ? String(l.at).slice(0, 10) : today())}"></label><label class="f">Sebep<input type="text" name="reason" list="reasons" value="${esc(l.reason || '')}"></label></div>
     <div class="row r2"><label class="f">Teslim eden${pcbWho('given_by', l.id ? l.given_by : me)}</label><label class="f">Teslim alan${pcbWho('received_by', l.received_by)}</label></div>
-    <label class="f">Not<input type="text" name="note" value="${esc(l.note || '')}"></label>
+    <div class="row r4"><label class="f" style="grid-column:span 2">Not<input type="text" name="note" value="${esc(l.note || '')}"></label><label class="f">Sıcaklık °C <span class="hint">üretim ortamı</span><input type="number" step="0.1" name="temp_c" value="${l.temp_c ?? ''}"></label><label class="f">Nem %RH<input type="number" step="0.1" min="0" max="100" name="rh_pct" value="${l.rh_pct ?? ''}"></label></div>
     <p class="btnrow"><button class="btn primary">Kaydet</button>${l.id ? `<button type="button" class="btn danger" data-del>Sil</button>` : ''}</p></form>
     <datalist id="pcbnames">${[...new Set(S.pcbs.map(p => p.pcb))].map(n => `<option value="${esc(n)}">`).join('')}</datalist><datalist id="reasons">${PCB_REASONS.map(n => `<option value="${n}">`).join('')}</datalist>`;
 }
@@ -3213,7 +3231,9 @@ function bindPcbForm(f, onSave, onDel){
     sel.onchange = () => { if (sel.value === '__d') { inp.hidden = false; inp.value = ''; inp.focus(); } else { inp.hidden = true; inp.value = sel.value; } }; });
   const del = f.querySelector('[data-del]'); if (del) { if (onDel) del.onclick = () => onDel(del); else del.remove(); }
   f.onsubmit = e => { e.preventDefault(); const g = n => f[n].value.trim() || null; if (!g('pcb')) return toast('PCB girin', true);
-    onSave({ pcb:g('pcb'), version:g('version'), at:g('at'), reason:g('reason'), given_by:g('given_by'), received_by:g('received_by'), note:g('note') }, f); };
+    const tc = num0(g('temp_c')), rh = num0(g('rh_pct'));
+    if ((tc != null && !(tc >= -20 && tc <= 80)) || (rh != null && !(rh >= 0 && rh <= 100))) return toast('Sıcaklık −20…80 °C, nem 0…100 %RH aralığında olmalı', true);
+    onSave({ pcb:g('pcb'), version:g('version'), at:g('at'), reason:g('reason'), given_by:g('given_by'), received_by:g('received_by'), note:g('note'), temp_c:tc, rh_pct:rh }, f); };
 }
 async function viewPcb(tab){
   await loadStock(true);
@@ -3255,7 +3275,7 @@ async function viewPcb(tab){
     const F = { p:'', k:'', r:'', q:'' };
     const draw = () => { const r = log.filter(l => (!F.p || nkey(l.given_by) === F.p || nkey(l.received_by) === F.p) && (!F.k || l.pcb === F.k) && (!F.r || l.reason === F.r)
         && (!F.q || [l.no, l.pcb, l.version, l.reason, l.given_by, l.received_by, l.note].join(' ').toLocaleLowerCase('tr').includes(F.q)));
-      q('#ltbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">No</th><th class="nosort">Tarih</th><th class="nosort">PCB</th><th class="nosort">Sebep</th><th class="nosort">Teslim eden → alan</th><th class="nosort">Not</th><th class="nosort"></th></tr></thead><tbody>${r.slice(0, 500).map(l => `<tr data-l="${l.id}" style="cursor:default"><td class="mono">${esc(l.no || '')}</td><td style="white-space:nowrap">${fmtD(l.at)}</td><td>${esc(l.pcb || '')} <span class="sub mono">${esc(l.version || '')}</span></td><td>${esc(l.reason || '')}</td><td>${esc(l.given_by || '—')} → ${esc(l.received_by || '—')}</td><td class="sub">${esc(l.note || '')}${l.updated_at ? `<div>düzeltildi ${fmtDT(l.updated_at)}</div>` : ''}</td><td>${mine(l) ? `<button type="button" class="linkbtn led">düzenle</button>` : ''}</td></tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="7">${r.length} kayıt${r.length > 500 ? ' (ilk 500)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+      q('#ltbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">No</th><th class="nosort">Tarih</th><th class="nosort">PCB</th><th class="nosort">Sebep</th><th class="nosort">Teslim eden → alan</th><th class="nosort">Not</th><th class="nosort"></th></tr></thead><tbody>${r.slice(0, 500).map(l => `<tr data-l="${l.id}" style="cursor:default"><td class="mono">${esc(l.no || '')}</td><td style="white-space:nowrap">${fmtD(l.at)}</td><td>${esc(l.pcb || '')} <span class="sub mono">${esc(l.version || '')}</span></td><td>${esc(l.reason || '')}</td><td>${esc(l.given_by || '—')} → ${esc(l.received_by || '—')}</td><td class="sub">${esc(l.note || '')}${l.temp_c != null || l.rh_pct != null ? `<div>${[l.temp_c != null && fmtQ(l.temp_c) + ' °C', l.rh_pct != null && '%' + fmtQ(l.rh_pct) + ' RH'].filter(Boolean).join(' · ')}</div>` : ''}${l.updated_at ? `<div>düzeltildi ${fmtDT(l.updated_at)}</div>` : ''}</td><td>${mine(l) ? `<button type="button" class="linkbtn led">düzenle</button>` : ''}${/ar[ıi]za|hurda/i.test(l.reason || '') ? ' ' + ncrBtn('pcb_log', l.id) : ''}</td></tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="7">${r.length} kayıt${r.length > 500 ? ' (ilk 500)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
       qa('#ltbl .led').forEach(b => b.onclick = () => { const tr = b.closest('tr'), l = log.find(x => x.id === +tr.dataset.l);
         if (tr.nextElementSibling && tr.nextElementSibling.classList.contains('ledrow')) return tr.nextElementSibling.remove();
         const er = document.createElement('tr'); er.className = 'ledrow'; er.innerHTML = `<td colspan="7">${pcbForm('lef' + l.id, l)}</td>`; tr.after(er);
@@ -3280,7 +3300,7 @@ async function viewMotorTests(){
     <div class="row r4"><label class="f">Kapalı pot<input type="number" name="pot_closed"></label><label class="f">Açık pot<input type="number" name="pot_open"></label><label class="f">Hız ileri<input type="number" step="any" name="speed_out"></label><label class="f">Hız geri<input type="number" step="any" name="speed_in"></label></div>
     <div class="row r4"><label class="f">Sonuç${stkSel('result', { 'GEÇTİ':'Geçti', 'UYARI':'Uyarı', 'HATA':'Hata' }, 'GEÇTİ')}</label><label class="f">Hata kodu${stkSel('error_code', { 0:'0 · sorunsuz', 1:'1 · kullanılabilir', 2:'2 · kullanılamaz' }, '0')}</label><label class="f" style="grid-column:span 2">Not<input type="text" name="note"></label></div><p><button class="btn primary">Kaydet</button></p></form></section>` : ''}
   <div class="tablewrap mt"><table><thead><tr><th class="nosort">Barkod</th><th class="nosort">Sipariş</th><th class="nosort">Motor</th><th class="nosort num">Pot (kapalı → açık)</th><th class="nosort num">Hız ileri / geri</th><th class="nosort">Sonuç</th><th class="nosort">Not</th></tr></thead><tbody>
-  ${R.map(r => `<tr><td class="mono">${esc(r.barcode || '')}</td><td>${esc(r.order_ref || '—')}</td><td>${esc([r.motor_type, r.stroke, r.force].filter(Boolean).join(' · '))}</td><td class="num">${fmtQ(r.pot_closed)} → ${fmtQ(r.pot_open)}${r.pot_diff != null ? ` <span class="sub">(${fmtQ(r.pot_diff)})</span>` : ''}</td><td class="num">${fmtQ(r.speed_out)} / ${fmtQ(r.speed_in)}</td><td><b class="${res(r)}">${esc(r.result || '—')}</b>${r.error_code != null ? ` <span class="sub">kod ${fmtQ(r.error_code)}</span>` : ''}</td><td class="sub">${esc(r.note || '')}</td></tr>`).join('')}</tbody></table></div>`);
+  ${R.map(r => `<tr><td class="mono">${esc(r.barcode || '')}</td><td>${esc(r.order_ref || '—')}</td><td>${esc([r.motor_type, r.stroke, r.force].filter(Boolean).join(' · '))}</td><td class="num">${fmtQ(r.pot_closed)} → ${fmtQ(r.pot_open)}${r.pot_diff != null ? ` <span class="sub">(${fmtQ(r.pot_diff)})</span>` : ''}</td><td class="num">${fmtQ(r.speed_out)} / ${fmtQ(r.speed_in)}</td><td><b class="${res(r)}">${esc(r.result || '—')}</b>${r.error_code != null ? ` <span class="sub">kod ${fmtQ(r.error_code)}</span>` : ''}</td><td class="sub">${esc(r.note || '')}${(r.result || '').toUpperCase().startsWith('GE') ? '' : ` ${ncrBtn('motor_test', r.id)}`}</td></tr>`).join('')}</tbody></table></div>`);
   q('#mtf') && (q('#mtf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null;
     const [stroke, ...force] = (g('sf') || '').split(' ');
     const o = { barcode:g('barcode'), order_ref:g('order_ref'), motor_type:g('motor_type'), stroke:stroke || null, force:force.join(' ') || null, pot_closed:num0(g('pot_closed')), pot_open:num0(g('pot_open')),
@@ -3415,7 +3435,7 @@ async function viewPurchase(id, preset){
   const tx = (k, l, hint, t) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="${t || 'text'}" ${t === 'number' ? 'step="any"' : ''} name="${k}" value="${v(k)}"></label>`;
   const it = p.item_id ? itemById(p.item_id) : null;
   // bağlı siparişler RPC'den: yalnız-Muhasebe siparişleri okuyamaz ama ayrıntıyı görmeli
-  const links = id ? ((await sb.rpc('purchase_deal_info', { p_purchase:id })).data || []) : [];
+  const links = id ? ((await sb.rpc('purchase_deal_info', { p_purchase:id })).data || []) : [], ncrs = id ? await ncrLinked('purchase', id) : [];
   const pdOpts = sel => { const ds = S.deals.filter(d => d.order_no).sort((x, y) => (y.order_no || '').localeCompare(x.order_no || '')), ex = sel && !ds.some(d => d.id === sel) && links.find(l => l.deal_id === sel);
     return `<option value="">—</option>${ex ? `<option value="${sel}" selected>${esc(ex.ref_no)} · ${esc(ex.customer || '')}</option>` : ''}${ds.map(d => `<option value="${d.id}" ${sel === d.id ? 'selected' : ''}>${esc(d.order_no)} · ${esc(custName(d))}</option>`).join('')}`; };
   const pdRow = l => `<tr style="cursor:default"><td><select name="pd_deal" aria-label="Sipariş">${pdOpts(l && l.deal_id)}</select></td><td><input type="text" name="pd_note" maxlength="200" value="${esc(l && l.note || '')}" placeholder="isteğe bağlı" aria-label="Not"></td><td><button type="button" class="linkbtn pddel" aria-label="Satırı sil">sil</button></td></tr>`;
@@ -3423,8 +3443,8 @@ async function viewPurchase(id, preset){
   const pdCard = l => `<div class="pdcard"><div>${S.deals.some(d => d.id === l.deal_id) ? `<a href="#/kayit/${l.deal_id}" class="mono">${esc(l.ref_no)}</a>` : `<span class="mono">${esc(l.ref_no)}</span>`} · <b style="font-weight:600">${esc(l.customer || '')}</b> ${pill(l.status)}</div>
     <dl class="kv">${kv('Ülke', esc(l.country))}${kv('Açıklama', esc(l.description))}${kv('Ürünler', (l.items || []).map(i => `${esc(i.name)} × ${fmtN(i.qty)}`).join('<br>'))}${kv('Planlanan sevk', l.planned_ship_date && fmtD(l.planned_ship_date))}${kv('İstenen sevk', l.requested_ship_date && fmtD(l.requested_ship_date))}${kv('Sevk tarihi', l.ship_date && fmtD(l.ship_date))}${kv('Sevk ayı', !l.ship_date && l.ship_month && fmtM(l.ship_month))}${kv('Not', esc(l.note))}</dl></div>`;
   shell(id ? 'alimlar' : 'alim-yeni', `<p><a href="#/alimlar">← Alımlar</a></p>
-  <div class="pagehead"><div><h1>${id ? esc(p.item_name) : 'Yeni alım talebi'}</h1>${id ? `<p class="lede">${esc(p.source || 'Sitede açıldı')}${p.requester_name ? ' · talep eden ' + esc(p.requester_name) : ''}</p>` : '<p class="lede">Talep açıldıktan sonra Satın alma (ya da Depo / Stok, Üretim, Sipariş, Yönetici) onaylayıp siparişini takip eder.</p>'}</div>
-    ${id ? `<div style="display:flex;gap:8px;align-items:center">${purPill(p.status)}${(can('admin') || (mine && p.status === 'talep')) ? '<button class="btn danger" id="pdel">Sil</button>' : ''}</div>` : ''}</div>
+  <div class="pagehead"><div><h1>${id ? esc(p.item_name) : 'Yeni alım talebi'}</h1>${id ? `<p class="lede">${esc(p.source || 'Sitede açıldı')}${p.requester_name ? ' · talep eden ' + esc(p.requester_name) : ''}</p>` : '<p class="lede">Talep açıldıktan sonra Satın alma (ya da Depo / Stok, Üretim, Sipariş, Yönetici) onaylayıp siparişini takip eder.</p>'}${ncrChips(ncrs)}</div>
+    ${id ? `<div style="display:flex;gap:8px;align-items:center">${purPill(p.status)}${p.kind === 'alim' ? ncrBtn('purchase', id, 'btn') : ''}${(can('admin') || (mine && p.status === 'talep')) ? '<button class="btn danger" id="pdel">Sil</button>' : ''}</div>` : ''}</div>
   ${arrOk ? `<div class="banner info" id="parr"><b>Malzeme yolda.</b> Sipariş verildi${p.ordered_at ? ' ' + fmtD(p.ordered_at) : ''}${p.expected_at ? ` · tahmini termin <b class="${p.expected_at < today() ? 'late-txt' : ''}">${fmtD(p.expected_at)}</b>` : ''}. Elinize ulaştıysa talebi kapatın; gelmediyse satın almaya bildirin.
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" id="parbtn"><button class="btn sm primary" id="parok" type="button">Teslim alındı, talebi kapat</button><button class="btn sm" id="parno" type="button">Henüz gelmedi</button></div></div>` : ''}
   ${id && canPurchase() ? `<div class="pstatbox"><div class="pstatrow"><label class="f pstatf" for="pstsel">Talebin durumu</label>
@@ -3744,7 +3764,7 @@ const bindAccForm = (box, a, done) => {
 };
 
 async function viewSuppliers(id){
-  const ed = canPurchase();
+  const ed = canPurchase(), edq = ed || canQ();
   const [sr, ar] = await Promise.all([sb.from('suppliers').select('*').order('name'), ed ? sb.from('supplier_accounts').select('*').order('name') : Promise.resolve({ data:[] })]);
   const all = sr.data || [], ACC = ar.error ? [] : (ar.data || []);
   if (id === 'hesaplar') return viewAccounts(all, ACC);
@@ -3754,14 +3774,17 @@ async function viewSuppliers(id){
     const pu = s.id ? ((await sb.from('purchases').select('id,requested_at,item_name,qty,total,currency,status').or(`supplier_id.eq.${s.id},supplier_text.ilike.%${s.name.split(' ')[0].replace(/[,%()]/g, '')}%`).order('requested_at', { ascending:false }).limit(50)).data || []) : [];
     const acc = ACC.filter(a => a.supplier_id === s.id);
     const ta = (k, l, r) => `<label class="f">${l}<textarea name="${k}" rows="${r || 2}">${esc(s[k] || '')}</textarea></label>`;
-    shell('tedarikciler', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>${s.id ? esc(s.name) : 'Yeni tedarikçi'}</h1>${s.grp ? `<p class="lede">${esc(SUP_GRP[s.grp] || s.grp)}</p>` : ''}${s.blacklisted ? `<p class="lede late-txt">Kara listede: ${esc(s.blacklist_reason || '')}</p>` : ''}</div>${s.id && can('admin') ? '<button class="btn danger" id="sdel">Sil</button>' : ''}</div>
-    <div class="grid sup-grid"><div><form id="suf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
+    shell('tedarikciler', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>${s.id ? esc(s.name) : 'Yeni tedarikçi'}</h1>${s.grp ? `<p class="lede">${esc(SUP_GRP[s.grp] || s.grp)}</p>` : ''}${s.blacklisted ? `<p class="lede late-txt">Kara listede: ${esc(s.blacklist_reason || '')}</p>` : ''}${s.approval ? `<p class="lede">${supAppPill(s.approval)}${s.score != null ? ` · puan ${fmtQ(s.score)}` : ''}</p>` : ''}</div>${s.id && can('admin') ? '<button class="btn danger" id="sdel">Sil</button>' : ''}</div>
+    <div class="grid sup-grid"><div><form id="suf" class="fs" novalidate><fieldset ${edq ? '' : 'disabled'} class="plainfs">
       <div class="row r2"><label class="f">Firma adı<input type="text" name="name" value="${esc(s.name || '')}"></label><label class="f">Tür${stkSel('kind', SUP_KIND, s.kind || 'tedarikci')}</label></div>
       <label class="f">Grup${stkSel('grp', SUP_GRP, s.grp || '', '—')}</label>
       ${ta('contacts', 'İletişim (kişi · telefon)', 3)}<div class="row r2">${ta('emails', 'E-posta')}${ta('websites', 'Web sitesi')}</div>
       <div class="row r2">${ta('parts', 'Alınan parçalar')}${ta('products', 'Hangi ürün')}</div>${ta('notes', 'Not', 3)}
       <div class="row r2"><label class="f">Kara liste${stkSel('blacklisted', { false:'Hayır', true:'Evet' }, String(!!s.blacklisted))}</label><label class="f">Sebep<input type="text" name="blacklist_reason" value="${esc(s.blacklist_reason || '')}"></label></div>
-      ${ed ? '<p><button class="btn primary">Kaydet</button></p>' : ''}</fieldset></form>
+      <h2>Onay durumu ve değerlendirme</h2>
+      <div class="row r4"><label class="f">Onay durumu${stkSel('approval', SUP_APP, s.approval || '', 'Değerlendirilmedi')}</label><label class="f">Onay tarihi<input type="date" name="approval_date" value="${esc(s.approval_date || '')}"></label><label class="f">Puan <span class="hint">0–100</span><input type="number" min="0" max="100" step="any" name="score" value="${s.score ?? ''}"></label><label class="f">Değerlendirme tarihi<input type="date" name="score_date" value="${esc(s.score_date || '')}"></label></div>
+      <div class="row r2"><label class="f">Belgeler <span class="hint">ISO 9001, akreditasyon no vb.</span><input type="text" name="certs" maxlength="500" value="${esc(s.certs || '')}"></label><label class="f">Onay notu<input type="text" name="approval_note" maxlength="1000" value="${esc(s.approval_note || '')}"></label></div>
+      ${edq ? '<p><button class="btn primary">Kaydet</button></p>' : ''}</fieldset></form>
       ${s.id && ed ? `<section class="panel mt"><div class="board-head"><h2 style="margin:0">Site hesabı <span class="tcount">${acc.length}</span></h2><button class="btn sm" id="accadd">Hesap ekle</button></div>
         <div id="accbox"></div>${acc.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Site</th><th class="nosort">Kullanıcı</th><th class="nosort">Şifre</th><th class="nosort">Telefon / not</th><th class="nosort"></th></tr></thead><tbody>${acc.map(a => `<tr data-aid="${a.id}" style="cursor:default">${accCells(a)}<td class="sub">${esc([a.phone, a.note].filter(Boolean).join(' · '))}</td><td><button class="btn sm aedit">Düzenle</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu firmaya kayıtlı site hesabı yok.</p>'}
         <p class="note">Hesapları yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici görür.</p></section>
@@ -3769,7 +3792,9 @@ async function viewSuppliers(id){
         <div class="row r2"><label class="f">Bu firmaya katılacak kayıt<select id="smerge"><option value="">—</option>${all.filter(x => x.id !== s.id).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label><div style="align-self:end"><button class="btn" id="smergeb">Birleştir</button></div></div></section>` : ''}</div>
     <aside><section class="panel"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total, p.currency)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
     q('#suf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null; if (!g('name')) return toast('Firma adı girin', true);
-      const o = { name:g('name'), kind:f.kind.value, grp:f.grp.value || null, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason') };
+      const o = { name:g('name'), kind:f.kind.value, grp:f.grp.value || null, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason'),
+        approval:f.approval.value || null, approval_date:g('approval_date'), score:num0(g('score')), score_date:g('score_date'), certs:g('certs'), approval_note:g('approval_note') };
+      if (o.score != null && !(o.score >= 0 && o.score <= 100)) return toast('Puan 0 ile 100 arasında olmalı', true);
       const r = s.id ? await sb.from('suppliers').update(o).eq('id', s.id) : await sb.from('suppliers').insert(o).select('id').single();
       if (r.error) return toast(dbErr(r.error), true); toast('Kaydedildi'); S.stockLoaded = false; if (s.id) viewSuppliers(s.id); else location.hash = '#/tedarikciler/' + r.data.id; };
     q('#sdel') && (q('#sdel').onclick = async () => { if (!confirmTwice(q('#sdel'), 'Emin misin? Tekrar bas')) return; const { error } = await sb.from('suppliers').delete().eq('id', s.id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/tedarikciler'; });
@@ -3784,13 +3809,14 @@ async function viewSuppliers(id){
   const st = tdState;
   shell('tedarikciler', `<div class="pagehead"><div><h1>Tedarikçiler</h1><p class="lede">Firma, iletişim ve alınan parçalar. Kara listedekiler kırmızı.${ed ? ' Sitelerin giriş bilgileri "Site hesapları"nda.' : ''}</p></div><div style="display:flex;gap:8px">${ed ? '<a class="btn" href="#/tedarikciler/hesaplar">Site hesapları</a><a class="btn primary" href="#/tedarikciler/yeni">Yeni tedarikçi</a>' : ''}</div></div>
   <div class="toolbar"><div class="seg wrap" id="tgrp">${[['', 'Hepsi'], ...Object.entries(SUP_GRP), ['_', 'Grupsuz']].filter(([k]) => k !== '_' || all.some(s => !s.grp)).map(([k, v]) => `<button data-g="${k}" class="${st.grp === k ? 'on' : ''}">${v} <span class="sub">${k === '' ? all.length : all.filter(s => (s.grp || '_') === k).length}</span></button>`).join('')}</div></div>
-  <div class="toolbar"><input type="search" id="tq" placeholder="Ara: firma, kişi, parça, site…"></div><div class="tablewrap" id="ttbl"></div>`);
+  <div class="toolbar"><input type="search" id="tq" placeholder="Ara: firma, kişi, parça, site…"><select id="tap" aria-label="Onay durumu"><option value="">Onay: hepsi</option>${Object.entries(SUP_APP).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="_">Değerlendirilmedi</option></select></div><div class="tablewrap" id="ttbl"></div>`);
   const nAcc = sid => ACC.filter(a => a.supplier_id === sid).length;
   const draw = () => { const ql = (q('#tq').value || '').trim().toLocaleLowerCase('tr');
-    const r = all.filter(s => (!st.grp || (s.grp || '_') === st.grp) && (!ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.websites, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql)));
-    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${[...Object.keys(SUP_GRP), '_'].map(gk => { const rs = r.filter(s => (s.grp || '_') === gk); return rs.length ? `<tr class="secrow"><td colspan="${ed ? 5 : 4}">${gk === '_' ? 'Grupsuz' : SUP_GRP[gk]} <span class="sub">${rs.length}</span></td></tr>` + rs.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('') : ''; }).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+    const ap = q('#tap').value;
+    const r = all.filter(s => (!st.grp || (s.grp || '_') === st.grp) && (!ap || (s.approval || '_') === ap) && (!ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.websites, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql)));
+    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${[...Object.keys(SUP_GRP), '_'].map(gk => { const rs = r.filter(s => (s.grp || '_') === gk); return rs.length ? `<tr class="secrow"><td colspan="${ed ? 5 : 4}">${gk === '_' ? 'Grupsuz' : SUP_GRP[gk]} <span class="sub">${rs.length}</span></td></tr>` + rs.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''} ${supAppPill(s.approval)}${s.score != null ? ` <span class="sub">${fmtQ(s.score)} puan</span>` : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('') : ''; }).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('#ttbl tr[data-sid]').forEach(t => t.onclick = () => location.hash = '#/tedarikciler/' + t.dataset.sid); };
-  draw(); q('#tq').oninput = draw;
+  draw(); q('#tq').oninput = draw; q('#tap').onchange = draw;
   qa('#tgrp button').forEach(b => b.onclick = () => { st.grp = b.dataset.g; qa('#tgrp button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
 }
 
@@ -4458,6 +4484,362 @@ function viewDailyImport(){
       if (error) { toast(dbErr(error), true); b.disabled = false; b.textContent = 'Aktar'; return; }
       tot = { people:tot.people + data.people, notes:tot.notes + data.notes, goals:tot.goals + data.goals }; }
     b.textContent = 'Bitti'; q('#dis').textContent = `${tot.notes} günlük not, ${tot.goals} haftalık hedef, ${tot.people} yeni kişi aktarıldı.`; toast('Aktarım tamamlandı'); };
+}
+
+// ---------------------------------------------------------------- KALİTE
+// Menüyü yalnız Kalite ve Yönetici görür. Uygunsuzluk kaydını Personel dışındaki her rol açar ve okur; inceleme, faaliyet ve doğrulamayı Kalite doldurur.
+const canQ = () => can('kalite', 'admin');
+const NCR_ST = { acik:'Açık', inceleme:'İncelemede', aksiyon:'Düzeltici faaliyette', dogrulama:'Doğrulamada', kapali:'Kapandı', iptal:'İptal' };
+const NCR_OPEN = ['acik', 'inceleme', 'aksiyon', 'dogrulama'];
+const NCR_SRC = { rma:'RMA', motor_test:'Motor testi', pcb_log:'PCB takip kaydı', purchase:'Alım', giris_kontrol:'Giriş kontrol', uretim:'Üretim', ic_tetkik:'İç tetkik', musteri:'Müşteri bildirimi', tedarikci:'Tedarikçi', diger:'Diğer' };
+const NCR_CTRL = ['Giriş muayenesi %100', 'Örneklemeli muayene', 'Kaynağında denetim', 'İlk ürün muayenesi', 'Tedarikçi sertifikası (CoC)', 'Fonksiyon testi', 'Süreç içi kontrol', 'Müşteri bildirimi', 'Kontrol yok'];
+const NCR_UNIT = ['Mekanik montaj', 'Elektronik', 'Yazılım / test', 'Tasarım', 'Tedarik ve giriş kontrol', 'Paketleme / sevkiyat', 'Destek / RMA'];
+const NCR_SEV = { kritik:'Kritik', major:'Majör', minor:'Minör' };
+const RCA_F = { '5 Neden':['1. Neden?', '2. Neden?', '3. Neden?', '4. Neden?', '5. Neden?'], 'Balık kılçığı':['İnsan', 'Makine / ekipman', 'Malzeme', 'Yöntem', 'Ölçüm', 'Ortam'] };
+const SUP_APP = { onayli:'Onaylı', sartli:'Şartlı onaylı', aday:'Aday', onaysiz:'Onaysız' };
+const supAppPill = a => a ? `<span class="pill qp-${a}">${SUP_APP[a] || esc(a)}</span>` : '';
+const ncrPill = st => `<span class="pill ${st === 'kapali' ? 'rp-done' : st === 'iptal' ? 'st-archived' : st === 'dogrulama' ? 'rp-in' : 'rp-out'}">${NCR_ST[st] || esc(st)}</span>`;
+const ncrSrcLink = n => { const t = esc(NCR_SRC[n.source_kind] || '') + (n.source_ref ? ' · ' + esc(n.source_ref) : ''), h = { rma:'#/rma/' + n.source_id, purchase:'#/alimlar/' + n.source_id, motor_test:'#/motor-test', pcb_log:'#/pcb/takip' }[n.source_kind];
+  return n.source_id && h ? `<a href="${h}" class="stopprop">${t}</a>` : t; };
+// kaynak sayfalardaki hızlı tuş ve o kaynağa bağlı kayıtlar
+const ncrBtn = (kind, id, cls) => `<a ${cls ? `class="${cls}"` : 'style="white-space:nowrap"'} href="#/uygunsuzluk-yeni/${kind}-${id}">Uygunsuzluk aç</a>`;
+async function ncrLinked(kind, id){ const { data } = await sb.from('ncr').select('id,no,status').eq('source_kind', kind).eq('source_id', id).order('id'); return data || []; }
+const ncrChips = L => L.length ? `<p class="qchips">${L.map(n => `<a href="#/uygunsuzluk/${n.id}"><span class="mono">${esc(n.no)}</span> · ${NCR_ST[n.status] || ''}</a>`).join('')}</p>` : '';
+async function loadNcrCount(){ const { count } = await sb.from('ncr').select('id', { count:'exact', head:true }).in('status', NCR_OPEN); S.ncrOpen = count || 0; }
+async function ncrPreset(arg){
+  const m = /^(rma|motor_test|pcb_log|purchase)-(\d+)$/.exec(arg || ''); if (!m) return {};
+  const k = m[1], id = +m[2], cut = t => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (k === 'rma') { if (!S.rmas) await loadRma(); const r = (S.rmas || []).find(x => x.id === id); if (!r) return {};
+    return { source_kind:k, source_id:id, source_ref:r.code, title:cut(`${r.code}: ${r.fault_reported || r.failed_component || 'müşteri arıza bildirimi'}`), description:[r.fault_reported, r.diagnosis].filter(Boolean).join('\n\n') || null,
+      product:r.product ? prodName(r.product) : null, item_ident:[r.serial_no, r.failed_component].filter(Boolean).join(' · ') || null, root_cause:r.root_cause || null, control_method:'Müşteri bildirimi' }; }
+  const { data:r } = await sb.from({ motor_test:'motor_tests', pcb_log:'pcb_log', purchase:'purchases' }[k]).select('*').eq('id', id).maybeSingle(); if (!r) return {};
+  if (k === 'motor_test') return { source_kind:k, source_id:id, source_ref:r.barcode, title:cut(`Motor testi ${r.barcode || ''}: ${r.result || ''}${r.note ? ' · ' + r.note : ''}`), description:r.note,
+    product:[r.motor_type, r.stroke, r.force].filter(Boolean).join(' · ') || null, item_ident:r.barcode ? 'Barkod ' + r.barcode : null, control_method:'Fonksiyon testi' };
+  if (k === 'pcb_log') return { source_kind:k, source_id:id, source_ref:r.no, title:cut(`${r.pcb || 'Kart'} ${r.version || ''}: ${r.reason || ''}${r.note ? ' · ' + r.note : ''}`), description:r.note, product:r.pcb,
+    item_ident:[r.pcb, r.version, r.no && 'kayıt ' + r.no].filter(Boolean).join(' · ') || null, control_method:'Süreç içi kontrol' };
+  return { source_kind:k, source_id:id, source_ref:'Alım #' + id, title:cut('Alım: ' + (r.item_name || '')), product:r.project || null, item_ident:r.item_name, qty:r.qty, supplier_id:r.supplier_id || null };
+}
+
+const ncrState = { st:'open', q:'' };
+async function viewNcrList(){
+  const [{ data, error }] = await Promise.all([fetchAll(() => sb.from('ncr').select('*').order('id', { ascending:false })), loadStock()]);
+  const R = data || [], T = today(), late = n => NCR_OPEN.includes(n.status) && n.action_due && !n.action_done_at && n.action_due < T, st = ncrState;
+  S.ncrOpen = R.filter(n => NCR_OPEN.includes(n.status)).length;
+  shell('uygunsuzluk', `<div class="pagehead"><div><h1>Uygunsuzluklar</h1><p class="lede">Her kayıt tekil numara alır (NCR-yıl-sıra). RMA, motor testi, PCB takip kaydı ve alım sayfalarındaki "Uygunsuzluk aç" tuşu kaydı kaynağına bağlar. Kayıt, düzeltici faaliyetin etkinliği doğrulanmadan kapatılamaz.</p></div><a class="btn primary" href="#/uygunsuzluk-yeni">Yeni kayıt</a></div>
+  ${error ? `<div class="empty">${esc(dbErr(error))}</div>` : `<div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <div class="kpi"><div class="v">${S.ncrOpen}</div><div class="l">Açık kayıt</div></div>
+    <div class="kpi ${R.some(late) ? 'alert' : ''}"><div class="v">${R.filter(late).length}</div><div class="l">Faaliyet termini geçen</div></div>
+    <div class="kpi"><div class="v">${R.filter(n => n.status === 'dogrulama').length}</div><div class="l">Doğrulama bekleyen</div></div>
+    <div class="kpi"><div class="v">${R.filter(n => n.status === 'kapali').length}</div><div class="l">Kapanan</div></div></div>
+  <div class="toolbar"><div class="seg" id="nst">${[['open', 'Açık'], ['kapali', 'Kapanan'], ['all', 'Tümü']].map(([k, l]) => `<button data-s="${k}" class="${st.st === k ? 'on' : ''}">${l}</button>`).join('')}</div><input type="search" id="nq" value="${esc(st.q)}" placeholder="Ara: numara, konu, ürün, tedarikçi…"></div>
+  <div class="tablewrap" id="ntbl"></div>`}`);
+  if (error) return;
+  const draw = () => { const ql = st.q.trim().toLocaleLowerCase('tr');
+    const r = R.filter(n => (st.st === 'all' || (st.st === 'open' ? NCR_OPEN.includes(n.status) : n.status === 'kapali')) && (!ql || [n.no, n.title, n.product, n.item_ident, n.source_ref, supName(n.supplier_id), n.responsible].join(' ').toLocaleLowerCase('tr').includes(ql)));
+    q('#ntbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">No</th><th class="nosort">Tarih</th><th class="nosort">Konu</th><th class="nosort">Kaynak</th><th class="nosort">Tedarikçi</th><th class="nosort">Sorumlu</th><th class="nosort">Faaliyet termini</th><th class="nosort">Durum</th></tr></thead><tbody>${r.map(n => `<tr data-n="${n.id}"><td class="mono" style="white-space:nowrap">${esc(n.no)}</td><td style="white-space:nowrap">${fmtD(n.opened_at)}</td><td><b style="font-weight:600">${esc(n.title)}</b>${n.severity === 'kritik' ? ' <span class="pill qp-onaysiz">Kritik</span>' : ''}${n.product || n.item_ident ? `<div class="sub">${esc([n.product, n.item_ident].filter(Boolean).join(' · '))}</div>` : ''}</td><td class="sub">${ncrSrcLink(n)}</td><td>${esc(supName(n.supplier_id))}</td><td>${esc(n.responsible || '')}</td><td style="white-space:nowrap">${n.action_due ? `<span class="${late(n) ? 'late-txt' : ''}">${fmtD(n.action_due)}</span>` : ''}</td><td>${ncrPill(n.status)}</td></tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="8">${r.length} kayıt</td></tr></tfoot></table>` : `<div class="empty">${R.length ? 'Bu süzgeçte kayıt yok.' : 'Henüz uygunsuzluk kaydı açılmadı.'}</div>`;
+    qa('#ntbl tr[data-n]').forEach(t => t.onclick = () => location.hash = '#/uygunsuzluk/' + t.dataset.n); };
+  draw();
+  qa('#nst button').forEach(b => b.onclick = () => { st.st = b.dataset.s; qa('#nst button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  q('#nq').oninput = e => { st.q = e.target.value; draw(); };
+}
+
+const rcaParse = t => Object.fromEntries(String(t || '').split('\n').map(l => { const i = l.indexOf(': '); return i > 0 ? [l.slice(0, i), l.slice(i + 2)] : null; }).filter(Boolean));
+const rcaBox = (method, text) => RCA_F[method] ? (p => RCA_F[method].map(l => `<label class="f">${l}<input type="text" data-rca="${esc(l)}" value="${esc(p[l] || '')}" maxlength="900"></label>`).join(''))(rcaParse(text))
+  : `<label class="f">Analiz<textarea data-rca="" rows="5">${esc(text || '')}</textarea></label>`;
+async function viewNcr(id, arg){
+  await loadStock();
+  let n;
+  if (id) { n = (await sb.from('ncr').select('*').eq('id', id).maybeSingle()).data; if (!n) return shell('uygunsuzluk', `<h1>Kayıt bulunamadı</h1><p><a href="#/uygunsuzluk">Uygunsuzluklara dön</a></p>`); }
+  else n = { status:'acik', source_kind:'diger', opened_at:today(), detected_by:S.profile.full_name || '', ...(await ncrPreset(arg)) };
+  const ed = canQ(), basic = ed || !id;
+  const ppl = ((await sb.from('att_people').select('name').eq('active', true).order('sort').order('name')).data || []).map(p => p.name);
+  const v = k => esc(n[k] ?? '');
+  const tx = (k, l, hint, t, list) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="${t || 'text'}" ${t === 'number' ? 'step="any" min="0"' : ''} name="${k}" value="${v(k)}" ${list ? `list="${list}"` : ''}></label>`;
+  const ta = (k, l, rows, hint) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<textarea name="${k}" rows="${rows || 3}">${v(k)}</textarea></label>`;
+  const opt = (o, val, blank) => `${blank !== undefined ? `<option value="">${blank}</option>` : ''}${(Array.isArray(o) ? o.map(x => Array.isArray(x) ? x : [x, x]) : Object.entries(o)).map(([k, l]) => `<option value="${esc(k)}" ${String(val ?? '') === String(k) ? 'selected' : ''}>${esc(l)}</option>`).join('')}`;
+  const sups = (S.suppliers || []).filter(s => s.kind !== 'kargo');
+  shell(id ? 'uygunsuzluk' : 'uygunsuzluk-yeni', `<p><a href="#/uygunsuzluk">← Uygunsuzluklar</a></p>
+  <div class="pagehead"><div><h1>${id ? `<span class="mono">${esc(n.no)}</span> ${esc(n.title)}` : 'Yeni uygunsuzluk kaydı'}</h1>
+    <p class="lede">${n.source_id || n.source_kind !== 'diger' ? 'Kaynak: ' + ncrSrcLink(n) : 'Kayıt numarası kaydedince verilir.'}${id ? ` · açan ${esc(n.created_by_name || '—')} · ${fmtD(n.opened_at)}` : ''}${n.closed_at ? ` · kapandı ${fmtD(n.closed_at)}` : ''}</p></div>
+    <div style="display:flex;gap:8px;align-items:center">${id ? ncrPill(n.status) : ''}${id && can('admin') ? '<button class="btn danger" id="ndel">Sil</button>' : ''}</div></div>
+  ${id && !ed ? '<p class="note" style="margin-top:0">İnceleme, düzeltici faaliyet ve doğrulama alanlarını Kalite rolü doldurur.</p>' : ''}
+  <form id="nf" class="fs" novalidate>
+    <fieldset ${basic ? '' : 'disabled'} class="plainfs"><h2>Uygunsuzluğun tanımı</h2>
+      <div class="row r4"><label class="f" style="grid-column:span 2">Konu<input type="text" name="title" maxlength="200" value="${v('title')}"></label>${tx('opened_at', 'Tespit tarihi', '', 'date')}<label class="f">Kaynak<select name="source_kind" ${n.source_id ? 'disabled' : ''}>${opt(NCR_SRC, n.source_kind)}</select></label></div>
+      <div class="row r4">${tx('product', 'Ürün / proje')}<label class="f" style="grid-column:span 2">Uygunsuz ürünün kimliği <span class="hint">parça, kart, seri ya da parti no</span><input type="text" name="item_ident" maxlength="200" value="${v('item_ident')}"></label>${tx('qty', 'Adet', '', 'number')}</div>
+      <div class="row r4"><label class="f" style="grid-column:span 2">Ayrıştırma <span class="hint">nerede bekletiliyor, etiket</span><input type="text" name="hold_location" maxlength="200" value="${v('hold_location')}"></label>
+        <label class="f">Tedarikçi<select name="supplier_id">${opt(sups.map(s => [s.id, s.name]), n.supplier_id, '—')}</select></label>
+        <label class="f">Kontrol yöntemi<select name="control_method">${opt(NCR_CTRL.includes(n.control_method) || !n.control_method ? NCR_CTRL : [...NCR_CTRL, n.control_method], n.control_method, '—')}</select></label></div>
+      <div class="row r4"><label class="f">Birim<select name="unit">${opt(NCR_UNIT, n.unit, '—')}</select></label><label class="f">Önem derecesi<select name="severity">${opt(NCR_SEV, n.severity, '—')}</select></label>${tx('label_no', 'Etiket no')}<label class="f">Karantina alanına alındı<select name="quarantined">${opt({ true:'Evet', false:'Hayır' }, n.quarantined == null ? '' : String(n.quarantined), '—')}</select></label></div>
+      <div class="row r2">${ta('description', 'Bulgu', 3, 'ne görüldü, ölçüm ya da gözlem')}${ta('requirement', 'Şart', 3, 'şartname, çizim, kabul kriteri')}</div>
+      <div class="row r4">${tx('detected_by', 'Tespit eden', '', 'text', 'qppl')}<div style="grid-column:span 3">${ta('other_lots', 'Etkilenebilecek diğer ürün / parti taraması', 2)}</div></div></fieldset>
+    <fieldset ${ed ? '' : 'disabled'} class="plainfs"><h2>Sorumluluk ve hemen alınan önlem</h2>
+      <div class="row r4">${tx('responsible', 'Sorumlu', '', 'text', 'qppl')}<label class="f">Durum<select name="status">${opt(NCR_ST, n.status)}</select></label><div style="grid-column:span 2">${ta('containment', 'Hemen alınan önlem', 2)}</div></div>
+      <h2>MRB kararı</h2>
+      <div class="row r4">${tx('mrb_date', 'MRB tarihi', '', 'date')}<label class="f" style="grid-column:span 2">Karar yetkilisi / MRB üyeleri<input type="text" name="mrb_members" maxlength="300" value="${v('mrb_members')}"></label><label class="f">Müşteri yazılı onayı<select name="customer_approval">${opt({ false:'Gerekmiyor', true:'Gerekli' }, n.customer_approval == null ? '' : String(n.customer_approval), '—')}</select></label></div>
+      <div class="row r2">${ta('mrb_decision', 'Karar, gerekçe ve talimat', 2)}<div>${tx('customer_approval_ref', 'Müşteri onay yazısı', 'tarih / ek')}<label class="f">Müşteriye rapor<select name="customer_report">${opt({ false:'Gerekmiyor', true:'Gerekli' }, n.customer_report == null ? '' : String(n.customer_report), '—')}</select></label></div></div>
+      <h2>Kök neden analizi</h2>
+      <div class="row r4"><label class="f">Yöntem<select name="rca_method">${opt(Object.keys(RCA_F).concat('8D', 'Diğer'), n.rca_method, '—')}</select></label><div style="grid-column:span 3" id="rcabox">${n.rca_method ? rcaBox(n.rca_method, n.rca_text) : '<p class="note" style="margin:0">Yöntem seçince analiz alanları açılır.</p>'}</div></div>
+      ${ta('root_cause', 'Belirlenen kök neden', 2)}
+      <h2>Düzeltici faaliyet</h2>
+      <div class="row r4"><div style="grid-column:span 4">${ta('corrective_action', 'Faaliyet', 3)}</div></div>
+      <div class="row r4">${tx('action_owner', 'Faaliyet sorumlusu', '', 'text', 'qppl')}${tx('action_due', 'Termin', '', 'date')}${tx('action_done_at', 'Tamamlanma tarihi', '', 'date')}<span></span></div>
+      <h2>Doğrulama ve kapanış</h2>
+      <div class="row r4"><div style="grid-column:span 2">${ta('verify_method', 'Doğrulama nasıl yapıldı', 2, 'tekrar test, kontrol, izleme süresi')}</div><label class="f">Sonuç<select name="verify_result">${opt({ etkin:'Etkin', etkin_degil:'Etkin değil' }, n.verify_result, '—')}</select></label><div>${tx('verified_by', 'Doğrulayan', '', 'text', 'qppl')}${tx('verified_at', 'Doğrulama tarihi', '', 'date')}</div></div>
+      <p class="note">Kayıt "Kapandı" yapılırken doğrulayan, doğrulama tarihi ve "Etkin" sonucu aranır.</p></fieldset>
+    ${basic ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Kaydı aç'}</button></p>` : ''}</form>
+  <datalist id="qppl">${ppl.map(p => `<option value="${esc(p)}">`).join('')}</datalist>`);
+  const f = q('#nf'), el = k => f.elements[k], g = k => el(k).value.trim() || null, tri = k => el(k).value === '' ? null : el(k).value === 'true';
+  el('rca_method').onchange = () => { const t = qa('[data-rca]', f).map(x => x.value.trim()).filter(Boolean).join(' · '); q('#rcabox').innerHTML = el('rca_method').value ? rcaBox(el('rca_method').value, RCA_F[el('rca_method').value] ? '' : t) : ''; };
+  f.onsubmit = e => { e.preventDefault(); return busy(e, async () => {
+    if (!g('title') || g('title').length < 3) return toast('Konu girin', true);
+    const o = { title:g('title'), opened_at:g('opened_at') || today(), source_kind:el('source_kind').value, description:g('description'), product:g('product'), item_ident:g('item_ident'), qty:num0(g('qty')), hold_location:g('hold_location'),
+      supplier_id:el('supplier_id').value ? +el('supplier_id').value : null, control_method:g('control_method'), detected_by:g('detected_by'),
+      unit:g('unit'), severity:g('severity'), label_no:g('label_no'), quarantined:tri('quarantined'), requirement:g('requirement'), other_lots:g('other_lots') };
+    if (!id) Object.assign(o, { source_id:n.source_id || null, source_ref:n.source_ref || null });
+    if (ed) { const m = el('rca_method').value || null, rc = qa('[data-rca]', f);
+      Object.assign(o, { status:el('status').value, responsible:g('responsible'), containment:g('containment'), rca_method:m, root_cause:g('root_cause'),
+        mrb_date:g('mrb_date'), mrb_members:g('mrb_members'), mrb_decision:g('mrb_decision'), customer_approval:tri('customer_approval'), customer_approval_ref:g('customer_approval_ref'), customer_report:tri('customer_report'),
+        rca_text:(RCA_F[m] ? rc.filter(x => x.value.trim()).map(x => `${x.dataset.rca}: ${x.value.trim()}`).join('\n') : rc.map(x => x.value.trim()).join('\n')) || null,
+        corrective_action:g('corrective_action'), action_owner:g('action_owner'), action_due:g('action_due'), action_done_at:g('action_done_at'),
+        verify_method:g('verify_method'), verify_result:g('verify_result'), verified_by:g('verified_by'), verified_at:g('verified_at') }); }
+    const r = id ? await sb.from('ncr').update(o).eq('id', id).select('id,no') : await sb.from('ncr').insert(o).select('id,no');
+    if (r.error) return toast(dbErr(r.error).replace(/^.*?Kapatmak/, 'Kapatmak'), true);
+    if (!r.data || !r.data.length) return toast('Bu kaydı değiştirme yetkin yok', true);
+    toast(id ? 'Kaydedildi' : r.data[0].no + ' açıldı'); loadNcrCount().catch(() => {});
+    if (id) viewNcr(id); else location.hash = '#/uygunsuzluk/' + r.data[0].id; }); };
+  q('#ndel') && (q('#ndel').onclick = async () => { if (!confirmTwice(q('#ndel'), 'Emin misin? Tekrar bas')) return;
+    const { error } = await sb.from('ncr').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/uygunsuzluk'; });
+}
+
+// ---------------------------------------------------------------- KALİBRASYON
+const DEV_ST = { kullanimda:'Kullanımda', kalibrasyonda:'Kalibrasyonda', kullanim_disi:'Kullanım dışı' };
+const devCal = d => { const T = today();
+  return !d.cal_required ? ['Kalibrasyon gerekmez', ''] : !d.last_cal_date ? ['Kalibrasyon kaydı yok', 'amber-txt'] : !d.next_cal_date ? ['Sonraki tarih girilmemiş', 'amber-txt']
+    : d.next_cal_date < T ? ['Süresi geçti', 'late-txt'] : d.next_cal_date <= addDays(T, 30) ? ['30 gün içinde doluyor', 'amber-txt'] : ['Geçerli', 'ok-txt']; };
+async function viewDevices(){
+  const { data, error } = await sb.from('q_devices').select('*').order('code', { nullsFirst:false }).order('name');
+  const R = data || [], ed = canQ(), bad = d => ['late-txt', 'amber-txt'].includes(devCal(d)[1]);
+  shell('kalibrasyon', `<div class="pagehead"><div><h1>Kalibrasyon</h1><p class="lede">Tasarım, üretim ve kabul muayenesinde kullanılan ölçü aletlerinin envanteri ve kalibrasyon durumu.</p></div>${ed ? '<a class="btn primary" href="#/kalibrasyon/yeni">Yeni cihaz</a>' : ''}</div>
+  ${error ? `<div class="empty">${esc(dbErr(error))}</div>` : `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+    <div class="kpi"><div class="v">${R.length}</div><div class="l">Kayıtlı cihaz</div></div>
+    <div class="kpi"><div class="v">${R.filter(d => devCal(d)[1] === 'ok-txt').length}</div><div class="l">Kalibrasyonu geçerli</div></div>
+    <div class="kpi ${R.some(bad) ? 'alert' : ''}"><div class="v">${R.filter(bad).length}</div><div class="l">Kaydı yok, süresi geçmiş ya da dolmak üzere</div></div></div>
+  <div class="tablewrap">${R.length ? `<table><thead><tr><th class="nosort">Kod</th><th class="nosort">Cihaz</th><th class="nosort">Seri no</th><th class="nosort">Kullanıldığı yer</th><th class="nosort">Son kalibrasyon</th><th class="nosort">Sonraki</th><th class="nosort">Hizmet sağlayıcı</th><th class="nosort">Durum</th></tr></thead><tbody>${R.map(d => { const c = devCal(d);
+    return `<tr data-d="${d.id}"><td class="mono">${esc(d.code || '')}</td><td><b style="font-weight:600">${esc(d.name)}</b><div class="sub">${esc([d.brand, d.model].filter(Boolean).join(' '))}</div></td><td class="mono">${esc(d.serial_no || '')}</td><td class="sub">${esc([d.used_in, d.location].filter(Boolean).join(' · '))}</td><td style="white-space:nowrap">${d.last_cal_date ? fmtD(d.last_cal_date) : ''}${d.cert_no ? `<div class="sub">${esc(d.cert_no)}</div>` : ''}</td><td style="white-space:nowrap">${d.next_cal_date ? fmtD(d.next_cal_date) : ''}</td><td>${esc(d.cal_provider || '')}${d.accredited != null ? `<div class="sub">${d.accredited ? 'akredite / üretici' : 'akredite değil'}</div>` : ''}</td><td><b class="${c[1]}" style="font-weight:600">${c[0]}</b>${d.status !== 'kullanimda' ? `<div class="sub">${DEV_ST[d.status]}</div>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz cihaz kaydı yok.</div>'}</div>`}`);
+  qa('tr[data-d]').forEach(t => t.onclick = () => location.hash = '#/kalibrasyon/' + t.dataset.d);
+}
+async function viewDevice(id){
+  const d = id ? (await sb.from('q_devices').select('*').eq('id', id).maybeSingle()).data : { cal_required:true, status:'kullanimda' };
+  if (!d) return shell('kalibrasyon', `<h1>Cihaz bulunamadı</h1><p><a href="#/kalibrasyon">Kalibrasyona dön</a></p>`);
+  const ed = canQ(), v = k => esc(d[k] ?? ''), c = id ? devCal(d) : null;
+  const tx = (k, l, hint, t) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="${t || 'text'}" name="${k}" value="${v(k)}"></label>`;
+  shell('kalibrasyon', `<p><a href="#/kalibrasyon">← Kalibrasyon</a></p><div class="pagehead"><div><h1>${id ? esc(d.name) : 'Yeni cihaz'}</h1>${c ? `<p class="lede"><b class="${c[1]}">${c[0]}</b>${d.updated_by_name ? ` · son değişiklik ${esc(d.updated_by_name)}, ${fmtDT(d.updated_at)}` : ''}</p>` : ''}</div>${id && ed ? '<button class="btn danger" id="ddel">Sil</button>' : ''}</div>
+  <form id="df" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
+    <div class="row r4">${tx('code', 'Kod', 'ör. OA-001')}<label class="f" style="grid-column:span 2">Cihaz adı<input type="text" name="name" value="${v('name')}"></label><label class="f">Durum${stkSel('status', DEV_ST, d.status)}</label></div>
+    <div class="row r4">${tx('brand', 'Marka')}${tx('model', 'Model')}${tx('serial_no', 'Seri no')}${tx('location', 'Bulunduğu yer')}</div>
+    <div class="row r4"><label class="f" style="grid-column:span 2">Kullanıldığı yer <span class="hint">tasarım, üretim, kabul muayenesi</span><input type="text" name="used_in" value="${v('used_in')}"></label><label class="f">Kalibrasyon gerekli${stkSel('cal_required', { true:'Evet', false:'Hayır' }, String(d.cal_required !== false))}</label>${tx('cal_period_months', 'Periyot (ay)', '', 'number')}</div>
+    <div class="row r4">${tx('last_cal_date', 'Son kalibrasyon', '', 'date')}${tx('next_cal_date', 'Sonraki kalibrasyon', 'boşsa periyottan hesaplanır', 'date')}${tx('cert_no', 'Sertifika no')}${tx('cert_link', 'Sertifika bağlantısı')}</div>
+    <div class="row r4"><label class="f" style="grid-column:span 2">Hizmet sağlayıcı<input type="text" name="cal_provider" value="${v('cal_provider')}"></label><label class="f">Akredite laboratuvar ya da üretici${stkSel('accredited', { true:'Evet', false:'Hayır' }, d.accredited == null ? '' : String(d.accredited), '—')}</label><span></span></div>
+    <label class="f">Not<textarea name="notes" rows="2">${v('notes')}</textarea></label>
+    ${ed ? '<p><button class="btn primary">Kaydet</button></p>' : ''}</fieldset></form>`);
+  q('#df').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const f = e.target, g = k => f.elements[k].value.trim() || null;
+    if (!g('name')) return toast('Cihaz adı girin', true);
+    const o = { code:g('code') ? g('code').toUpperCase() : null, name:g('name'), status:f.elements.status.value, brand:g('brand'), model:g('model'), serial_no:g('serial_no'), location:g('location'), used_in:g('used_in'),
+      cal_required:f.elements.cal_required.value === 'true', cal_period_months:num0(g('cal_period_months')), last_cal_date:g('last_cal_date'), next_cal_date:g('next_cal_date'), cert_no:g('cert_no'), cert_link:normUrl(g('cert_link')),
+      cal_provider:g('cal_provider'), accredited:g('accredited') == null ? null : g('accredited') === 'true', notes:g('notes') };
+    if (o.code && !/^[A-Z0-9-]{2,20}$/.test(o.code)) return toast('Kod yalnız harf, rakam ve tire içerebilir (2–20 karakter)', true);
+    const r = id ? await sb.from('q_devices').update(o).eq('id', id).select('id') : await sb.from('q_devices').insert(o).select('id');
+    if (r.error) return toast(/q_devices_code_key/.test(r.error.message) ? 'Bu kod başka bir cihazda kullanılıyor' : dbErr(r.error), true);
+    toast('Kaydedildi'); if (id) viewDevice(id); else location.hash = '#/kalibrasyon/' + r.data[0].id; }); };
+  q('#ddel') && (q('#ddel').onclick = async () => { if (!confirmTwice(q('#ddel'), 'Emin misin? Tekrar bas')) return;
+    const { error } = await sb.from('q_devices').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/kalibrasyon'; });
+}
+
+// ---------------------------------------------------------------- KALİTE BELGELERİ (KYS)
+// Belge içeriği veritabanındadır (kys_content); depo herkese açık olduğu için burada yalnız görüntüleyici var.
+const KYS_KN = { doc:'Doküman', form:'Form', register:'Kayıt / Liste', report:'Rapor' };
+const KYS_KS = { doc:'DOK', form:'FORM', register:'KAYIT', report:'RAPOR' };
+const KYS_GRP = { doc:'Prosedürler, planlar ve talimatlar', form:'Formlar', register:'Kayıtlar ve listeler', report:'Raporlar' };
+// güncel kaydı sitede tutulan belgeler: belgedeki döküm yayın tarihindeki durumdur
+const KYS_LIVE = { 'ACR-FR-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-90':['#/rma', 'RMA kayıtları'], 'ACR-RP-UY-90':['#/support-rapor', 'Support raporu'],
+  'ACR-LS-KF-90':['#/pcb/versiyon', 'PCB versiyonları'], 'ACR-LS-UR-91':['#/pcb/takip', 'PCB takip kayıtları'], 'ACR-LS-UR-90':['#/checklist-sablon', 'Checklist şablonları'], 'ACR-LS-KD-90':['#/motor-test', 'Motor testleri'],
+  'ACR-LS-TD-90':['#/tedarikciler', 'Tedarikçiler'], 'ACR-LS-TD-01':['#/tedarikciler', 'Tedarikçiler (onay durumu ve puan)'], 'ACR-LS-KL-01':['#/kalibrasyon', 'Kalibrasyon'] };
+const KYS_HDR = [{ l:'Kayıt no', t:'text', ro:1 }, { l:'Tarih', t:'date' }, { l:'Proje / kapsam', t:'text', proj:1 }, { l:'Kayıt sahibi', t:'text' }, { l:'Durum', t:'select', o:['Açık', 'İncelemede', 'Kapandı'] }, { l:'Kanıt / ERP bağlantısı', t:'text' }];
+const kBlank = s => /^\s*\[[^\]]*\]\s*$/.test(String(s ?? '')) ? '' : s;
+const kSafe = s => esc(kBlank(s)).replace(/&lt;(\/?)(b|i|ul|ol|li|br|code)\s*\/?&gt;/g, '<$1$2>');
+const kNum = x => { const n = parseFloat(String(x).replace(',', '.')); return isFinite(n) ? n : null; };
+const kFmt = x => x == null ? '' : (Math.round(x * 100) / 100).toLocaleString('tr-TR');
+const kLogo = '<svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="31.5" fill="#C41E2A"/><path fill="#fff" d="M14.8 42.5h5.8l13.2-33.1h-5.7zM32.9 12.6l1.3-3 11.1 32.9h-3.8zM14 46h33.8v3.3H14z"/></svg>';
+let kysMode = 'esa', kysQ = '', kysRec = null;
+async function kysLoad(force){
+  if (S.kys && !force) return S.kys;
+  const { data, error } = await sb.from('kys_content').select('*').maybeSingle();
+  if (error || !data) return (S.kys = null);
+  const M = (data.modules || []).map(m => ({ ...m, items:[...(m.items || [])] })).sort((a, b) => a.order - b.order);
+  (data.extra || []).forEach(x => { const m = M.find(mm => mm.id === x.module); if (!m) return; if (x.first) m.items.unshift(x.item); else m.items.push(x.item); });
+  const ITEMS = []; M.forEach((m, i) => { m._no = String(i + 1).padStart(2, '0'); m.items.forEach(it => { it._m = m; ITEMS.push(it); }); });
+  return (S.kys = { M, ITEMS, BY:Object.fromEntries(ITEMS.map(i => [i.code, i])), META:data.meta || {}, at:data.updated_at, by:data.updated_by_name });
+}
+const kProj = (K, short) => { const e = K.META.esa || {}; return (short && e.tag) || e.name || 'Proje'; };
+const kKind = k => KYS_KS[k] ? `<span class="kind k-${k}">${KYS_KS[k]}</span>` : '';
+const kType = i => i.docType || KYS_KN[i.kind];
+const kCard = i => `<a class="card" href="#/kalite/i/${esc(i.code)}"><div>${kKind(i.kind)} <code class="small">${esc(i.code)}</code> ${i.esa ? `<span class="pill p-brand">${esc(kProj(S.kys, 1))}</span>` : ''}</div><div class="t">${esc(i.title)}</div><div class="m">${esc(kType(i))} · Rev ${esc(i.rev || '00')} · ${esc(i.owner)}</div></a>`;
+const kTblRaw = (cols, rows) => `<div class="tablewrap"><table><thead><tr>${cols.map(c => `<th class="nosort">${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${kSafe(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+const kCell = (K, c) => { const t = String(c ?? ''); if (/^@[a-z-]+$/.test(t)) { const m = K.M.find(x => x.id === t.slice(1)); return m ? `<a href="#/kalite/m/${esc(m.id)}">${m._no} · ${esc(m.title)}</a>` : ''; } return kSafe(t); };
+const kTbl = (K, cols, rows, reg) => `<div class="tablewrap"><table><thead><tr>${(cols || []).map(c => `<th class="nosort">${esc(c)}</th>`).join('')}</tr></thead><tbody>${(rows || []).map(r => `<tr>${r.map(c => `<td${/^[A-ZÇĞİÖŞÜ0-9][A-ZÇĞİÖŞÜa-z0-9.#\-\/]{0,19}$/.test(String(c)) ? ' class="nw"' : ''}>${kCell(K, c)}</td>`).join('')}</tr>`).join('') || (reg ? `<tr><td colspan="${(cols || []).length}" class="empty">Belgede kayıt satırı yok</td></tr>` : '')}</tbody></table></div>`;
+const kSecs = ss => (ss || []).map(s => `<div class="sec"><h3>${esc(s.h)}</h3><div class="p">${kSafe(s.p)}</div></div>`).join('');
+const kTables = (K, it) => [].concat(it.table || [], it.tables || []).map(t => `${t.caption ? `<div class="cap">${esc(t.caption)}</div>` : ''}${kTbl(K, t.columns, t.rows)}`).join('');
+const kHist = (K, it) => `<div class="sec"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], it.history || [[it.rev || '00', K.META.date, 'İlk yayın']])}</div>`;
+const kPrac = it => it.practice ? `<div class="practice"><b>Uygulama geçmişi</b><div>${kSafe(it.practice)}</div></div>` : '';
+const kLive = it => KYS_LIVE[it.code] ? `<p class="banner info noprint">Güncel kayıtlar sitede tutulur: <a href="${KYS_LIVE[it.code][0]}">${KYS_LIVE[it.code][1]} →</a>${it.kind === 'form' ? '' : ' Aşağıdaki döküm belgenin yayın tarihindeki durumdur.'}</p>` : '';
+
+function kysNav(K, sub, code){
+  const cur = sub === 'm' ? code : sub === 'i' && K.BY[code] ? K.BY[code]._m.id : '';
+  return `<div class="toolbar noprint knav"><div class="seg"><a class="segl ${!sub ? 'on' : ''}" href="#/kalite">Genel bakış</a><a class="segl ${sub === 'belgeler' ? 'on' : ''}" href="#/kalite/belgeler">Doküman listesi <span class="sub">${K.ITEMS.length}</span></a>${K.META.esa ? `<a class="segl ${sub === 'proje' ? 'on' : ''}" href="#/kalite/proje">${esc(kProj(K, 1))}</a>` : ''}</div>
+    <select id="kmsel" aria-label="Süreç"><option value="">Süreç seç…</option>${K.M.map(m => `<option value="${esc(m.id)}" ${cur === m.id ? 'selected' : ''}>${m._no} · ${esc(m.title)}</option>`).join('')}</select></div>`;
+}
+function kysDf(K){
+  const df = K.BY['ACR-LS-KY-90']; if (!df || !df.rows) return '';
+  const open = df.rows.filter(r => /^Açık/.test(r[5])).length, done = df.rows.length - open;
+  return `<div class="panel" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline"><h3 style="margin:0">${esc(df.title)}</h3><a href="#/kalite/i/ACR-LS-KY-90">Takip listesini aç →</a></div>
+  <p class="small" style="margin:6px 0 10px">${df.rows.length} bulgu · <b class="ok-txt">${done} dokümanla karşılandı ve uygulamada</b> · <b class="amber-txt">${open} açık</b></p>
+  <div class="chips">${df.rows.map(r => `<span class="pill ${/^Açık/.test(r[5]) ? 'p-amber' : 'p-green'}" title="${esc(r[1])}">${esc(r[0])}</span>`).join('')}</div></div>`;
+}
+function kysHome(K){
+  const cnt = k => K.ITEMS.filter(i => i.kind === k).length, E = K.META.esa;
+  return `<div class="pagehead"><div><h1>Kalite Yönetim Sistemi</h1><p class="lede">${esc(K.META.intro || '')}</p></div><a class="btn noprint" href="#/kalite/yukle">İçeriği güncelle</a></div>
+  <div class="kpis k5"><div class="kpi"><div class="l">Süreç</div><div class="v">${K.M.length}</div><div class="d">tanımlı süreç</div></div>
+  <div class="kpi"><div class="l">Prosedür / plan / talimat</div><div class="v">${cnt('doc')}</div><div class="d">yürürlükte</div></div>
+  <div class="kpi"><div class="l">Form</div><div class="v">${cnt('form')}</div><div class="d">kontrollü form</div></div>
+  <div class="kpi"><div class="l">Kayıt / liste</div><div class="v">${cnt('register')}</div><div class="d">kayıt, envanter, matris</div></div>
+  <div class="kpi"><div class="l">Rapor</div><div class="v">${cnt('report')}</div><div class="d">periyodik</div></div></div>
+  ${kysDf(K)}
+  <div class="grid g2">${E ? `<div class="panel"><h3>Aktif proje</h3><a href="#/kalite/proje"><b>${esc(kProj(K))}</b></a><div class="small">${esc(E.short || '')}</div>
+    <div class="chips" style="margin-top:10px">${(E.chain || []).slice(0, 6).map(([t, c]) => K.BY[c[0]] ? `<a class="chip" href="#/kalite/i/${esc(c[0])}">${esc(t)}</a>` : '').join('')}</div></div>` : ''}
+  <div class="panel"><h3>Sitedeki kalite kayıtları</h3><div class="chips"><a class="chip" href="#/uygunsuzluk">Uygunsuzluklar${S.ncrOpen ? ` <b>${S.ncrOpen} açık</b>` : ''}</a><a class="chip" href="#/kalibrasyon">Kalibrasyon</a><a class="chip" href="#/tedarikciler">Tedarikçi onay durumu</a><a class="chip" href="#/pcb/takip">PCB takip (sıcaklık / nem)</a><a class="chip" href="#/bom">BOM (MTBF)</a><a class="chip" href="#/rma">RMA</a><a class="chip" href="#/motor-test">Motor testleri</a></div>
+    <p class="small" style="margin:10px 0 0">Doküman kodu: ACR-<b>TÜR</b>-<b>SÜREÇ</b>-NN · PR prosedür, PL plan, TL talimat, FR form, LS liste / kayıt, RP rapor. Basılı kopyalar kontrolsüzdür; güncel sürüm bu sayfadadır.</p></div></div>
+  <h2>Süreçler</h2><div class="cards">${K.M.map(m => `<a class="card" href="#/kalite/m/${esc(m.id)}"><div class="m">Süreç ${m._no} · Sorumlu: ${esc(m.owner)}</div><div class="t">${esc(m.title)}</div><div class="m">${['doc', 'form', 'register', 'report'].map(k => { const n = m.items.filter(i => i.kind === k).length; return n ? `${n} ${KYS_KN[k].toLocaleLowerCase('tr')}` : ''; }).filter(Boolean).join(' · ')}</div></a>`).join('')}</div>
+  <p class="small noprint" style="margin-top:18px">${esc(K.META.docNo || '')} · Rev ${esc(K.META.rev || '')} · ${esc(K.META.date || '')}${K.at ? ` · içerik yüklendi ${fmtDT(K.at)}${K.by ? ', ' + esc(K.by) : ''}` : ''}</p>`;
+}
+function kysModule(K, id){
+  const m = K.M.find(x => x.id === id); if (!m) return '<h1>Süreç bulunamadı</h1>';
+  return `<div class="crumbs"><a href="#/kalite">Kalite Yönetim Sistemi</a> / Süreç ${m._no}</div><h1>${esc(m.title)}</h1>
+  <p class="lede">${kSafe(m.summary)}</p><p class="small">Süreç sorumlusu: <b style="color:var(--ink)">${esc(m.owner)}</b></p>
+  ${m.flow ? `<div class="flow">${m.flow.map(s => `<span>${esc(s)}</span>`).join('<i>→</i>')}</div>` : ''}
+  ${['doc', 'form', 'register', 'report'].map(k => { const g = m.items.filter(i => i.kind === k); return g.length ? `<h2>${KYS_GRP[k]}</h2><div class="cards">${g.map(kCard).join('')}</div>` : ''; }).join('')}`;
+}
+function kysDocsRows(K){
+  const ql = kysQ.toLocaleLowerCase('tr'), list = K.ITEMS.filter(i => !ql || [i.code, i.title, i._m.title, i.owner, kType(i)].join(' ').toLocaleLowerCase('tr').includes(ql));
+  return list.map(i => `<tr style="cursor:default"><td><a href="#/kalite/i/${esc(i.code)}"><code>${esc(i.code)}</code></a></td><td>${kKind(i.kind)} <span class="sub">${esc(i.docType || '')}</span></td><td>${esc(i.title)}</td><td>${esc(i.rev || '00')}</td><td>${esc(K.META.date || '')}</td><td>${esc(i.owner)}</td><td><a href="#/kalite/m/${esc(i._m.id)}">${i._m._no} · ${esc(i._m.title)}</a></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Sonuç yok</td></tr>';
+}
+const kysDocs = K => `<h1>Doküman ana listesi</h1><p class="lede">Kalite yönetim sistemindeki tüm kontrollü dokümanlar, formlar, kayıtlar ve raporlar.</p>
+  <div class="toolbar noprint"><input type="search" id="kdq" value="${esc(kysQ)}" placeholder="Ara: kod, ad, süreç, sahibi…"><button class="btn sm" data-print="1">Yazdır</button></div>
+  <div class="tablewrap"><table><thead><tr>${['Doküman no', 'Tür', 'Doküman adı', 'Rev', 'Yayın tarihi', 'Sahibi', 'Süreç'].map(c => `<th class="nosort">${c}</th>`).join('')}</tr></thead><tbody id="kdtb">${kysDocsRows(K)}</tbody></table></div>`;
+function kysEsa(K){
+  const E = K.META.esa; if (!E) return '<h1>Proje bulunamadı</h1>'; const its = K.ITEMS.filter(i => i.esa);
+  return `<div class="crumbs"><a href="#/kalite">Kalite Yönetim Sistemi</a> / Projeler</div><h1>${esc(kProj(K))}</h1><p class="lede">${esc(E.summary || '')}</p>
+  <div class="grid g2"><div class="panel"><h3>Proje kimliği</h3><div class="tablewrap" style="border:0"><table>${(E.facts || []).map(([k, v]) => `<tr><td class="sub" style="width:40%">${esc(k)}</td><td>${kSafe(v)}</td></tr>`).join('')}</table></div></div>
+  <div class="panel"><h3>Proje kalite dosyası</h3><div class="flow" style="flex-direction:column;align-items:stretch">${(E.chain || []).map(([t, c]) => `<span>${esc(t)}${c.map(x => K.BY[x] ? ` · <a href="#/kalite/i/${esc(x)}">${esc(x)}</a>` : '').join('')}</span>`).join('')}</div></div></div>
+  ${(E.tests || []).length ? `<h2>Fabrika kabul testleri</h2><div class="tablewrap"><table><thead><tr><th class="nosort">No</th><th class="nosort">Test</th><th class="nosort">Doğrulanan gereksinimler</th></tr></thead><tbody>${E.tests.map(t => `<tr><td><b>${esc(t[0])}</b></td><td>${esc(t[1])}</td><td class="sub">${esc(t[2])}</td></tr>`).join('')}</tbody></table></div>` : ''}
+  <h2>Projeye ait dokümanlar (${its.length})</h2>${K.M.filter(m => m.items.some(i => i.esa)).map(m => `<h3 style="margin:14px 0 6px">${m._no} · ${esc(m.title)}</h3><div class="cards">${m.items.filter(i => i.esa).map(kCard).join('')}</div>`).join('')}`;
+}
+function kysForm(it){
+  const E = kysMode === 'esa' && it.esa, pn = (S.kys.META.esa || {}).name || ''; let n = 0;
+  const fld = f => { const id = 'kf' + (n++), raw = E ? (f.proj ? pn : f.v ?? '') : '', v = Array.isArray(raw) ? raw : kBlank(raw), w = f.w || (['textarea', 'table'].includes(f.t) ? 3 : 1), cls = w === 3 ? 'w3' : w === 2 ? 'w2' : '';
+    const vs = Array.isArray(v) ? v : [v]; let ctl;
+    if (f.t === 'select') ctl = `<select id="${id}"><option value=""></option>${(f.o || []).map(o => `<option ${vs.includes(o) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    else if (f.t === 'radio' || f.t === 'checks') ctl = `<div class="opts">${(f.o || []).map(o => `<label><input type="${f.t === 'radio' ? 'radio' : 'checkbox'}" name="${id}" ${vs.includes(o) ? 'checked' : ''}> ${esc(o)}</label>`).join('')}</div>`;
+    else if (f.t === 'textarea') ctl = `<textarea id="${id}">${esc(v)}</textarea>`;
+    else if (f.t === 'table') { const rows = f.rows || [], cols = f.columns || [];
+      ctl = `<div class="tablewrap ftable" data-calc="${esc(JSON.stringify(f.calc || []))}" data-mtbf="${f.mtbf ? +f.mtbf.col || 0 : ''}"><table><thead><tr>${cols.map(c => `<th class="nosort">${esc(c)}</th>`).join('')}</tr></thead><tbody>${(rows.length ? rows : [cols.map(() => ''), cols.map(() => ''), cols.map(() => '')]).map(r => `<tr>${cols.map((c, j) => { const cv = String(kBlank(r[j]) ?? '');
+        return `<td>${j === 0 && cv.trim() ? kSafe(cv) : `<input type="text" value="${esc(E ? cv : '')}" aria-label="${esc(c)}" data-c="${j}" ${(f.calc || []).some(k => k.col === j) ? 'readonly tabindex="-1" class="calc"' : ''}>`}</td>`; }).join('')}</tr>`).join('')}</tbody></table>${f.mtbf ? '<p class="small mtbf-out" style="margin:6px 0 0"></p>' : ''}</div>`; }
+    else ctl = `<input id="${id}" type="text" value="${esc(f.ro ? '' : v)}" ${f.ro ? 'readonly placeholder="kaydedince verilir" class="calc krno"' : f.t === 'date' ? 'placeholder="gg.aa.yyyy"' : ''}>`;
+    return `<label class="${cls}" ${['radio', 'checks', 'table'].includes(f.t) ? 'role="group"' : `for="${id}"`}>${esc(f.l)}${f.hint && !/^\s*\[/.test(f.hint) ? ` <span class="hint">${esc(f.hint)}</span>` : ''}${ctl}</label>`; };
+  const signs = it.signoffs || ['Hazırlayan', 'Kontrol eden', 'Onaylayan'];
+  return (it.header ? [{ h:'Kayıt bilgileri', fields:KYS_HDR }] : []).concat(it.groups || []).map(g => `<fieldset><legend>${esc(g.h || '')}</legend><div class="fgrid">${(g.fields || []).map(fld).join('')}</div></fieldset>`).join('')
+    + (signs.length ? `<div class="signs">${signs.map(s => `<div>${esc(s)}<span>Ad Soyad / Tarih / İmza</span></div>`).join('')}</div>` : '');
+}
+const kysReport = (K, it) => `${it.period ? `<p class="small">Periyot: <b style="color:var(--ink)">${esc(it.period)}</b> · Dönem: ______________</p>` : ''}${(it.kpis || []).length ? `<div class="tablewrap" style="margin-bottom:12px"><table><thead><tr><th class="nosort">Gösterge</th><th class="nosort" style="width:22%">Dönem değeri</th><th class="nosort" style="width:22%">Hedef</th></tr></thead><tbody>${it.kpis.map(k => `<tr><td>${esc(k.l)}</td><td>${kSafe(k.v)}</td><td>${kSafe(k.target || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}${kSecs(it.sections)}${kTables(K, it)}`;
+function kysItem(K, code){
+  const it = K.BY[code]; if (!it) return '<h1>Belge bulunamadı</h1><p><a href="#/kalite/belgeler">Doküman listesine dön</a></p>'; const m = it._m, live = !!KYS_LIVE[it.code];
+  const head = `<div class="dochead"><div class="lg">${kLogo}ACROME</div><div class="tt">${esc(it.title)}<small>${esc(kType(it))}${it.esa ? ' · ' + esc(kProj(K)) : ''}</small></div>
+  <div class="mt"><div><b>Doküman no</b><span>${esc(it.code)}</span></div><div><b>Revizyon</b><span>${esc(it.rev || '00')}</span></div><div><b>Yayın tarihi</b><span>${esc(K.META.date || '')}</span></div><div><b>Sahibi</b><span>${esc(it.owner)}</span></div><div><b>Süreç</b><span>${m._no}</span></div></div></div>`;
+  const src = it.source ? `<p class="small"><b>Kaynak:</b> ${kSafe(it.source)}</p>` : '';
+  const body = it.kind === 'doc' ? kPrac(it) + kSecs(it.sections) + kTables(K, it) + kHist(K, it) : it.kind === 'form' ? kysForm(it)
+    : it.kind === 'register' ? `${src}${it.note ? `<p class="small" style="color:var(--ink)">${kSafe(it.note)}</p>` : ''}${kPrac(it)}${kTbl(K, it.columns, it.rows, true)}` : src + kPrac(it) + kysReport(K, it) + kHist(K, it);
+  const sib = m.items, ix = sib.indexOf(it), frm = it.kind === 'form' && !live;
+  return `<div class="crumbs noprint"><a href="#/kalite">Kalite Yönetim Sistemi</a> / <a href="#/kalite/m/${esc(m.id)}">${esc(m.title)}</a> / ${esc(it.code)}</div>${kLive(it)}
+  <div class="toolbar noprint"><button class="btn primary" data-print="1">Yazdır / PDF</button>${it.kind === 'form' && it.esa ? `<div class="seg" id="kfm"><button data-v="esa" class="${kysMode === 'esa' ? 'on' : ''}">Proje bilgileriyle</button><button data-v="bos" class="${kysMode === 'bos' ? 'on' : ''}">Boş form</button></div>` : ''}
+  ${frm ? `<button class="btn" id="ksave">Kaydet</button><button class="btn" id="kclear">Yeni kayıt</button><span class="sub" id="kcur"></span>` : ''}<span style="flex:1"></span>${ix > 0 ? `<a class="btn sm" href="#/kalite/i/${esc(sib[ix - 1].code)}">← ${esc(sib[ix - 1].code)}</a>` : ''}${ix < sib.length - 1 ? `<a class="btn sm" href="#/kalite/i/${esc(sib[ix + 1].code)}">${esc(sib[ix + 1].code)} →</a>` : ''}</div>
+  <div class="sheet" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>${frm || (it.kind === 'register' && !live) ? '<div class="noprint" id="krecs"></div>' : ''}`;
+}
+function kysRecalc(){
+  qa('#ksheet .ftable').forEach(w => {
+    let calc = []; try { calc = JSON.parse(w.dataset.calc || '[]'); } catch {}
+    qa('tbody tr', w).forEach(tr => { const get = j => { const x = tr.querySelector(`[data-c="${j}"]`); return x ? kNum(x.value) : kNum(tr.children[j]?.textContent); };
+      calc.forEach(k => { const a = get(k.a), b = get(k.b), out = tr.querySelector(`[data-c="${k.col}"]`); if (out) out.value = a == null || b == null ? '' : kFmt(k.op === 'mul' ? a * b : k.op === 'sub' ? a - b : a + b); }); });
+    if (w.dataset.mtbf !== '') { const vals = qa(`[data-c="${+w.dataset.mtbf}"]`, w).map(e => kNum(e.value)).filter(x => x && x > 0), o = w.querySelector('.mtbf-out');
+      if (o) o.textContent = vals.length ? `Seri sistem MTBF ≈ ${kFmt(1 / vals.reduce((t, x) => t + 1 / x, 0))} saat (${vals.length} bileşen, 1/Σ(1/MTBFᵢ)).` : 'Seri sistem MTBF: bileşen MTBF değerleri girildiğinde hesaplanır.'; }
+  });
+}
+async function viewKys(){
+  const [, sub, arg] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/'), code = arg ? decodeURIComponent(arg) : '';
+  if (sub === 'yukle') return viewKysUpload();
+  const K = await kysLoad();
+  if (!K) return shell('kalite', `<div class="pagehead"><div><h1>Kalite belgeleri</h1><p class="lede">Belge içeriği henüz yüklenmedi.</p></div></div><p><a class="btn primary" href="#/kalite/yukle">İçerik dosyasını yükle</a></p>`);
+  kysRec = null;
+  shell('kalite', `<div class="kys">${kysNav(K, sub, code)}${sub === 'belgeler' ? kysDocs(K) : sub === 'proje' ? kysEsa(K) : sub === 'm' ? kysModule(K, code) : sub === 'i' ? kysItem(K, code) : kysHome(K)}</div>`);
+  q('#kmsel').onchange = e => { if (e.target.value) location.hash = '#/kalite/m/' + e.target.value; };
+  q('#kdq') && (q('#kdq').oninput = e => { kysQ = e.target.value.trim(); q('#kdtb').innerHTML = kysDocsRows(K); });
+  q('#kfm') && (q('#kfm').onclick = e => { const m = e.target.dataset.v; if (m) { kysMode = m; viewKys(); } });
+  const sheet = q('#ksheet'), it = sub === 'i' ? K.BY[code] : null;
+  if (sheet) { sheet.addEventListener('input', kysRecalc); kysRecalc(); }
+  if (!it || !q('#krecs')) return;
+  const box = q('#krecs'), who = r => `${esc(r.updated_by_name || r.created_by_name || '')} · ${fmtDT(r.updated_at)}`;
+  if (it.kind === 'form') {
+    const flds = () => qa('input, select, textarea', sheet);
+    const list = async () => { const { data, error } = await sb.from('kys_records').select('id,record_no,label,status,created_by_name,updated_by_name,updated_at').eq('code', it.code).eq('kind', 'form').order('id', { ascending:false });
+      const R = data || [];
+      box.innerHTML = `<h2>Kayıtlar <span class="tcount">${R.length}</span></h2>` + (error ? `<div class="empty">${esc(dbErr(error))}</div>` : R.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Kayıt no</th><th class="nosort">Kayıt</th><th class="nosort">Durum</th><th class="nosort">Son değişiklik</th><th class="nosort"></th></tr></thead><tbody>${R.map(r => `<tr style="cursor:default" data-r="${r.id}"><td class="mono">${esc(r.record_no || '')}</td><td>${esc(r.label || '—')}</td><td>${esc(r.status || '')}</td><td class="sub">${who(r)}</td><td style="white-space:nowrap"><button type="button" class="btn sm kopen">Aç</button> <button type="button" class="btn sm kdel">Sil</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu formla henüz kayıt açılmadı. Formu doldurup "Kaydet" ile saklayın; kayıt numarası otomatik verilir.</p>');
+      qa('.kopen', box).forEach(b => b.onclick = async () => { const rid = +b.closest('tr').dataset.r, { data:r } = await sb.from('kys_records').select('*').eq('id', rid).maybeSingle(); if (!r) return toast('Kayıt okunamadı', true);
+        const vals = (r.data && r.data.vals) || []; flds().forEach((x, i) => { const val = vals[i]; if (x.type === 'checkbox' || x.type === 'radio') x.checked = !!val; else x.value = val ?? ''; });
+        kysRec = r.id; const no = q('.krno', sheet); if (no) no.value = r.record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.record_no || ''); kysRecalc(); window.scrollTo(0, 0); });
+      qa('.kdel', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'Emin misin?')) return; const rid = +b.closest('tr').dataset.r;
+        const { error } = await sb.from('kys_records').delete().eq('id', rid); if (error) return toast(dbErr(error), true); if (kysRec === rid) { kysRec = null; q('#kcur').textContent = ''; } toast('Silindi'); list(); }); };
+    list();
+    q('#ksave').onclick = e => busy(e.currentTarget, async () => { const F = flds(), vals = F.map(x => x.type === 'checkbox' || x.type === 'radio' ? x.checked : x.value), s = i => typeof vals[i] === 'string' ? vals[i].trim() : '';
+      if (!vals.some(x => x === true || (typeof x === 'string' && x.trim()))) return toast('Form boş', true);
+      const o = { label:(it.header ? [s(2), s(3), s(1)] : [s(0), s(1)]).filter(Boolean).join(' · ').slice(0, 200) || null, status:it.header ? (s(4) || null) : null, data:{ vals } };
+      const r = kysRec ? await sb.from('kys_records').update(o).eq('id', kysRec).select('id,record_no') : await sb.from('kys_records').insert({ ...o, code:it.code, kind:'form' }).select('id,record_no');
+      if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Kaydedilemedi', true);
+      kysRec = r.data[0].id; const no = q('.krno', sheet); if (no) no.value = r.data[0].record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.data[0].record_no || ''); toast((r.data[0].record_no || 'Kayıt') + ' kaydedildi'); list(); });
+    q('#kclear').onclick = () => viewKys();
+  } else {
+    const cols = it.columns || [];
+    const list = async () => { const { data, error } = await sb.from('kys_records').select('*').eq('code', it.code).eq('kind', 'row').order('id');
+      const R = data || [];
+      box.innerHTML = `<h2>Eklenen kayıtlar <span class="tcount">${R.length}</span></h2>${error ? `<div class="empty">${esc(dbErr(error))}</div>` : R.length ? `<div class="tablewrap"><table><thead><tr>${cols.map(c => `<th class="nosort">${esc(c)}</th>`).join('')}<th class="nosort">Ekleyen</th><th class="nosort"></th></tr></thead><tbody>${R.map(r => `<tr style="cursor:default" data-r="${r.id}">${cols.map((c, j) => `<td>${esc(((r.data || {}).row || [])[j] ?? '')}</td>`).join('')}<td class="sub">${who(r)}</td><td><button type="button" class="btn sm kdel">Sil</button></td></tr>`).join('')}</tbody></table></div>` : ''}
+      <section class="panel mt"><h2>Satır ekle</h2><p class="note" style="margin-top:0">Belgedeki satırlar yayınlanan revizyona aittir; yeni kayıtlar buraya eklenir.</p><form id="kraf" class="fs plain" novalidate><div class="row r4">${cols.map((c, j) => `<label class="f">${esc(c)}<input type="text" data-j="${j}" maxlength="500"></label>`).join('')}</div><p><button class="btn primary">Ekle</button></p></form></section>`;
+      qa('.kdel', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'Emin misin?')) return; const { error } = await sb.from('kys_records').delete().eq('id', +b.closest('tr').dataset.r); if (error) return toast(dbErr(error), true); toast('Silindi'); list(); });
+      q('#kraf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const row = qa('[data-j]', e.target).map(x => x.value.trim()); if (!row.some(Boolean)) return toast('En az bir alan doldurun', true);
+        const { error } = await sb.from('kys_records').insert({ code:it.code, kind:'row', label:row.filter(Boolean).slice(0, 2).join(' · ').slice(0, 200), data:{ row } }); if (error) return toast(dbErr(error), true); toast('Eklendi'); list(); }); }; };
+    list();
+  }
+}
+function viewKysUpload(){
+  let P = null;
+  shell('kalite', `<p><a href="#/kalite">← Kalite belgeleri</a></p><div class="pagehead"><div><h1>Belge içeriğini yükle</h1><p class="lede">Kalite belgelerinin içeriği (kys_icerik.json) veritabanında tutulur, depoda bulunmaz. Yüklenen dosya önceki içeriğin yerine geçer; doldurulmuş form kayıtları ve listelere eklenen satırlar etkilenmez.</p></div></div>
+  <section class="panel"><form id="kuf" class="fs plain" novalidate><label class="f">İçerik dosyası (.json)<input type="file" name="f" accept=".json,application/json"></label><p id="kuinfo" class="note"></p><p><button class="btn primary" disabled>Yükle</button></p></form></section>`);
+  const f = q('#kuf'), info = q('#kuinfo'), btn = f.querySelector('button');
+  f.elements.f.onchange = async () => { P = null; btn.disabled = true; const file = f.elements.f.files[0]; if (!file) return (info.textContent = '');
+    try { const o = JSON.parse(await file.text()); if (!o || typeof o.meta !== 'object' || !Array.isArray(o.modules) || !o.modules.length || o.modules.some(m => !/^[a-z0-9-]+$/.test(m.id || '') || !Array.isArray(m.items))
+        || [...o.modules.flatMap(m => m.items), ...(o.extra || []).map(x => x.item || {})].some(i => !/^ACR-[A-Z]{2}-[A-Z]{2}-[0-9]{2}$/.test(i.code || '') || !KYS_KN[i.kind])) throw 0;
+      const n = o.modules.reduce((a, m) => a + m.items.length, 0) + (o.extra || []).length; P = { meta:o.meta, modules:o.modules, extra:o.extra || [] };
+      info.textContent = `${o.modules.length} süreç, ${n} belge · ${Math.round(file.size / 1024)} KB · ${o.meta.docNo || ''} Rev ${o.meta.rev || ''} ${o.meta.date || ''}`; btn.disabled = false; }
+    catch { info.textContent = 'Dosya okunamadı ya da biçimi tanınmadı.'; } };
+  f.onsubmit = e => { e.preventDefault(); if (!P) return; return busy(e, async () => { const { data, error } = await sb.rpc('kys_import', { p:P }); if (error) return toast(dbErr(error), true);
+    S.kys = null; toast(`${data} belge yüklendi`); location.hash = '#/kalite'; }); };
 }
 
 boot();
