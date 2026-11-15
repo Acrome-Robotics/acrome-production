@@ -178,3 +178,18 @@ Kalite bölümü eklenmeden hemen önceki geri dönülebilir nokta.
 - **PCB takip kaydı**: sıcaklık (°C) ve nem (%RH) alanları. **BOM**: kalem başına MTBF (saat), altta seri sistem MTBF'i.
 - Hiçbir tabloya kayıt tohumlanmadı; uygunsuzluk, cihaz ve form kayıtları boş başlar.
 - Veritabanı: `sql/2026-11-15_kalite.sql`.
+
+## Milestone 3 — 16 Kasım 2026 (`milestone-3-2026-11-16`)
+Kalitede çoklu proje ve yeni kalite sayfaları eklenmeden hemen önceki geri dönülebilir nokta.
+- **Kod:** `git checkout milestone-3-2026-11-16` (GitHub'da aynı adlı dal; `main`'in f70e859 hâli).
+- **Veri:** Supabase'te `snap_20261116` şemasında tüm public tabloların (67) kopyası. Tek tablo geri yükleme: `truncate public.X cascade; insert into public.X select * from snap_20261116.X;` (yalnızca yönetici, önce yeni bir yedek alın).
+- **Şema:** migration geçmişinde `milestone_snapshot_20261116`; proje değişiklikleri bundan sonraki `kalite_projeler_2026_11_16` kaydıdır.
+- **Geri almak:** `main`'i bu dala döndürmek ve eski içerik dosyasını yeniden yüklemek yeterli. Veritabanında yalnız ekleme yapıldı: `kys_projects` tablosu, `kys_records.project_id` ve `ncr.project_id` sütunları, `kys_records` için `doc` türü.
+
+## Kalite projeleri (16 Kasım 2026)
+- **Projeler (`#/kalite/proje`)**: Kalite ve Yönetici yeni proje açar (kod 2–4 harf, değişmez; ad, tür: müşteri / Ar-Ge / iç, müşteri ya da destekleyen kurum, tarihler, proje kimliği satırları, kabul ölçütleri / testler). Proje sayfasında kimlik, proje kalite dosyası, kabul ölçütleri ve projenin uygunsuzlukları görünür.
+- **Proje kalite dosyası**: proje açılınca içerikteki şablonun (`meta.projectFile`) projeye özel belgeleri (plan, zaman çizelgesi, risk kaydı, tasarım raporu, doğrulama matrisi, konfigürasyon planı ve birim listesi, durum raporu, kritik tedarik listesi, FMECA…) `kys_records` içinde `doc` olarak açılır. Numara şablon kodu + proje kodu (`ACR-PL-PY-01-XYZ`). Belge taslakta düzenlenir; "Yürürlüğe al" yayın tarihini o günün tarihi olarak veritabanında yazar; yürürlükteki belge değiştirilemez, "Yeni revizyon aç" (neden zorunlu) revizyonu bir artırır. Liste türündeki belgelerin satırları projeye bağlı eklenir.
+- İçerikle yayınlanan projenin belgeleri içerikte durur (`item.pk` = proje kodu, `item.no` = belge numarası).
+- Formlarda "Proje / kapsam" alanı proje seçimidir; kayıt projeye bağlanır. Form kayıtları alan anahtarıyla saklanır (`data.v`), alan sırası değişse de eski kayıt doğru açılır.
+- **Uygunsuzluk**: kayıtta proje seçimi (her rol; liste `kys_project_names()` ile yalnız kod ve kısa ad verir, proje kartının ayrıntısını Kalite ve Yönetici görür), listede proje süzgeci, proje sayfasından "Uygunsuzluk aç".
+- Veritabanı: `sql/2026-11-16_kalite_projeler.sql`.
