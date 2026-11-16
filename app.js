@@ -336,7 +336,7 @@ function shell(active, html){
 }
 
 // ---------------------------------------------------------------- son hareketler (geniş ekranda sağ sütun)
-// Yalnız zaten yüklü kayıtlardan + sipariş durum geçmişinden üretilir; senkron işlerin dokunduğu updated_at kullanılmaz.
+// Yüklü kayıtlardan + değişiklik geçmişinden (audit_log) üretilir; senkron işlerin dokunduğu updated_at kullanılmaz.
 const FEED_MQ = '(min-width:1760px)';
 const feedBox = () => staffOnly() ? '' : '<aside class="feed" id="feed" aria-label="Son hareketler"><h2>Son hareketler</h2><div id="feedl"><div class="sub">Yükleniyor…</div></div></aside>';
 async function feedItems(){
@@ -348,9 +348,25 @@ async function feedItems(){
   if (ord) {
     for (const d of S.deals || []) add(d.created_at, 'satis', `${d.order_no ? 'Yeni sipariş' : 'Yeni fırsat'} ${refNo(d)} · ${d.customer_name || ''}`, personName(d.created_by), '#/kayit/' + d.id);
     for (const x of S.stages || []) { const d = x.status === 'bitti' && dl(x.deal_id); if (d) add(x.done_at, 'uretim', `${refNo(d)} · ${stgName(x.stage)} bitti`, x.updated_by_name, '#/kayit/' + d.id); }
-    const { data } = await sb.from('audit_log').select('row_id,changed_by,changed_at,old_data,new_data').eq('table_name', 'deals').eq('action', 'UPDATE').not('changed_by', 'is', null).order('id', { ascending:false }).limit(60);
-    for (const a of data || []) { const o = a.old_data?.status, n = a.new_data?.status, d = dl(a.row_id);
-      if (o && n && o !== n && d) add(a.changed_at, 'satis', `${refNo(d)}: ${STATUSES[o] || o} → ${STATUSES[n] || n}`, personName(a.changed_by), '#/kayit/' + d.id); }
+  }
+  // kim neyi değiştirdi (audit_log; her kişi yalnız kaynak tablosunu okuyabildiği kayıtları görür)
+  const { data:au } = await sb.from('audit_log').select('table_name,row_id,action,changed_by,changed_at,old_data,new_data').not('changed_by', 'is', null).neq('table_name', 'deal_items').order('id', { ascending:false }).limit(200);
+  const edited = (o, n, skip) => Object.keys(n || {}).some(k => !skip.includes(k) && JSON.stringify((o || {})[k]) !== JSON.stringify(n[k])), seen = new Set();
+  for (const a of au || []) { const T = a.table_name, at = a.changed_at, who = personName(a.changed_by), o = a.old_data || {}, n = a.new_data || {}, x = a.new_data || a.old_data || {};
+    const ins = a.action === 'INSERT', upd = a.action === 'UPDATE', st = upd && o.status !== n.status && !!n.status, sf = (L, v) => L[v] || v;
+    if (T === 'deals') { const d = dl(+a.row_id); if (ord && d && st && o.status) add(at, 'satis', `${refNo(d)}: ${sf(STATUSES, o.status)} → ${sf(STATUSES, n.status)}`, who, '#/kayit/' + d.id); }
+    else if (T === 'purchases') { if (st) add(at, 'alim', `Talep ${x.item_name || ''}: ${sf(PUR_ST, o.status)} → ${sf(PUR_ST, n.status)}`, who, '#/alimlar/' + x.id); }
+    else if (T === 'stock_items') { const h = '#/stok/' + x.id;
+      if (ins) add(at, 'stok', `Yeni stok kartı: ${x.name || ''}`, who, h);
+      else if (upd && o.qty !== n.qty) add(at, 'stok', `Stok ${x.name || ''}: ${o.qty ?? 0} → ${n.qty ?? 0} ${x.unit || 'adet'}`, who, h);
+      else if (upd && edited(o, n, ['updated_at', 'updated_by'])) add(at, 'stok', `Stok kartı düzenlendi: ${x.name || ''}`, who, h); }
+    else if (T === 'daily_notes') { if (!seen.has(a.row_id) && a.action !== 'DELETE') { seen.add(a.row_id); add(at, 'ekip', `Daily notu yazıldı (${fmtD(x.day)})`, who, '#/daily'); } }
+    else if (T === 'expense_reports') { const h = '#/masraf/' + x.id;
+      if (ins) add(at, 'ekip', `Masraf formu gönderildi: ${x.title || ''}`, who, h); else if (st) add(at, 'ekip', `Masraf formu ${x.title || ''}: ${sf(EXP_ST, n.status)}`, who, h); }
+    else if (T === 'ncr') { const h = '#/uygunsuzluk/' + x.id;
+      if (ins) add(at, 'kalite', `Yeni uygunsuzluk ${x.no || ''}: ${x.title || ''}`, who, h); else if (st) add(at, 'kalite', `Uygunsuzluk ${x.no || ''}: ${sf(NCR_ST, n.status)}`, who, h); }
+    else if (T === 'q_devices') { if (ins || (upd && edited(o, n, ['updated_at', 'updated_by_name']))) add(at, 'kalite', `Kalibrasyon cihazı ${ins ? 'eklendi' : 'güncellendi'}: ${x.name || x.code || ''}`, who, '#/kalibrasyon/' + x.id); }
+    else if (T === 'kys_records') { if (ins || st) add(at, 'kalite', `Kalite kaydı ${ins ? 'açıldı' : 'durumu değişti'}: ${x.record_no || x.label || x.code || ''}`, who, '#/kalite'); }
   }
   for (const x of S.payments || []) { const d = dl(x.deal_id); if (d) add(x.received_at, 'tahsilat', `${refNo(d)} · ödeme geldi`, x.received_name, ord ? '#/kayit/' + d.id : '#/tahsilat'); }
   for (const x of S.purOpenList || []) add(x.requested_at, 'alim', `Yeni talep: ${x.item_name || ''}`, x.requester_name, '#/alimlar/' + x.id);

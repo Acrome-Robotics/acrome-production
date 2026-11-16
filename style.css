@@ -819,4 +819,5 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
 .feed-i small:empty{display:none}
 .k-satis::before{background:#3B7DD8}.k-uretim::before{background:#E07B39}.k-tahsilat::before{background:var(--green)}
 .k-alim::before{background:#1F9E9A}.k-support::before{background:#8A5CD0}.k-rma::before{background:var(--red)}
+.k-stok::before{background:#C9971C}.k-ekip::before{background:#D0558F}.k-kalite::before{background:#2F9E6B}
 @media print{.feed{display:none!important}}
