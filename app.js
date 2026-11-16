@@ -253,7 +253,6 @@ function shell(active, html){
   ] : [
     ['Üretim', 'gear', [
       ['uretim-pano','Üretim panosu', myDeps().length ? S.deals.filter(d => d.status === 'production' && myDeps().includes((curStage(d.id) || [])[0])).length || '' : ''],
-      ['kayitlar/waiting','Bekleyen siparişler', cnt('waiting')],
       ['kayitlar/production','Üretimdeki siparişler', cnt('production')],
       ['kayitlar/shipped','Gönderilenler', cnt('shipped')],
       ['checklist-sablon','Checklist şablonları'],
