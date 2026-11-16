@@ -382,12 +382,15 @@ async function fillFeed(){
   const box = q('#feed'); if (!box || !matchMedia(FEED_MQ).matches) return;
   const draw = () => { const el = q('#feedl'); if (!el || !S._feed) return; box.hidden = !S._feed.items.length; let last = '';
     el.innerHTML = S._feed.items.map(i => { const day = feedDay(i.ms), h = day !== last ? `<div class="feed-day">${day}</div>` : ''; last = day;
-      return `${h}<a class="feed-i k-${i.kind}" href="${i.href}"><span>${esc(i.txt)}</span><small>${[i.who && esc(i.who), !i.dOnly && new Date(i.ms).toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' })].filter(Boolean).join(' · ')}</small></a>`; }).join(''); };
-  draw();
+      return `${h}<a class="feed-i k-${i.kind}" href="${i.href}"><span>${esc(i.txt)}</span><small>${[i.who && esc(i.who), !i.dOnly && new Date(i.ms).toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' })].filter(Boolean).join(' · ')}</small></a>`; }).join('');
+    // sığmayan satırları at: sağ sütunda kaydırma olmasın
+    while (el.lastElementChild && box.scrollHeight > box.clientHeight) el.lastElementChild.remove();
+    if (el.lastElementChild && el.lastElementChild.classList.contains('feed-day')) el.lastElementChild.remove(); };
+  draw(); document.fonts && document.fonts.ready.then(draw); // yazı tipi yüklenince satır boyu değişir
   if (S._feed && Date.now() - S._feed.at < 60e3) return;
   S._feed = { at:Date.now(), items: await feedItems().catch(() => []) }; draw();
 }
-matchMedia(FEED_MQ).addEventListener('change', e => e.matches && fillFeed());
+let feedRz; addEventListener('resize', () => { clearTimeout(feedRz); feedRz = setTimeout(fillFeed, 200); });
 
 function route(){
   const [p, a] = location.hash.replace(/^#\/?/,'').split('?')[0].split('/');
