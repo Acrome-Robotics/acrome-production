@@ -802,3 +802,21 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
   .kys .tablewrap{overflow:visible;border:0}
   .kys .practice{border-left:2px solid #444;background:#fff}
 }
+
+/* son hareketler: yalnız geniş ekranda sağ sütun (dar ekranda gizli) */
+.feed{display:none}
+@media (min-width:1760px){
+  .shell:has(.feed:not([hidden])){grid-template-columns:244px minmax(0,1fr) 300px}
+  .feed:not([hidden]){display:block;position:sticky;top:0;height:100vh;overflow-y:auto;border-left:1px solid var(--line);background:var(--surface);padding:24px 14px 40px}
+}
+.feed h2{font-size:15px;font-weight:700;margin:0 0 6px 8px}
+.feed-day{font-size:11px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:16px 8px 4px}
+.feed-i{display:block;position:relative;padding:7px 8px 7px 22px;border-radius:8px;color:var(--ink);text-decoration:none;font-size:13px;line-height:1.35}
+.feed-i::before{content:"";position:absolute;left:9px;top:13px;width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.feed-i:hover{background:var(--soft)}
+.feed-i span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.feed-i small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+.feed-i small:empty{display:none}
+.k-satis::before{background:#3B7DD8}.k-uretim::before{background:#E07B39}.k-tahsilat::before{background:var(--green)}
+.k-alim::before{background:#1F9E9A}.k-support::before{background:#8A5CD0}.k-rma::before{background:var(--red)}
+@media print{.feed{display:none!important}}

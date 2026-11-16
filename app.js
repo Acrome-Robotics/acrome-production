@@ -322,7 +322,7 @@ function shell(active, html){
     <nav class="nav">${staffOnly() ? '' : `<a href="#/bugun" class="ntop ${active==='bugun'?'on':''}">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>`}${nav.map(([g, ic, items]) => { const cur = items.some(n => (n[5] || n[0]) === active), closed = !cur && (navClosed().includes(g) || matchMedia('(max-width:820px)').matches), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
       return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===(n[5]||n[0])?'on':''}${n[4]==='sub'?' sub2':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
     <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${esc(roleLabel(S.profile))} · <button class="linkbtn" id="lo">Çıkış</button>${realAdmin() ? ` · <a href="#/rol-onizleme">Rol önizleme</a>` : ''}<div class="prefs">${themeSwitch()}${densSwitch()}</div></div>
-  </aside><main class="main" id="main">${NAV_DEPTH > 0 && active !== 'bugun' && !(staffOnly() && active === 'calisma-plani') && !/^\s*<p><a href="#\/[^"]*">←/.test(html) ? '<button type="button" class="backbtn" id="gback" title="Bir önceki sayfaya dön (Alt + ←)">← Geri</button>' : ''}${S.profile._preview ? `<div class="pvbar" role="status"><span>👁 <b>Rol önizleme:</b> ${esc(roleLabel(S.profile))}${myDeps().length ? ' · bölüm: ' + esc(myDeps().map(stgName).join(', ')) : ''}. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkinle yapılır.</span><span><a href="#/rol-onizleme">Değiştir</a> · <button class="linkbtn" id="pvexit">Önizlemeden çık</button></span></div>` : ''}${html}</main></div>`;
+  </aside><main class="main" id="main">${NAV_DEPTH > 0 && active !== 'bugun' && !(staffOnly() && active === 'calisma-plani') && !/^\s*<p><a href="#\/[^"]*">←/.test(html) ? '<button type="button" class="backbtn" id="gback" title="Bir önceki sayfaya dön (Alt + ←)">← Geri</button>' : ''}${S.profile._preview ? `<div class="pvbar" role="status"><span>👁 <b>Rol önizleme:</b> ${esc(roleLabel(S.profile))}${myDeps().length ? ' · bölüm: ' + esc(myDeps().map(stgName).join(', ')) : ''}. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkinle yapılır.</span><span><a href="#/rol-onizleme">Değiştir</a> · <button class="linkbtn" id="pvexit">Önizlemeden çık</button></span></div>` : ''}${html}</main>${feedBox()}</div>`;
   q('#lo').onclick = () => sb.auth.signOut();
   q('#gback') && (q('#gback').onclick = goBack);
   q('#pvexit') && (q('#pvexit').onclick = () => { try { localStorage.removeItem(PV_KEY); } catch {} location.hash = '#/kullanicilar'; location.reload(); });
@@ -332,7 +332,46 @@ function shell(active, html){
   q('#menu').onclick = e => { const s = q('#side'); s.classList.toggle('open'); e.target.setAttribute('aria-expanded', s.classList.contains('open')); };
   qa('#side a').forEach(a => a.onclick = () => q('#side').classList.remove('open'));
   q('#sideclose').onclick = () => { q('#side').classList.remove('open'); q('#menu').setAttribute('aria-expanded', 'false'); };
+  fillFeed();
 }
+
+// ---------------------------------------------------------------- son hareketler (geniş ekranda sağ sütun)
+// Yalnız zaten yüklü kayıtlardan + sipariş durum geçmişinden üretilir; senkron işlerin dokunduğu updated_at kullanılmaz.
+const FEED_MQ = '(min-width:1760px)';
+const feedBox = () => staffOnly() ? '' : '<aside class="feed" id="feed" aria-label="Son hareketler"><h2>Son hareketler</h2><div id="feedl"><div class="sub">Yükleniyor…</div></div></aside>';
+async function feedItems(){
+  await people().catch(() => {});
+  const now = Date.now(), since = now - 14 * 864e5, out = [], ord = !accOnly();
+  const add = (t, kind, txt, who, href) => { const ms = t ? new Date(t).getTime() : 0;
+    if (ms >= since && ms <= now + 6e4) out.push({ ms, kind, txt, who, href, dOnly: String(t).length === 10 }); };
+  const dl = id => (S.deals || []).find(d => d.id === id);
+  if (ord) {
+    for (const d of S.deals || []) add(d.created_at, 'satis', `${d.order_no ? 'Yeni sipariş' : 'Yeni fırsat'} ${refNo(d)} · ${d.customer_name || ''}`, personName(d.created_by), '#/kayit/' + d.id);
+    for (const x of S.stages || []) { const d = x.status === 'bitti' && dl(x.deal_id); if (d) add(x.done_at, 'uretim', `${refNo(d)} · ${stgName(x.stage)} bitti`, x.updated_by_name, '#/kayit/' + d.id); }
+    const { data } = await sb.from('audit_log').select('row_id,changed_by,changed_at,old_data,new_data').eq('table_name', 'deals').eq('action', 'UPDATE').not('changed_by', 'is', null).order('id', { ascending:false }).limit(60);
+    for (const a of data || []) { const o = a.old_data?.status, n = a.new_data?.status, d = dl(a.row_id);
+      if (o && n && o !== n && d) add(a.changed_at, 'satis', `${refNo(d)}: ${STATUSES[o] || o} → ${STATUSES[n] || n}`, personName(a.changed_by), '#/kayit/' + d.id); }
+  }
+  for (const x of S.payments || []) { const d = dl(x.deal_id); if (d) add(x.received_at, 'tahsilat', `${refNo(d)} · ödeme geldi`, x.received_name, ord ? '#/kayit/' + d.id : '#/tahsilat'); }
+  for (const x of S.purOpenList || []) add(x.requested_at, 'alim', `Yeni talep: ${x.item_name || ''}`, x.requester_name, '#/alimlar/' + x.id);
+  for (const t of S.tickets || []) { add(t.opened_at || t.created_at, 'support', `Yeni support #${t.id}: ${t.subject || ''}`, '', '#/support/' + t.id);
+    add(t.closed_at, 'support', `Support kapandı #${t.id}: ${t.subject || ''}`, personName(t.assignee), '#/support/' + t.id); }
+  for (const r of S.rmas || []) { const h = '#/rma/' + r.id;
+    add(r.requested_at, 'rma', `Yeni RMA ${r.code} · ${r.customer_name || ''}`, '', h); add(r.received_at, 'rma', `${r.code} cihaz geldi`, '', h); add(r.shipped_back_at, 'rma', `${r.code} geri gönderildi`, '', h); }
+  return out.sort((a, b) => b.ms - a.ms).slice(0, 30);
+}
+const feedDay = ms => { const d = new Date(ms), t = new Date(); t.setHours(0, 0, 0, 0); const diff = Math.round((t - new Date(d).setHours(0, 0, 0, 0)) / 864e5);
+  return diff === 0 ? 'Bugün' : diff === 1 ? 'Dün' : d.toLocaleDateString('tr-TR', { day:'numeric', month:'long', weekday:'long' }); };
+async function fillFeed(){
+  const box = q('#feed'); if (!box || !matchMedia(FEED_MQ).matches) return;
+  const draw = () => { const el = q('#feedl'); if (!el || !S._feed) return; box.hidden = !S._feed.items.length; let last = '';
+    el.innerHTML = S._feed.items.map(i => { const day = feedDay(i.ms), h = day !== last ? `<div class="feed-day">${day}</div>` : ''; last = day;
+      return `${h}<a class="feed-i k-${i.kind}" href="${i.href}"><span>${esc(i.txt)}</span><small>${[i.who && esc(i.who), !i.dOnly && new Date(i.ms).toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' })].filter(Boolean).join(' · ')}</small></a>`; }).join(''); };
+  draw();
+  if (S._feed && Date.now() - S._feed.at < 60e3) return;
+  S._feed = { at:Date.now(), items: await feedItems().catch(() => []) }; draw();
+}
+matchMedia(FEED_MQ).addEventListener('change', e => e.matches && fillFeed());
 
 function route(){
   const [p, a] = location.hash.replace(/^#\/?/,'').split('?')[0].split('/');
