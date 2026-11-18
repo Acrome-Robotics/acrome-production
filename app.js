@@ -336,7 +336,7 @@ function shell(active, html){
 }
 
 // ---------------------------------------------------------------- son hareketler (geniş ekranda sağ sütun)
-// Yüklü kayıtlardan + değişiklik geçmişinden (audit_log) üretilir; senkron işlerin dokunduğu updated_at kullanılmaz.
+// Son 14 günün kayıtlarından + değişiklik geçmişinden (audit_log) üretilir; olay zamanı olarak senkron işlerin dokunduğu updated_at kullanılmaz.
 const FEED_MQ = '(min-width:1760px)';
 const feedBox = () => staffOnly() ? '' : '<aside class="feed" id="feed" aria-label="Son hareketler"><h2>Son hareketler</h2><div id="feedl"><div class="sub">Yükleniyor…</div></div></aside>';
 async function feedItems(){
@@ -344,11 +344,20 @@ async function feedItems(){
   const now = Date.now(), since = now - 14 * 864e5, out = [], ord = !accOnly();
   const add = (t, kind, txt, who, href) => { const ms = t ? new Date(t).getTime() : 0;
     if (ms >= since && ms <= now + 6e4) out.push({ ms, kind, txt, who, href, dOnly: String(t).length === 10 }); };
-  const dl = id => (S.deals || []).find(d => d.id === id);
-  if (ord) {
-    for (const d of S.deals || []) add(d.created_at, 'satis', `${d.order_no ? 'Yeni sipariş' : 'Yeni fırsat'} ${refNo(d)} · ${d.customer_name || ''}`, personName(d.created_by), '#/kayit/' + d.id);
-    for (const x of S.stages || []) { const d = x.status === 'bitti' && dl(x.deal_id); if (d) add(x.done_at, 'uretim', `${refNo(d)} · ${stgName(x.stage)} bitti`, x.updated_by_name, '#/kayit/' + d.id); }
-  }
+  // her tazelemede son 14 gün yeniden okunur; sayfa açıldıktan sonra gelenler de görünsün
+  const sI = new Date(since).toISOString(), sD = sI.slice(0, 10), get = p => p.then(r => r.data || [], () => []);
+  const [nd, sg, pay, pur, tk, rm] = await Promise.all([
+    ord && get(sb.from('v_deals').select('id,order_no,opp_no,customer_name,created_at,created_by').is('deleted_at', null).gte('created_at', sI)),
+    ord && get(sb.from('deal_stages').select('deal_id,stage,status,done_at,updated_by_name').eq('status', 'bitti').gte('done_at', sI)),
+    get(sb.from('deal_payments').select('deal_id,received_at,received_name').gte('received_at', sD)),
+    get(sb.from('purchases').select('id,item_name,requested_at,requester_name').gte('requested_at', sD).order('requested_at', { ascending:false }).limit(40)),
+    get(sb.from('support_tickets').select('id,subject,opened_at,created_at,closed_at,assignee').order('last_activity_at', { ascending:false }).limit(60)),
+    get(sb.from('v_rma').select('id,code,customer_name,requested_at,received_at,shipped_back_at').order('updated_at', { ascending:false }).limit(40)),
+  ]);
+  const dm = new Map((S.deals || []).map(d => [d.id, d])); for (const d of nd || []) dm.set(d.id, { ...dm.get(d.id), ...d });
+  const dl = id => dm.get(id);
+  for (const d of nd || []) add(d.created_at, 'satis', `${d.order_no ? 'Yeni sipariş' : 'Yeni fırsat'} ${refNo(d)} · ${d.customer_name || ''}`, personName(d.created_by), '#/kayit/' + d.id);
+  for (const x of sg || []) { const d = dl(x.deal_id); if (d) add(x.done_at, 'uretim', `${refNo(d)} · ${stgName(x.stage)} bitti`, x.updated_by_name, '#/kayit/' + d.id); }
   // kim neyi değiştirdi (audit_log; her kişi yalnız kaynak tablosunu okuyabildiği kayıtları görür)
   const { data:au } = await sb.from('audit_log').select('table_name,row_id,action,changed_by,changed_at,old_data,new_data').not('changed_by', 'is', null).neq('table_name', 'deal_items').order('id', { ascending:false }).limit(200);
   const edited = (o, n, skip) => Object.keys(n || {}).some(k => !skip.includes(k) && JSON.stringify((o || {})[k]) !== JSON.stringify(n[k])), seen = new Set();
@@ -368,11 +377,11 @@ async function feedItems(){
     else if (T === 'q_devices') { if (ins || (upd && edited(o, n, ['updated_at', 'updated_by_name']))) add(at, 'kalite', `Kalibrasyon cihazı ${ins ? 'eklendi' : 'güncellendi'}: ${x.name || x.code || ''}`, who, '#/kalibrasyon/' + x.id); }
     else if (T === 'kys_records') { if (ins || st) add(at, 'kalite', `Kalite kaydı ${ins ? 'açıldı' : 'durumu değişti'}: ${x.record_no || x.label || x.code || ''}`, who, '#/kalite'); }
   }
-  for (const x of S.payments || []) { const d = dl(x.deal_id); if (d) add(x.received_at, 'tahsilat', `${refNo(d)} · ödeme geldi`, x.received_name, ord ? '#/kayit/' + d.id : '#/tahsilat'); }
-  for (const x of S.purOpenList || []) add(x.requested_at, 'alim', `Yeni talep: ${x.item_name || ''}`, x.requester_name, '#/alimlar/' + x.id);
-  for (const t of S.tickets || []) { add(t.opened_at || t.created_at, 'support', `Yeni support #${t.id}: ${t.subject || ''}`, '', '#/support/' + t.id);
+  for (const x of pay) { const d = dl(x.deal_id); if (d) add(x.received_at, 'tahsilat', `${refNo(d)} · ödeme geldi`, x.received_name, ord ? '#/kayit/' + d.id : '#/tahsilat'); }
+  for (const x of pur) add(x.requested_at, 'alim', `Yeni talep: ${x.item_name || ''}`, x.requester_name, '#/alimlar/' + x.id);
+  for (const t of tk) { add(t.opened_at || t.created_at, 'support', `Yeni support #${t.id}: ${t.subject || ''}`, '', '#/support/' + t.id);
     add(t.closed_at, 'support', `Support kapandı #${t.id}: ${t.subject || ''}`, personName(t.assignee), '#/support/' + t.id); }
-  for (const r of S.rmas || []) { const h = '#/rma/' + r.id;
+  for (const r of rm) { const h = '#/rma/' + r.id;
     add(r.requested_at, 'rma', `Yeni RMA ${r.code} · ${r.customer_name || ''}`, '', h); add(r.received_at, 'rma', `${r.code} cihaz geldi`, '', h); add(r.shipped_back_at, 'rma', `${r.code} geri gönderildi`, '', h); }
   return out.sort((a, b) => b.ms - a.ms).slice(0, 30);
 }
@@ -380,6 +389,7 @@ const feedDay = ms => { const d = new Date(ms), t = new Date(); t.setHours(0, 0,
   return diff === 0 ? 'Bugün' : diff === 1 ? 'Dün' : d.toLocaleDateString('tr-TR', { day:'numeric', month:'long', weekday:'long' }); };
 async function fillFeed(){
   const box = q('#feed'); if (!box || !matchMedia(FEED_MQ).matches) return;
+  feedLive();
   const draw = () => { const el = q('#feedl'); if (!el || !S._feed) return; box.hidden = !S._feed.items.length; let last = '';
     el.innerHTML = S._feed.items.map(i => { const day = feedDay(i.ms), h = day !== last ? `<div class="feed-day">${day}</div>` : ''; last = day;
       return `${h}<a class="feed-i k-${i.kind}" href="${i.href}"><span>${esc(i.txt)}</span><small>${[i.who && esc(i.who), !i.dOnly && new Date(i.ms).toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' })].filter(Boolean).join(' · ')}</small></a>`; }).join('');
@@ -389,6 +399,16 @@ async function fillFeed(){
   draw(); document.fonts && document.fonts.ready.then(draw); // yazı tipi yüklenince satır boyu değişir
   if (S._feed && Date.now() - S._feed.at < 60e3) return;
   S._feed = { at:Date.now(), items: await feedItems().catch(() => []) }; draw();
+}
+// yeni hareket gelince tazele: audit_log'a eklenen satır anında (Realtime, RLS'e göre);
+// kayda girmeyen senkron işleri (support) için 2 dk'da bir ve sekmeye dönünce
+let feedT;
+const feedKick = () => { clearTimeout(feedT); feedT = setTimeout(() => { if (S._feed) S._feed.at = 0; fillFeed(); }, 1500); };
+function feedLive(){
+  if (S._feedLive) return; S._feedLive = true;
+  if (sb.channel) sb.channel('feed').on('postgres_changes', { event:'INSERT', schema:'public', table:'audit_log' }, feedKick).subscribe();
+  setInterval(() => document.hidden || feedKick(), 120e3);
+  document.addEventListener('visibilitychange', () => document.hidden || feedKick());
 }
 let feedRz; addEventListener('resize', () => { clearTimeout(feedRz); feedRz = setTimeout(fillFeed, 200); });
 
