@@ -4932,7 +4932,7 @@ const kHead = (K, it, o) => `<div class="dochead"><div class="lg">${kLogo}ACROME
 
 function kysNav(K, sub, code){
   const cur = sub === 'm' ? code : sub === 'i' && K.BY[code] ? K.BY[code]._m.id : '';
-  return `<div class="toolbar noprint knav"><div class="seg"><a class="segl ${!sub ? 'on' : ''}" href="#/kalite">Genel bakış</a><a class="segl ${sub === 'belgeler' ? 'on' : ''}" href="#/kalite/belgeler">Doküman listesi <span class="sub">${K.ITEMS.length}</span></a><a class="segl ${sub === 'proje' ? 'on' : ''}" href="#/kalite/proje">Projeler <span class="sub">${K.P.length}</span></a></div>
+  return `<div class="toolbar noprint knav"><div class="seg"><a class="segl ${!sub ? 'on' : ''}" href="#/kalite">Genel bakış</a><a class="segl ${sub === 'belgeler' ? 'on' : ''}" href="#/kalite/belgeler">Doküman listesi</a><a class="segl ${sub === 'proje' ? 'on' : ''}" href="#/kalite/proje">Projeler</a></div>
     <select id="kmsel" aria-label="Süreç"><option value="">Süreç seç…</option>${K.M.map(m => `<option value="${esc(m.id)}" ${cur === m.id ? 'selected' : ''}>${m._no} · ${esc(m.title)}</option>`).join('')}</select></div>`;
 }
 function kysDf(K){
