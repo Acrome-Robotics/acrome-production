@@ -4927,7 +4927,7 @@ const kSecs = ss => (ss || []).map(s => `<div class="sec"><h3>${esc(s.h)}</h3><d
 const kTables = (K, it) => [].concat(it.table || [], it.tables || []).map(t => `${t.caption ? `<div class="cap">${esc(t.caption)}</div>` : ''}${kTbl(K, t.columns, t.rows)}`).join('');
 const kHist = (K, it) => `<div class="sec"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], (it.history || [[it.rev || '00', kDate(K, it), 'İlk yayın']]).slice().reverse())}</div>`;
 const kLive = it => KYS_LIVE[it.code] ? `<p class="banner info noprint">Güncel kayıtlar Acrome ERP yazılımında tutulur: <a href="${KYS_LIVE[it.code][0]}">${KYS_LIVE[it.code][1]} →</a>${it.kind === 'form' ? '' : ' Aşağıdaki döküm belgenin yayın tarihindeki durumdur.'}</p>` : '';
-const kHead = (K, it, o) => `<div class="dochead"><div class="lg">${kLogo}ACROME</div><div class="tt">${esc(o.title)}<small>${esc(kType(it))}${o.proj ? ' · ' + esc(o.proj) : ''}</small></div>
+const kHead = (K, it, o) => `<div class="dochead"><div class="lg">${kLogo}ACROME</div><div class="tt">${esc(o.title)}<small>${esc(o.proj || kType(it))}</small></div>
   <div class="mt"><div><b>Doküman no</b><span>${esc(o.no)}</span></div><div><b>Revizyon</b><span>${esc(o.rev)}</span></div><div><b>Yayın tarihi</b><span>${esc(o.date)}</span></div><div><b>Doküman sahibi</b><span>${esc(it.owner)}</span></div><div><b>Süreç</b><span>${it._m._no}</span></div></div></div>`;
 
 function kysNav(K, sub, code){
