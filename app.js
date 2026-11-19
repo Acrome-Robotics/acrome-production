@@ -4337,7 +4337,7 @@ async function viewSuppliers(id){
         <p class="note">Hesapları yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici görür.</p></section>
       <section class="panel mt"><h2>Başka bir kayıtla birleştir</h2><p class="note" style="margin-top:0">Aynı firma iki kez kayıtlıysa seçtiğiniz kayıt bu firmaya katılır: alımları, parçaları ve site hesapları buraya taşınır; iletişim, e-posta, web, parça ve notlar eklenir, hiçbir bilgi silinmez. Seçilen kayıt sonra kaldırılır.</p>
         <div class="row r2"><label class="f">Bu firmaya katılacak kayıt<select id="smerge"><option value="">—</option>${all.filter(x => x.id !== s.id).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label><div style="align-self:end"><button class="btn" id="smergeb">Birleştir</button></div></div></section>` : ''}</div>
-    <aside><section class="panel"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total, p.currency)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
+    <aside>${s.id ? '<section class="panel" id="skarne"><h2>Karne <span class="sub">son 12 ay</span></h2><p class="note">Yükleniyor…</p></section>' : ''}<section class="panel${s.id ? ' mt' : ''}"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total, p.currency)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
     q('#suf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null; if (!g('name')) return toast('Firma adı girin', true);
       const o = { name:g('name'), kind:f.kind.value, grp:f.grp.value || null, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason'),
         approval:f.approval.value || null, approval_date:g('approval_date'), score:num0(g('score')), score_date:g('score_date'), certs:g('certs'), approval_note:g('approval_note') };
@@ -4351,6 +4351,9 @@ async function viewSuppliers(id){
     if (q('#accbox')) { const box = q('#accbox'), open = a => { box.innerHTML = accForm(a, all); bindAccForm(box, a, () => viewSuppliers(s.id)); box.scrollIntoView({ block:'nearest' }); };
       bindAccCells(document); q('#accadd').onclick = () => open({ supplier_id:s.id, kind:s.kind === 'kargo' ? 'kargo' : 'tedarikci', name:s.name, url:(s.websites || '').startsWith('http') ? s.websites : '' });
       qa('.aedit').forEach(b => b.onclick = () => open(ACC.find(a => a.id === +b.closest('tr').dataset.aid))); }
+    if (s.id) supKarne().then(K => { const b = q('#skarne'); if (!b) return; const k = K[s.id];
+      b.innerHTML = `<h2>Karne <span class="sub">son 12 ay</span></h2>${k ? `<dl class="kv">${[['Zamanında teslim', k.m ? `${k.k} / ${k.m} · <b>%${Math.round(100 * k.k / k.m)}</b>` : '<span class="sub">termini girilmiş teslim yok</span>'], ['Giriş kontrolü', k.gec + k.sar + k.kal ? `${k.gec} geçti · ${k.sar} şartlı · <span class="${k.kal ? 'late-txt' : ''}">${k.kal} kaldı</span>` : '<span class="sub">kayıt yok</span>'], ['Uygunsuzluk', k.ncr]].map(([a, v]) => `<dt>${a}</dt><dd>${v}</dd>`).join('')}</dl>` : '<p class="note">Son 12 ayda termini girilmiş teslim, giriş kontrolü veya uygunsuzluk yok.</p>'}
+        <p class="note">Zamanında = teslim tarihi ≤ son girilen termin. Yıllık değerlendirmede "Puan" alanına buradan bakarak girin.</p>`; });
     return;
   }
   const st = tdState;
@@ -4361,11 +4364,30 @@ async function viewSuppliers(id){
   const draw = () => { const ql = (q('#tq').value || '').trim().toLocaleLowerCase('tr');
     const ap = q('#tap').value;
     const r = all.filter(s => (!st.grp || (s.grp || '_') === st.grp) && (!ap || (s.approval || '_') === ap) && (!ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.websites, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql)));
-    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${[...Object.keys(SUP_GRP), '_'].map(gk => { const rs = r.filter(s => (s.grp || '_') === gk); return rs.length ? `<tr class="secrow"><td colspan="${ed ? 5 : 4}">${gk === '_' ? 'Grupsuz' : SUP_GRP[gk]} <span class="sub">${rs.length}</span></td></tr>` + rs.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''} ${supAppPill(s.approval)}${s.score != null ? ` <span class="sub">${fmtQ(s.score)} puan</span>` : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('') : ''; }).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${[...Object.keys(SUP_GRP), '_'].map(gk => { const rs = r.filter(s => (s.grp || '_') === gk); return rs.length ? `<tr class="secrow"><td colspan="${ed ? 5 : 4}">${gk === '_' ? 'Grupsuz' : SUP_GRP[gk]} <span class="sub">${rs.length}</span></td></tr>` + rs.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''} ${supAppPill(s.approval)}${s.score != null ? ` <span class="sub">${fmtQ(s.score)} puan</span>` : ''}${karneTxt(KR[s.id]) ? `<div class="sub">Karne: ${karneTxt(KR[s.id])}</div>` : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('') : ''; }).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     rowNav('#ttbl tr[data-sid]', 'sid', 'tedarikciler'); };
+  let KR = {};
   draw(); q('#tq').oninput = draw; q('#tap').onchange = draw;
+  supKarne().then(K => { KR = K; q('#ttbl') && draw(); });
   qa('#tgrp button').forEach(b => b.onclick = () => { st.grp = b.dataset.g; qa('#tgrp button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
 }
+
+// ==== Tedarikçi karnesi ====
+// Ağırlıklı tek puan yok (ağırlıklar Kalite'nin kararı); ölçütler ayrı gösterilir. Termin alanı 16.11'den önce yoktu, eski teslimler zamanında oranına girmez.
+async function supKarne(){
+  if (S._karne && Date.now() - S._karne.at < 120e3) return S._karne.K;
+  const since = addDays(today(), -365), get = p => p.then(r => r.data || [], () => []);
+  const [P, I, N] = await Promise.all([get(sb.from('purchases').select('supplier_id,expected_at,purchased_at').eq('status', 'alindi').not('supplier_id', 'is', null).not('expected_at', 'is', null).gte('purchased_at', since)),
+    get(sb.from('purchase_inspections').select('supplier_id,result').is('voided_at', null).gte('inspected_at', since)),
+    get(sb.from('ncr').select('source_id').eq('source_kind', 'purchase').gte('opened_at', since))]);
+  const NP = N.length ? await get(sb.from('purchases').select('supplier_id').in('id', N.map(n => n.source_id))) : [];
+  const K = {}, k = id => K[id] = K[id] || { m:0, k:0, gec:0, sar:0, kal:0, ncr:0 };
+  P.forEach(p => { const x = k(p.supplier_id); x.m++; if (p.purchased_at <= p.expected_at) x.k++; });
+  I.forEach(i => { if (!i.supplier_id) return; const x = k(i.supplier_id); if (i.result === 'gecti') x.gec++; else if (i.result === 'sartli') x.sar++; else if (i.result === 'kaldi') x.kal++; });
+  NP.forEach(p => p.supplier_id && k(p.supplier_id).ncr++);
+  S._karne = { at:Date.now(), K }; return K;
+}
+const karneTxt = k => !k ? '' : [k.m ? `%${Math.round(100 * k.k / k.m)} zamanında` : '', k.kal ? `${k.kal} red` : '', k.ncr ? `${k.ncr} uygunsuzluk` : ''].filter(Boolean).join(' · ');
 
 function viewAccounts(sups, ACC){
   if (!canPurchase()) return shell('tedarikciler-hesap', '<h1>Erişim yok</h1><p class="lede">Site hesaplarını Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici rolleri görür.</p>');

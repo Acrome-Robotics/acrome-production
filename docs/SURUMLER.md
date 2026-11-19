@@ -8,4 +8,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611200036 | 20.11.2026 00:36 | Küçük iyileştirmeler: fırsat aşaması detaydan, Gönderildi onay penceresi (sevk tarihi + ödeme planı uyarısı), sipariş verildi termin ipucu, hatalı alan işareti, boş bölümle yürürlüğe alma uyarısı, aşama yetki mesajında bölüm adı |
 | 202611200046 | 20.11.2026 00:46 | BOM'dan siparişe bağlı talep, sipariş detayında malzeme ve kalite zaman çizelgesi, siparişe kalite projesi + proje riskleri, Son hareketler küçültülebilir; bildirim dağılımı (toplu talepte tek özet) sql |
 | 202611200055 | 20.11.2026 00:55 | Stok: kritik / stoğu biten parçadan tek tıkla alım talebi (miktar min-stok, son tedarikçi ve fiyat) |
-| 202611200105 | 20.11.2026 01:05 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611200105 | 20.11.2026 01:05 | Cihaz geçmişi: #/cihaz/<seri no> (checklist, aşama, sevk, motor testi, support, RMA tek zaman çizgisinde; toleranslı eşleşme), seri no linkleri ve aramada Cihaz |
+| 202611200107 | 20.11.2026 01:07 | (bu commit; mesajı bir sonraki commit'te yazılır) |
