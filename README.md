@@ -179,6 +179,12 @@ Kalite bölümü eklenmeden hemen önceki geri dönülebilir nokta.
 - Hiçbir tabloya kayıt tohumlanmadı; uygunsuzluk, cihaz ve form kayıtları boş başlar.
 - Veritabanı: `sql/2026-11-15_kalite.sql`.
 
+## Milestone 4 — 20 Kasım 2026 (`milestone-4-2026-11-20`)
+Cihaz geçmişi, tedarikçi karnesi, otomatik süreç hedefleri, denetim paketi ve QR eklenmeden hemen önceki geri dönülebilir nokta.
+- **Kod:** `git checkout milestone-4-2026-11-20` (GitHub'da aynı adlı dal; `main`'in 20488c4 hâli).
+- **Veri:** Supabase'te `snap_20261120` şemasında tüm public tabloların (73) kopyası. Tek tablo geri yükleme: `truncate public.X cascade; insert into public.X select * from snap_20261120.X;` (yalnızca yönetici, önce yeni bir yedek alın).
+- **Şema:** migration geçmişinde `milestone_snapshot_20261120`; sonrası `kpi_otomatik_2026_11_20` (`q_kpis.auto_metric` + `kpi_auto()`), geri alma `sql/2026-11-20_kpi_otomatik_geri.sql`.
+
 ## Milestone 3 — 16 Kasım 2026 (`milestone-3-2026-11-16`)
 Kalitede çoklu proje ve yeni kalite sayfaları eklenmeden hemen önceki geri dönülebilir nokta.
 - **Kod:** `git checkout milestone-3-2026-11-16` (GitHub'da aynı adlı dal; `main`'in f70e859 hâli).
