@@ -5254,6 +5254,10 @@ async function viewCondAccept(){
 // Değeri yalnız sorumlusu girer (Kalite + Yönetici de girebilir); tanım ekleme, düzenleme ve silme Kalite + Yönetici.
 const KPI_DEPS = ['Kalite', 'Üretim', 'Satış', 'Support', 'Tedarik', 'Proje', 'Yazılım', 'Elektronik', 'Mekanik', 'İK', 'Yönetim'];
 const KPI_OPS = { '>=':'En az (≥)', '<=':'En çok (≤)', '=':'Eşit (=)', manual:'Elle (tuttu / tutmadı)' };
+// otomatik ölçüt: değer veritabanında kpi_auto ile hesaplanır, forma önerilir; kaydedilen değer o dönem için donar
+const KPI_AUTO = { zamaninda_sevk:['Zamanında sevk oranı (sevk ≤ planlanan, iç siparişler hariç)', '%'], rma_kapanis:['Ortalama RMA kapanış süresi (talep → teslim)', 'gün'], support_ilk_cevap:['Support ilk cevap süresi (açılış → ilk giden mesaj)', 'saat'],
+  giris_red:['Giriş kontrol red oranı', '%'], tedarikci_zamaninda:['Tedarikçi zamanında teslim (teslim ≤ termin)', '%'] };
+const kpFrom = (k, pe) => { const d = new Date(pe + 'T12:00:00Z'); d.setUTCMonth(d.getUTCMonth() - ({ 'Aylık':1, 'Yıllık':12 }[k.freq] || 3)); return addDays(d.toISOString().slice(0, 10), 1); };
 const canKpi = () => can('viewer', 'sales', 'production', 'orders', 'support', 'purchasing', 'stock', 'muhasebe', 'kalite', 'admin');
 let KP = null, kpSel = null, kpMode = '', kpF = { s:'', dep:'', proc:'', own:'', prj:'', st:'' };
 const kpOwn = id => (KP.ppl.find(p => p.id === id) || {}).name || '';
@@ -5283,12 +5287,12 @@ function kpVForm(k){
   return `<form id="kpvf" class="fs" novalidate><h3>Değer gir</h3><fieldset class="plainfs"><div class="row r4"><label class="f">Dönem sonu<input type="date" name="pe" value="${pe}" max="${T}"></label>
     ${k.op === 'manual' ? `<label class="f">Sonuç<select name="met"><option value="">Seçin…</option><option value="true">Tuttu</option><option value="false">Tutmadı</option></select></label><label class="f">Açıklama <span class="hint">isteğe bağlı</span><input name="vt"></label>`
       : `<label class="f">Değer${k.unit ? ` (${esc(k.unit)})` : ''}<input type="text" inputmode="decimal" name="vn"></label>`}
-    <label class="f">Not <span class="hint">isteğe bağlı</span><input name="note"></label></div><p><button class="btn primary">Kaydet</button> <span class="sub">Aynı dönem sonu varsa değer güncellenir.</span></p></fieldset></form>`;
+    <label class="f">Not <span class="hint">isteğe bağlı</span><input name="note"></label></div>${k.auto_metric && k.op !== 'manual' ? '<p class="note" id="kpauto">Otomatik değer hesaplanıyor…</p>' : ''}<p><button class="btn primary">Kaydet</button> <span class="sub">Aynı dönem sonu varsa değer güncellenir.</span></p></fieldset></form>`;
 }
 function kpDetail(k){
   const V = KP.V[k.id] || [], ed = canQ(), pj = kpPj(k), f = (l, h) => `<div><div class="sub">${l}</div>${h || '—'}</div>`;
   return `<div class="panel kp-det"><div class="pagehead" style="margin-bottom:10px"><div><h2 style="margin:0">${esc(k.code)} · ${esc(k.indicator)}</h2></div><div>${ed ? '<button class="btn" id="kpedit">Düzenle</button> <button class="btn danger" id="kpdel">Sil</button> ' : ''}<button class="btn" id="kpclose">Kapat</button></div></div>
-  <div class="kp-info">${f('Süreç', esc(k.process))}${f('Departman', esc(k.department || ''))}${f('Proje', pj ? esc(kPName(pj)) : 'Kurumsal')}${f('Sorumlu', esc(kpOwn(k.owner_id)))}${f('Hedef', esc(k.target_text))}${f('Ölçüm sıklığı', esc(k.freq))}${f('Sonraki ölçüm', k.active ? fmtD(k.next_due) : 'Pasif')}${f('İlk ölçüm tarihi', fmtD(k.start_date))}</div>
+  <div class="kp-info">${f('Süreç', esc(k.process))}${f('Departman', esc(k.department || ''))}${f('Proje', pj ? esc(kPName(pj)) : 'Kurumsal')}${f('Sorumlu', esc(kpOwn(k.owner_id)))}${f('Hedef', esc(k.target_text))}${f('Ölçüm sıklığı', esc(k.freq))}${f('Sonraki ölçüm', k.active ? fmtD(k.next_due) : 'Pasif')}${f('İlk ölçüm tarihi', fmtD(k.start_date))}${k.auto_metric ? f('Otomatik ölçüt', esc(KPI_AUTO[k.auto_metric][0])) : ''}</div>
   <p><span class="sub">Formül</span><br>${esc(k.formula || '—')}</p><p><span class="sub">Kaynak / yöntem</span><br>${esc(k.source)}</p>
   <h3>Değer geçmişi</h3>${V.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Dönem sonu</th><th class="nosort">Değer</th><th class="nosort">Not</th><th class="nosort">Giren</th>${ed ? '<th class="nosort"></th>' : ''}</tr></thead><tbody>${V.map(v => `<tr style="cursor:default"><td style="white-space:nowrap">${fmtD(v.period_end)}</td><td class="kp-${kpSt(v)}"><b>${esc(kpShow(k, v))}</b>${v.value_text && v.value_num != null ? `<div class="sub">${esc(v.value_text)}</div>` : ''}${v.value_num == null && v.value_text && v.met != null ? `<div class="sub">${esc(v.value_text)}</div>` : ''}</td><td>${esc(v.note || '')}</td><td class="sub">${esc(v.entered_by_name || '')}${v.entered_at ? ', ' + fmtDT(v.entered_at) : ''}</td>${ed ? `<td><button class="btn sm danger" data-vdel="${v.id}">Sil</button></td>` : ''}</tr>`).join('')}</tbody></table></div>` : '<p class="sub">Henüz değer girilmedi.</p>'}
   ${ed || k.owner_id === S.profile.id ? kpVForm(k) : ''}</div>`;
@@ -5304,6 +5308,7 @@ function kpForm(k){
       <label class="f">Karşılaştırma${sel('op', Object.entries(KPI_OPS), d.op)}</label><label class="f">Hedef değer<input name="target_num" inputmode="decimal" value="${v('target_num')}"></label></div>
     <div class="row r4"><label class="f">Hedef metni <span class="hint">boşsa değerden yazılır</span><input name="target_text" value="${v('target_text')}"></label><label class="f">Birim<input name="unit" value="${v('unit')}" placeholder="%, gün, adet"></label>
       <label class="f">İlk ölçüm tarihi<input type="date" name="start_date" value="${v('start_date')}"></label><label class="f">Durum${sel('active', [['true', 'Aktif'], ['false', 'Pasif (hatırlatma yok)']], String(d.active))}</label></div>
+    <label class="f">Otomatik ölçüt <span class="hint">seçilirse değer girerken sistem hesaplar ve önerir</span>${sel('auto_metric', Object.entries(KPI_AUTO).map(([x, [l, u]]) => [x, `${l} · ${u}`]), d.auto_metric, 'Yok (elle)')}</label>
     <label class="f">Kaynak / yöntem <span class="hint">değer nereden alınır, nasıl hesaplanır</span><textarea name="source" rows="2">${v('source')}</textarea></label>
     <p><button class="btn primary">Kaydet</button> <button type="button" class="btn" id="kpcancel">Vazgeç</button></p></fieldset></form></div>`;
 }
@@ -5336,6 +5341,14 @@ async function viewKpis(){
     const { error } = await sb.from('q_kpis').delete().eq('id', k.id); if (error) return toast(dbErr(error), true); toast('Silindi'); kpSel = null; viewKpis(); });
   qa('[data-vdel]').forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'Emin misin? Tekrar bas')) return;
     const { error } = await sb.from('q_kpi_values').delete().eq('id', +b.dataset.vdel); if (error) return toast(dbErr(error), true); toast('Silindi'); viewKpis(); });
+  if (q('#kpauto')) { const k = kpCur(), f = q('#kpvf').elements, box = q('#kpauto');
+    const calc = async () => { const pe = f.pe.value; if (!pe) return; const fr = kpFrom(k, pe); box.textContent = 'Otomatik değer hesaplanıyor…';
+      const { data, error } = await sb.rpc('kpi_auto', { p_metric:k.auto_metric, p_from:fr, p_to:pe }); if (!box.isConnected || f.pe.value !== pe) return;
+      const r = (data || [])[0]; if (error) return box.textContent = 'Otomatik değer alınamadı: ' + dbErr(error);
+      if (!r || r.value == null) return box.textContent = `Otomatik: ${fmtD(fr)} – ${fmtD(pe)} döneminde veri yok.`;
+      box.innerHTML = `Otomatik: <b>${esc(kFmt(+r.value))}${k.unit ? ' ' + esc(k.unit) : ''}</b> <span class="sub">(${fmtD(fr)} – ${fmtD(pe)}, ${r.n} kayıt)</span> <button type="button" class="btn sm" id="kpaput">Değere yaz</button>`;
+      q('#kpaput').onclick = () => { f.vn.value = String(r.value).replace('.', ','); if (!f.note.value) f.note.value = `Otomatik (${r.n} kayıt)`; }; };
+    f.pe.onchange = calc; calc(); }
   q('#kpvf') && (q('#kpvf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const k = kpCur(), f = e.target.elements, pe = f.pe.value;
     if (!pe) return toast('Dönem sonu tarihini girin', true); if (pe > today()) return toast('Dönem sonu bugünden ileri olamaz', true);
     const o = { kpi_id:k.id, period_end:pe, note:f.note.value.trim() || null };
@@ -5351,7 +5364,7 @@ async function viewKpis(){
     const tt = g('target_text') || (op === 'manual' ? null : ({ '>=':'≥ ', '<=':'≤ ', '=':'' }[op]) + (unit === '%' ? '%' + kFmt(tn) : kFmt(tn) + (unit ? ' ' + unit : '')));
     if (!tt) return toast('Elle değerlendirilen hedef için hedef metni yazın', true);
     const o = { code, process:g('process'), department:g('department'), indicator:g('indicator'), formula:g('formula'), owner_id:g('owner_id'), freq:f.freq.value, op, target_num:tn, target_text:tt, unit, source:g('source'),
-      project_id:g('project_id') ? +g('project_id') : null, start_date:g('start_date'), active:f.active.value === 'true' };
+      project_id:g('project_id') ? +g('project_id') : null, start_date:g('start_date'), active:f.active.value === 'true', auto_metric:f.auto_metric.value || null };
     const r = k ? await sb.from('q_kpis').update(o).eq('id', k.id).select('id') : await sb.from('q_kpis').insert(o).select('id');
     if (r.error) return toast(/q_kpis_code_key/.test(r.error.message) ? 'Bu KPI No başka bir hedefte kullanılıyor' : dbErr(r.error), true);
     toast('Kaydedildi'); kpSel = r.data[0] ? r.data[0].id : null; kpMode = ''; viewKpis(); }); });

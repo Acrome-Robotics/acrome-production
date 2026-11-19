@@ -9,4 +9,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611200046 | 20.11.2026 00:46 | BOM'dan siparişe bağlı talep, sipariş detayında malzeme ve kalite zaman çizelgesi, siparişe kalite projesi + proje riskleri, Son hareketler küçültülebilir; bildirim dağılımı (toplu talepte tek özet) sql |
 | 202611200055 | 20.11.2026 00:55 | Stok: kritik / stoğu biten parçadan tek tıkla alım talebi (miktar min-stok, son tedarikçi ve fiyat) |
 | 202611200105 | 20.11.2026 01:05 | Cihaz geçmişi: #/cihaz/<seri no> (checklist, aşama, sevk, motor testi, support, RMA tek zaman çizgisinde; toleranslı eşleşme), seri no linkleri ve aramada Cihaz |
-| 202611200107 | 20.11.2026 01:07 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611200107 | 20.11.2026 01:07 | Tedarikçi karnesi: son 12 ay zamanında teslim, giriş kontrolü, uygunsuzluk (detayda panel, listede özet); ağırlıklı puan Kalite kararına kadar yok |
+| 202611200110 | 20.11.2026 01:10 | (bu commit; mesajı bir sonraki commit'te yazılır) |
