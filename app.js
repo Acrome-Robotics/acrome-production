@@ -5028,6 +5028,20 @@ async function kysProject(K, P){
 }
 
 // ---- Belge görünümü (genel ya da proje bağlamında)
+// tablo satırı: kysForm ve "+ Satır ekle" ortak kullanır
+function kysTr(k, cols, calc, r, ri, ad, E){
+  return `<tr>${cols.map((c, j) => { const cv = String(kBlank(r[j]) ?? '');
+    return `<td>${j === 0 && !ad && cv.trim() ? kSafe(cv) : (calc.some(x => x.col === j) ? `<input type="text" value="${esc(E ? cv : '')}" aria-label="${esc(c)}" data-c="${j}" data-k="${k}:${ri}:${j}" readonly tabindex="-1" class="calc">`
+      : `<textarea rows="1" class="ag" aria-label="${esc(c)}" data-c="${j}" data-k="${k}:${ri}:${j}">${esc(E ? cv : '')}</textarea>`)}</td>`; }).join('')}${ad ? '<td class="noprint"><button type="button" class="btn sm krdel" title="Satırı sil" aria-label="Satırı sil">×</button></td>' : ''}</tr>`;
+}
+// satır ekle/sil: anahtarlar 0..n-1 kalsın (kayıtta boşluk olmasın)
+function kysReidx(w){ qa('tbody tr', w).forEach((tr, ri) => qa('[data-c]', tr).forEach(x => { x.dataset.k = `${w.dataset.fk}:${ri}:${x.dataset.c}`; })); }
+function kysAddRow(w){ const cols = JSON.parse(w.dataset.cols || '[]'), calc = JSON.parse(w.dataset.calc || '[]'), tb = w.querySelector('tbody');
+  tb.insertAdjacentHTML('beforeend', kysTr(esc(w.dataset.fk), cols, calc, [], tb.children.length, true, false)); kysReidx(w); const t = tb.lastElementChild.querySelector('textarea'); t && t.focus(); }
+// kayıt açılırken satır sayısı kayıttakine eşitlenir (silinmiş varsayılan satırlar geri gelmesin)
+function kysFitRows(sheet, v){ qa('.ftable[data-add]', sheet).forEach(w => { const pre = w.dataset.fk + ':'; let n = 0;
+  Object.keys(v).forEach(key => { const m = key.startsWith(pre) && /^(\d+):\d+$/.exec(key.slice(pre.length)); if (m) n = Math.max(n, +m[1] + 1); });
+  if (!n) return; const tb = w.querySelector('tbody'); while (tb.children.length < n) kysAddRow(w); while (tb.children.length > n) tb.lastElementChild.remove(); kysReidx(w); }); }
 function kysForm(K, it, P){
   const E = kysMode === 'proj' && it.pk && (!P || P.code === it.pk), dp = P || kPjCode(K, it.pk); let n = 0;
   const fld = (gk, f) => { const id = 'kf' + (n++), k = esc(gk + ':' + f.l), raw = E ? f.v ?? '' : '', v = Array.isArray(raw) ? raw : kBlank(raw), w = f.w || (['textarea', 'table'].includes(f.t) ? 3 : 1), cls = w === 3 ? 'w3' : w === 2 ? 'w2' : '';
@@ -5036,10 +5050,10 @@ function kysForm(K, it, P){
     else if (f.t === 'select') ctl = `<select id="${id}" data-k="${k}"><option value=""></option>${(f.o || []).map(o => `<option ${vs.includes(o) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     else if (f.t === 'radio' || f.t === 'checks') ctl = `<div class="opts">${(f.o || []).map(o => `<label><input type="${f.t === 'radio' ? 'radio' : 'checkbox'}" name="${id}" data-k="${k}:${esc(o)}" ${vs.includes(o) ? 'checked' : ''}> ${esc(o)}</label>`).join('')}</div>`;
     else if (f.t === 'textarea') ctl = `<textarea id="${id}" data-k="${k}">${esc(v)}</textarea>`;
-    else if (f.t === 'table') { const rows = f.rows || [], cols = f.columns || [];
-      ctl = `<div class="tablewrap ftable" data-calc="${esc(JSON.stringify(f.calc || []))}" data-mtbf="${f.mtbf ? +f.mtbf.col || 0 : ''}"><table><thead><tr>${cols.map(c => `<th class="nosort">${esc(c)}</th>`).join('')}</tr></thead><tbody>${(rows.length ? rows : [cols.map(() => ''), cols.map(() => ''), cols.map(() => '')]).map((r, ri) => `<tr>${cols.map((c, j) => { const cv = String(kBlank(r[j]) ?? '');
-        return `<td>${j === 0 && cv.trim() ? kSafe(cv) : ((f.calc || []).some(x => x.col === j) ? `<input type="text" value="${esc(E ? cv : '')}" aria-label="${esc(c)}" data-c="${j}" data-k="${k}:${ri}:${j}" readonly tabindex="-1" class="calc">`
-          : `<textarea rows="1" class="ag" aria-label="${esc(c)}" data-c="${j}" data-k="${k}:${ri}:${j}">${esc(E ? cv : '')}</textarea>`)}</td>`; }).join('')}</tr>`).join('')}</tbody></table>${f.mtbf ? '<p class="small mtbf-out" style="margin:6px 0 0"></p>' : ''}</div>`; }
+    else if (f.t === 'table') { const rows = f.rows || [], cols = f.columns || [], calc = f.calc || [], ad = !!f.addRows, blank = () => cols.map(() => '');
+      // addRows: tüm hücreler (ilk sütun dahil) düzenlenir; proje bağlamı yoksa varsayılan satırlar boş gelir
+      const rs = rows.length && !(ad && !E) ? rows : [blank(), blank(), blank()];
+      ctl = `<div class="tablewrap ftable" data-calc="${esc(JSON.stringify(calc))}" data-mtbf="${f.mtbf ? +f.mtbf.col || 0 : ''}" ${ad ? `data-add="1" data-fk="${k}" data-cols="${esc(JSON.stringify(cols))}"` : ''}><table><thead><tr>${cols.map(c => `<th class="nosort">${esc(c)}</th>`).join('')}${ad ? '<th class="nosort noprint"></th>' : ''}</tr></thead><tbody>${rs.map((r, ri) => kysTr(k, cols, calc, r, ri, ad, E)).join('')}</tbody></table>${ad ? '<p class="noprint" style="margin:6px 0 0"><button type="button" class="btn sm kradd">+ Satır ekle</button></p>' : ''}${f.mtbf ? '<p class="small mtbf-out" style="margin:6px 0 0"></p>' : ''}</div>`; }
     else ctl = f.ro ? `<input id="${id}" type="text" readonly placeholder="kaydedince verilir" class="calc krno">` : w === 3 && f.t !== 'date' ? `<textarea id="${id}" rows="1" class="ag" data-k="${k}">${esc(v)}</textarea>` : `<input id="${id}" type="text" data-k="${k}" value="${esc(v)}" ${f.t === 'date' ? 'placeholder="gg.aa.yyyy"' : ''}>`;
     return `<label class="${cls}" ${['radio', 'checks', 'table'].includes(f.t) ? 'role="group"' : `for="${id}"`}>${esc(f.l)}${f.hint && !/^\s*\[/.test(f.hint) ? ` <span class="hint">${esc(f.hint)}</span>` : ''}${ctl}</label>`; };
   const signs = it.signoffs || ['Hazırlayan', 'Kontrol eden', 'Onaylayan'];
@@ -5121,7 +5135,7 @@ function kysFormBind(K, it, P){
     const { data, error } = await qq.order('id', { ascending:false }), R = data || [];
     box.innerHTML = `<h2>Kayıtlar <span class="tcount">${R.length}</span></h2>` + (error ? `<div class="empty">${esc(dbErr(error))}</div>` : R.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Kayıt no</th><th class="nosort">Kayıt</th><th class="nosort">Proje</th><th class="nosort">Durum</th><th class="nosort">Son değişiklik</th><th class="nosort"></th></tr></thead><tbody>${R.map(r => `<tr style="cursor:default" data-r="${r.id}"><td class="mono">${esc(r.record_no || '')}</td><td>${esc(r.label || '—')}</td><td>${esc((kPj(K, r.project_id) || {}).code || '')}</td><td>${esc(r.status || '')}</td><td class="sub">${who(r)}</td><td style="white-space:nowrap"><button type="button" class="btn sm kopen">Aç</button> <button type="button" class="btn sm kdel">Sil</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu formla henüz kayıt açılmadı. Formu doldurup "Kaydet" ile saklayın; kayıt numarası otomatik verilir.</p>');
     qa('.kopen', box).forEach(b => b.onclick = async () => { const rid = +b.closest('tr').dataset.r, { data:r } = await sb.from('kys_records').select('*').eq('id', rid).maybeSingle(); if (!r) return toast('Kayıt okunamadı', true);
-      const v = (r.data && r.data.v) || {}; F().forEach(x => { const val = v[x.dataset.k]; if (x.type === 'checkbox' || x.type === 'radio') x.checked = !!val; else x.value = val ?? ''; });
+      const v = (r.data && r.data.v) || {}; kysFitRows(sheet, v); F().forEach(x => { const val = v[x.dataset.k]; if (x.type === 'checkbox' || x.type === 'radio') x.checked = !!val; else x.value = val ?? ''; });
       kysRec = r.id; const no = q('.krno', sheet); if (no) no.value = r.record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.record_no || ''); kysRecalc(); kGrowAll(); window.scrollTo(0, 0); });
     qa('.kdel', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'Emin misin?')) return; const rid = +b.closest('tr').dataset.r;
       const { error } = await sb.from('kys_records').delete().eq('id', rid); if (error) return toast(dbErr(error), true); if (kysRec === rid) { kysRec = null; q('#kcur').textContent = ''; } toast('Silindi'); list(); }); };
@@ -5136,6 +5150,8 @@ function kysFormBind(K, it, P){
     if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Kaydedilemedi', true);
     kysRec = r.data[0].id; S._gsx = null; const no = q('.krno', sheet); if (no) no.value = r.data[0].record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.data[0].record_no || ''); toast((r.data[0].record_no || 'Kayıt') + ' kaydedildi'); list(); });
   q('#kclear').onclick = () => viewKys();
+  sheet.addEventListener('click', e => { const a = e.target.closest('.kradd'), d = e.target.closest('.krdel'), w = (a || d) && e.target.closest('.ftable'); if (!w) return;
+    if (a) kysAddRow(w); else { d.closest('tr').remove(); kysReidx(w); } kysRecalc(); kGrowAll(); });
 }
 async function viewKys(){
   const [, sub, arg, arg2] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/'), code = arg ? decodeURIComponent(arg) : '';

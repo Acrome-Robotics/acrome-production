@@ -778,6 +778,7 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
 .kys textarea.ag{font-weight:400;resize:none;overflow:hidden;min-height:30px;line-height:1.4;white-space:pre-wrap}
 .kys .ftable textarea.ag{min-width:14ch;min-height:26px}
 .kys input.calc{background:var(--soft);font-weight:650}
+.kys .ftable .krdel{padding:0 8px;line-height:1.3;min-height:24px}
 .kys .signs{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));border:1px solid var(--line);margin-top:16px}
 .kys .signs div{padding:8px 12px;border-left:1px solid var(--line);min-height:74px;font-size:12px;font-weight:650;color:var(--muted)}
 .kys .signs div:first-child{border-left:0}
@@ -813,8 +814,11 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
 .k-stok::before{background:#C9971C}.k-ekip::before{background:#D0558F}.k-kalite::before{background:#2F9E6B}
 @media print{.feed{display:none!important}}
 /* üst bar: arama + sık kullanılanlar (her sayfada) */
-.sbar{position:sticky;top:0;z-index:25;display:flex;gap:8px;align-items:center;margin:-28px -32px 18px;padding:10px 32px;background:var(--paper);border-bottom:1px solid var(--line)}
-.gsearch{position:relative;flex:1;max-width:640px;min-width:0}
+.sbar{position:sticky;top:0;z-index:25;display:flex;gap:8px;align-items:center;justify-content:flex-end;margin:-28px -32px 18px;padding:10px 32px;background:#DCE2E7;border-bottom:1px solid #C5CDD4}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .sbar{background:#26313B;border-bottom-color:#33414D}}
+:root[data-theme="dark"] .sbar{background:#26313B;border-bottom-color:#33414D}
+.sbar .gsearch input{background:var(--surface)}
+.gsearch{position:relative;flex:0 1 560px;min-width:0}
 .gsearch input{width:100%;padding-right:62px}
 .gs-kbd{position:absolute;right:8px;top:50%;transform:translateY(-50%);font:600 11px var(--font);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 5px;background:var(--surface);pointer-events:none}
 .gsearch input:focus+.gs-kbd{display:none}
