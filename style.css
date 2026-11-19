@@ -899,3 +899,28 @@ a.rowlink{color:inherit;text-decoration:none;display:block}a.rowlink:hover{text-
 .dlg h2{margin:0 0 12px;font-size:17px}
 .dlgact{display:flex;gap:8px;justify-content:flex-end;margin:14px 0 0}
 .btn.is-off{opacity:.55}
+
+/* sipariş detayı: malzeme ve kalite zaman çizelgesi */
+.chain{list-style:none;margin:8px 0 0;padding:0;border-left:2px solid var(--line)}
+.chain li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:6px 0 6px 14px;position:relative}
+.chain li::before{content:"";position:absolute;left:-6px;top:13px;width:10px;height:10px;border-radius:50%;background:var(--brand);border:2px solid var(--surface)}
+.chain li.fut{opacity:.6}
+.chain li.fut::before{background:var(--surface);border-color:var(--muted)}
+.chain .cdate{min-width:92px;color:var(--muted);font-size:13px;white-space:nowrap}
+.chain .ctag{font-size:11.5px;font-weight:650;letter-spacing:.03em;text-transform:uppercase;padding:1px 8px;border-radius:999px;background:var(--soft);color:var(--muted);white-space:nowrap}
+.chain .ct-uygunsuzluk,.chain .ct-rma{background:var(--red-soft);color:var(--red)}
+.chain .ct-giriş,.chain .ct-risk{background:var(--amber-soft);color:var(--amber)}
+.chain .ct-stok,.chain .ct-ödeme{background:var(--green-soft);color:var(--green)}
+@media (max-width:520px){.chain .cdate{min-width:0;width:100%}}
+
+/* son hareketler paneli küçültülünce ince dikey şerit kalır, orta sütun genişler */
+.feed-h{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.feed-h h2{margin:0 0 6px 8px}
+.feed-vt{display:none}
+@media (min-width:1760px){
+  .shell:has(.feed-min:not([hidden])){grid-template-columns:244px minmax(0,1fr) 44px}
+  .feed.feed-min:not([hidden]){padding:14px 0;cursor:pointer;text-align:center}
+  .feed-min .feed-h{justify-content:center}
+  .feed-min .feed-h h2,.feed-min #feedl{display:none}
+  .feed-min .feed-vt{display:block;writing-mode:vertical-rl;margin:18px auto 0;font-size:12.5px;font-weight:650;color:var(--muted);letter-spacing:.04em}
+}
