@@ -84,6 +84,8 @@ const days = (a,b) => Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:0
 const addDays = (d,n) => { const x = new Date(d+'T00:00:00'); x.setDate(x.getDate()+n); return ymd(x); };
 const yearOf = d => d ? +d.slice(0,4) : null;
 const can = (...roles) => !!S.profile && userRoles(S.profile).some(r => roles.includes(r));
+// tahsilat (ödeme planı, ödemeler, tahsilat sayfaları ve raporu): yalnız Satış, Muhasebe, Yönetici; Sipariş rolü dahil değil
+const canPay = () => can('sales', 'muhasebe', 'admin');
 const pill = st => `<span class="pill st-${st}">${STATUSES[st]||st}</span>`;
 const prodName = c => (S.products.find(p => p.code === c) || {}).name || c;
 const ctryName = c => (S.countries.find(x => x.code === c) || {}).name || c || '—';
@@ -115,7 +117,7 @@ async function loadAll(){
   ]);
   for (const r of [d,c,p,k,i]) if (r.error) throw r.error;
   S.deals = d.data; S.customers = c.data; S.products = p.data; S.countries = k.data; S.issues = i.data; S.loaded = true;
-  S.payments = (await fetchAll(() => sb.from('deal_payments').select('*').order('id'))).data || [];
+  S.payments = canPay() ? (await fetchAll(() => sb.from('deal_payments').select('*').order('id'))).data || [] : [];
   await loadSupport();
   await loadRma();
   await loadPrefs().catch(() => { S.prefs = {}; });
@@ -260,7 +262,7 @@ function shell(active, html){
       ['kayitlar/waiting','Bekleyen siparişler', cnt('waiting')],
       ['kayitlar/all','Tüm kayıtlar', S.deals.length],
       ...(can('sales','orders','admin') ? [['yeni','Yeni kayıt']] : []),
-      ['tahsilat','Tahsilat takibi'],
+      ...(canPay() ? [['tahsilat','Tahsilat takibi']] : []),
       ...(can('sales','admin') ? [['silinenler','Silinenler']] : []),
     ]],
     ['Support', 'help', [
@@ -301,7 +303,7 @@ function shell(active, html){
       ['rma-rapor','RMA 3 aylık rapor'],
       ['support-rapor','Support raporu'],
       ['alim-rapor','Aylık alım raporu'],
-      ['tahsilat-rapor','Tahsilat raporu'],
+      ...(canPay() ? [['tahsilat-rapor','Tahsilat raporu']] : []),
     ]],
     ['Veri', 'db', [
       ['kaynaklar','Kaynak tablolar'],
@@ -489,7 +491,7 @@ async function feedItems(){
   const [nd, sg, pay, pur, tk, rm] = await Promise.all([
     ord && get(sb.from('v_deals').select('id,order_no,opp_no,customer_name,created_at,created_by').is('deleted_at', null).gte('created_at', sI)),
     ord && get(sb.from('deal_stages').select('deal_id,stage,status,done_at,updated_by_name').eq('status', 'bitti').gte('done_at', sI)),
-    get(sb.from('deal_payments').select('deal_id,received_at,received_name').gte('received_at', sD)),
+    canPay() && get(sb.from('deal_payments').select('deal_id,received_at,received_name').gte('received_at', sD)),
     get(sb.from('purchases').select('id,item_name,requested_at,requester_name').gte('requested_at', sD).order('requested_at', { ascending:false }).limit(40)),
     get(sb.from('support_tickets').select('id,subject,opened_at,created_at,closed_at,assignee').order('last_activity_at', { ascending:false }).limit(60)),
     get(sb.from('v_rma').select('id,code,customer_name,requested_at,received_at,shipped_back_at').order('updated_at', { ascending:false }).limit(40)),
@@ -517,7 +519,7 @@ async function feedItems(){
     else if (T === 'q_devices') { if (ins || (upd && edited(o, n, ['updated_at', 'updated_by_name']))) add(at, 'kalite', `Kalibrasyon cihazı ${ins ? 'eklendi' : 'güncellendi'}: ${x.name || x.code || ''}`, who, '#/kalibrasyon/' + x.id); }
     else if (T === 'kys_records') { if (ins || st) add(at, 'kalite', `Kalite kaydı ${ins ? 'açıldı' : 'durumu değişti'}: ${x.record_no || x.label || x.code || ''}`, who, '#/kalite'); }
   }
-  for (const x of pay) { const d = dl(x.deal_id); if (d) add(x.received_at, 'tahsilat', `${refNo(d)} · ödeme geldi`, x.received_name, ord ? '#/kayit/' + d.id : '#/tahsilat'); }
+  for (const x of pay || []) { const d = dl(x.deal_id); if (d) add(x.received_at, 'tahsilat', `${refNo(d)} · ödeme geldi`, x.received_name, ord ? '#/kayit/' + d.id : '#/tahsilat'); }
   for (const x of pur) add(x.requested_at, 'alim', `Yeni talep: ${x.item_name || ''}`, x.requester_name, '#/alimlar/' + x.id);
   for (const t of tk) { add(t.opened_at || t.created_at, 'support', `Yeni support #${t.id}: ${t.subject || ''}`, '', '#/support/' + t.id);
     add(t.closed_at, 'support', `Support kapandı #${t.id}: ${t.subject || ''}`, personName(t.assignee), '#/support/' + t.id); }
@@ -570,8 +572,8 @@ function route(){
     case 'gec-kalma': return viewAttLate(a);
     case 'kayitlar': return viewList(a || 'all');
     case 'gonderim': return viewShipments();
-    case 'tahsilat': return viewCollections();
-    case 'tahsilat-rapor': return viewCollReport();
+    case 'tahsilat': return canPay() ? viewCollections() : viewToday();
+    case 'tahsilat-rapor': return canPay() ? viewCollReport() : viewToday();
     case 'uretim-pano': case 'pano': return viewBoard();
     case 'checklist-sablon': return a ? viewClTemplate(a === 'yeni' ? null : +a) : viewClTemplates();
     case 'checklist': return viewChecklist(+a);
@@ -1088,10 +1090,10 @@ function viewDetail(id){
     ${can('sales','orders','admin') && d.status==='pipeline' ? `<a class="btn primary" href="#/duzenle/${d.id}?siparis">Siparişe çevir</a>`:''}
     ${can('sales','orders','admin') && d.status==='waiting' ? `<button class="btn primary" id="toprod">Üretime al</button>`:''}
     ${can('sales','orders','admin') && d.status==='production' ? `<button class="btn" id="towait">Beklemeye al</button>`:''}
-    ${can('production') && d.status==='production' ? `<a class="btn primary" href="#/duzenle/${d.id}">Sevk bilgisi gir</a>`:''}
-    ${can('sales','orders','admin','production') ? `<a class="btn" href="#/duzenle/${d.id}">Düzenle</a>`:''}
+    ${can('production') && !can('sales','orders','admin') && ['production','shipped'].includes(d.status) ? `<a class="btn primary" href="#/duzenle/${d.id}">Sevk bilgisi gir</a>`:''}
+    ${can('sales','orders','admin') ? `<a class="btn" href="#/duzenle/${d.id}">Düzenle</a>`:''}
     ${can('sales','admin') ? `<button class="btn danger" id="del">Sil</button>`:''}</div></div>
-  ${d.status === 'waiting' ? (() => { const np = (S.payments||[]).filter(p => p.deal_id === d.id && !p.received_at).sort((a,b) => (a.due_date||'').localeCompare(b.due_date||''))[0];
+  ${d.status === 'waiting' ? (() => { const np = !canPay() ? null : (S.payments||[]).filter(p => p.deal_id === d.id && !p.received_at).sort((a,b) => (a.due_date||'').localeCompare(b.due_date||''))[0];
     return `<div class="banner info"><b>Beklemede:</b> üretime alınmadı. Beklenen ödeme vb. gelince "Üretime al" deyin; üretime bildirim o zaman gider.${np ? ` Gelmemiş ilk ödeme: ${payAmt(np, d.amount_usd) != null ? fmtUSD(payAmt(np, d.amount_usd)) : '—'} · vade ${fmtD(np.due_date)}.` : ''}</div>`; })() : ''}
   ${iss.length ? `<div class="banner"><b>Excel'den aktarımda düzeltilen alanlar:</b><br>${iss.map(i=>esc(i.message)).join('<br>')}</div>`:''}
   <div class="grid g2">
@@ -1679,7 +1681,7 @@ const payCheck = (rows, tot, cur) => {
 const payState = p => p.received_at ? 'geldi' : p.due_date < today() ? 'gecikti' : 'bekliyor';
 const payPill = p => ({ geldi:`<span class="pill st-shipped">Geldi · ${fmtD(p.received_at)}</span>`, gecikti:`<span class="pill st-lost">Gecikti · ${days(p.due_date, today())} gün</span>`, bekliyor:'<span class="pill st-pipeline">Bekleniyor</span>' })[payState(p)];
 function payPanel(d){
-  if (!['production', 'shipped'].includes(d.status)) return '';
+  if (!canPay() || !['production', 'shipped'].includes(d.status)) return '';
   const ps = (S.payments || []).filter(p => p.deal_id === d.id).sort((a, b) => a.seq - b.seq), tot = dealTotalOf(d), chk = payCheck(ps, tot, 'USD');
   return `<section class="panel mt"><h2>Ödeme planı</h2>${ps.length ? `${chk ? `<div class="banner">${esc(chk.msg)}${can('sales', 'orders', 'admin') ? ` <a href="#/duzenle/${d.id}">Planı düzelt</a>` : ''}</div>` : ''}<div class="tablewrap"><table><thead><tr><th class="nosort">Tarih</th><th class="nosort num">Oran</th><th class="nosort num">Tutar</th><th class="nosort">Not</th><th class="nosort">Durum</th></tr></thead><tbody>
     ${ps.map(p => { const pc = payPct(p, tot), a = payAmt(p, tot); return `<tr style="cursor:default"><td>${fmtD(p.due_date)}</td><td class="num">${pc == null ? '—' : hasV(p.pct) ? fmtP(pc) : `<span class="sub">${fmtP(pc)}</span>`}</td><td class="num">${a == null ? '—' : hasV(p.amount) ? `<b>${fmtMoney(a, 'USD')}</b>` : fmtMoney(a, 'USD')}</td><td>${esc(p.note || '')}</td><td>${payPill(p)}</td></tr>`; }).join('')}
@@ -1835,12 +1837,12 @@ function viewForm(id){
   const cust = ex ? S.customers.find(c => c.id === ex.customer_id) : null;
   const payRow = () => ({ pct:'', amount:'', due_date:'', note:'' });
   d.pays = ex ? (S.payments || []).filter(p => p.deal_id === ex.id).sort((a, b) => a.seq - b.seq).map(p => ({ ...p, pct:p.pct ?? '', amount:p.amount ?? '' })) : [];
-  const padPays = () => { if (kind === 'order' && !d.pays.length) d.pays = [payRow(), payRow(), payRow()]; };
+  const padPays = () => { if (canPay() && kind === 'order' && !d.pays.length) d.pays = [payRow(), payRow(), payRow()]; };
   padPays();
   const payFilled = () => d.pays.filter(p => p.received_at || hasV(p.pct) || hasV(p.amount) || p.due_date || p.note);
   const paySig = () => JSON.stringify(payFilled().map(p => [p.id || 0, hasV(p.amount) ? 'a' + +p.amount : 'p' + +p.pct, p.due_date, p.note || '']));
   const pays0 = paySig(); // plana dokunulmadıysa tutar farkı kaydı engellemez, yalnız uyarır
-  const payNeeded = () => kind === 'order' && (!ex || convert) && !d.is_internal; // eski siparişlerde zorunlu değil
+  const payNeeded = () => canPay() && kind === 'order' && (!ex || convert) && !d.is_internal; // eski siparişlerde zorunlu değil
   const dealTotal = () => +d.amount_usd || 0;
   // USD dışı tutar: kur TCMB'den (fx-rate) gelir; gelmezse elle kur kutusu açılır
   let fxForm = false; // F() aşağıda tanımlı; form kurulmadan d'den oku
@@ -1920,7 +1922,7 @@ function viewForm(id){
         <label class="f">SMD satış tutarı (USD)<input type="number" name="smd_sales_usd" min="0" step="0.01" value="${v('smd_sales_usd')}" ${dis('smd_sales_usd')}></label>
         <label class="f">Ödeme notu<input type="text" name="payment_terms" value="${v('payment_terms')}" placeholder="ör. akreditif, vade farkı, kur şartı" ${dis('payment_terms')}></label>
       </div>
-      ${kind==='order' ? `<div style="margin:4px 0 12px"><div style="font-weight:600;font-size:13px;margin-bottom:6px">Ödeme planı <span class="hint">her satırda oran ya da tutar ve ödeme tarihi; toplam USD sipariş tutarına eşit olmalı</span></div>
+      ${kind==='order' && canPay() ? `<div style="margin:4px 0 12px"><div style="font-weight:600;font-size:13px;margin-bottom:6px">Ödeme planı <span class="hint">her satırda oran ya da tutar ve ödeme tarihi; toplam USD sipariş tutarına eşit olmalı</span></div>
         <div class="tablewrap"><table><thead><tr><th class="nosort">#</th><th class="nosort num">Oran %</th><th class="nosort num">Tutar (USD)</th><th class="nosort">Ödeme tarihi</th><th class="nosort">Not</th><th class="nosort"></th></tr></thead><tbody>
         ${d.pays.map((p, i) => p.received_at
           ? `<tr style="cursor:default"><td>${i + 1}</td><td class="num pay-pct" data-i="${i}"></td><td class="num pay-amt" data-i="${i}"></td><td>${fmtD(p.due_date)}</td><td>${esc(p.note || '')}<div class="sub ok-txt">Geldi · ${fmtD(p.received_at)}</div></td><td></td></tr>`
@@ -2059,7 +2061,7 @@ function viewForm(id){
       ['Tarihler tutarlı', !['lead_date','order_date','expected_po_date','requested_ship_date','planned_ship_date','ship_date'].some(k=>errs[k])],
       ['Ürün adetleri', !errs.items && !errs.other_note],
       ['Tutar ve para birimi', !errs.amount_usd && !errs.amount_orig && !errs.rate],
-      ...(kind === 'order' ? [['Ödeme planı', !errs.payments]] : []),
+      ...(kind === 'order' && canPay() ? [['Ödeme planı', !errs.payments]] : []),
     ];
     q('#chk').innerHTML = checks.map(([t,ok]) => `<li class="${ok?'ok':(f.dataset.tried?'bad':'')}">${t}</li>`).join('') + (!existingCust && custTxt.length>=2 ? `<li class="ok">Yeni müşteri eklenecek: ${esc(custTxt)}</li>` : '');
     return errs;
