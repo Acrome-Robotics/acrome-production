@@ -288,7 +288,6 @@ function shell(active, html){
       ['kalite','Kalite belgeleri'],
       ['kalite/hedefler','Süreç hedefleri'],
       ['uygunsuzluk','Uygunsuzluklar', S.ncrOpen || ''],
-      ['uygunsuzluk-yeni','Yeni uygunsuzluk'],
       ['kalibrasyon','Kalibrasyon'],
     ]]] : []),
     ekip,
@@ -4797,7 +4796,7 @@ async function viewNcr(id, arg){
   const ta = (k, l, rows, hint) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<textarea name="${k}" rows="${rows || 3}">${v(k)}</textarea></label>`;
   const opt = (o, val, blank) => `${blank !== undefined ? `<option value="">${blank}</option>` : ''}${(Array.isArray(o) ? o.map(x => Array.isArray(x) ? x : [x, x]) : Object.entries(o)).map(([k, l]) => `<option value="${esc(k)}" ${String(val ?? '') === String(k) ? 'selected' : ''}>${esc(l)}</option>`).join('')}`;
   const sups = (S.suppliers || []).filter(s => s.kind !== 'kargo');
-  shell(id ? 'uygunsuzluk' : 'uygunsuzluk-yeni', `<p><a href="#/uygunsuzluk">← Uygunsuzluklar</a></p>
+  shell('uygunsuzluk', `<p><a href="#/uygunsuzluk">← Uygunsuzluklar</a></p>
   <div class="pagehead"><div><h1>${id ? `<span class="mono">${esc(n.no)}</span> ${esc(n.title)}` : 'Yeni uygunsuzluk kaydı'}</h1>
     <p class="lede">${n.source_id || n.source_kind !== 'diger' ? 'Kaynak: ' + ncrSrcLink(n) : 'Kayıt numarası kaydedince verilir.'}${id ? ` · açan ${esc(n.created_by_name || '—')} · ${fmtD(n.opened_at)}` : ''}${n.closed_at ? ` · kapandı ${fmtD(n.closed_at)}` : ''}</p></div>
     <div style="display:flex;gap:8px;align-items:center">${id ? ncrPill(n.status) : ''}${id && can('admin') ? '<button class="btn danger" id="ndel">Sil</button>' : ''}</div></div>
