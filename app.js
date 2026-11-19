@@ -3245,6 +3245,12 @@ async function viewStock(g){
   const val = I.filter(i => (i.currency || 'TRY') === 'TRY').reduce((a, i) => a + (+i.qty || 0) * (+i.unit_price || 0), 0);
   const nCrit = I.filter(critical).length;
   const boms = S.boms.filter(b => b.kind !== 'pcb' || g === 'e');
+  // kritik / stoğu bitmiş kaleme tek tıkla talep: açık talebi olan seçilemez, tedarikçi ve fiyat son alımdan
+  const canReq = canPurchase(), openP = new Set(), lastP = {}, sel = new Set();
+  if (canReq) ((await sb.from('purchases').select('item_id,status,supplier_id,supplier_text,unit_price,currency').not('item_id', 'is', null).order('requested_at', { ascending:false }).range(0, 4999)).data || [])
+    .forEach(p => { if (PUR_OPEN.includes(p.status)) openP.add(p.item_id); if (!lastP[p.item_id] && (p.supplier_id || p.supplier_text || p.unit_price != null)) lastP[p.item_id] = p; });
+  const needReq = i => critical(i) || (i.qty != null && +i.qty <= 0);
+  const reqQty = i => { let n = Math.max(1, (+i.min_qty || 0) - (+i.qty || 0)); if (+i.min_order > n) n = +i.min_order; if (+i.order_multiple > 0) n = Math.ceil(n / +i.order_multiple) * +i.order_multiple; return n; };
   shell(G.key, `<div class="pagehead"><div><h1>${G.title}</h1><p class="lede">${g === 'm' ? 'Mekanik parçalar (talaşlı imalat, lazer, pleksi, rulman, bağlantı elemanı…).' : 'Elektronik parçalar, PCB komponentleri ve hazır alınan ürünler.'} Kod biçimi: TÜR-ÜRÜN-SIRA (ör. ${g === 'm' ? 'M-BBT-004' : 'E-STW-002, K-PCB-031'}). Sayım günü: her ayın ilk cuması${isCountDay() ? ' (bugün)' : ' · sonraki: ' + countDayTxt()}.</p></div>
     <div style="display:flex;gap:8px">${canStock() ? `<a class="btn primary" href="#/stok-yeni/${g}">Yeni parça</a>` : ''}</div></div>
   ${stkTabs(g, 'l')}${countBanner()}
@@ -3257,7 +3263,8 @@ async function viewStock(g){
   <div class="toolbar">${Object.keys(cats).length > 1 ? `<div class="seg" id="scat">${Object.entries({ all:'Tümü', ...cats }).map(([k, v]) => `<button data-c="${k}" class="${s.cat === k ? 'on' : ''}">${v}</button>`).join('')}</div>` : ''}
     <div class="seg" id="sonly">${[['', 'Hepsi'], ['crit', 'Kritik'], ['zero', 'Stok 0'], ['nil', 'Girilmemiş']].map(([k, v]) => `<button data-o="${k}" class="${s.only === k ? 'on' : ''}">${v}</button>`).join('')}</div>
     <input type="search" id="sq" placeholder="Ara: kod, ad, malzeme, tedarikçi, konum…" value="${esc(s.q)}">
-    <select id="sbom"><option value="">Tüm ürünler / BOM'lar</option>${boms.map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>
+    <select id="sbom"><option value="">Tüm ürünler / BOM'lar</option>${boms.map(b => `<option value="${b.id}" ${+s.bom === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>
+    ${canReq ? '<button class="btn primary" id="sreq" hidden></button>' : ''}</div>
   <div class="tablewrap" id="stbl"></div>`);
   const draw = () => {
     const ql = s.q.trim().toLocaleLowerCase('tr');
@@ -3265,17 +3272,30 @@ async function viewStock(g){
       && (!s.only || (s.only === 'crit' ? critical(i) : s.only === 'zero' ? i.qty != null && +i.qty <= 0 : i.qty == null))
       && (!ql || [i.code, i.name, i.mfr_no, i.material, i.process, i.supplier_text, supName(i.supplier_id), i.location, i.description].join(' ').toLocaleLowerCase('tr').includes(ql)))
       .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'tr', { numeric:true }));
-    q('#stbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Kod</th><th class="nosort">Parça</th><th class="nosort num">Stok</th><th class="nosort num">Min</th><th class="nosort num">Birim fiyat</th><th class="nosort">Konum</th><th class="nosort">Tedarikçi</th><th class="nosort">Kullanıldığı yer</th></tr></thead><tbody>
-      ${rows.slice(0, 600).map(i => `<tr data-iid="${i.id}"><td class="mono" style="white-space:nowrap">${esc(i.code || '—')}</td><td><b style="font-weight:600">${esc(i.name)}</b>${hasImg.has(i.id) ? ' <span class="imgdot" title="Görseli var">◉</span>' : ''}${i.mfr_no ? `<div class="sub mono">${esc(i.mfr_no)}</div>` : ''}${i.material || i.process ? `<div class="sub opt">${esc([i.material, i.process].filter(Boolean).join(' · '))}</div>` : ''}</td>
+    const ck = i => !canReq ? '' : `<td class="ckc">${needReq(i) ? openP.has(i.id) ? '<a class="sub" href="#/alimlar" title="Bu parça için açık alım talebi var">talep açık</a>' : `<input type="checkbox" class="sck" value="${i.id}" ${sel.has(i.id) ? 'checked' : ''} aria-label="Talep için seç">` : ''}</td>`;
+    q('#stbl').innerHTML = rows.length ? `<table><thead><tr>${canReq ? '<th class="nosort ckc"></th>' : ''}<th class="nosort">Kod</th><th class="nosort">Parça</th><th class="nosort num">Stok</th><th class="nosort num">Min</th><th class="nosort num">Birim fiyat</th><th class="nosort">Konum</th><th class="nosort">Tedarikçi</th><th class="nosort">Kullanıldığı yer</th></tr></thead><tbody>
+      ${rows.slice(0, 600).map(i => `<tr data-iid="${i.id}">${ck(i)}<td class="mono" style="white-space:nowrap">${esc(i.code || '—')}</td><td><b style="font-weight:600">${esc(i.name)}</b>${hasImg.has(i.id) ? ' <span class="imgdot" title="Görseli var">◉</span>' : ''}${i.mfr_no ? `<div class="sub mono">${esc(i.mfr_no)}</div>` : ''}${i.material || i.process ? `<div class="sub opt">${esc([i.material, i.process].filter(Boolean).join(' · '))}</div>` : ''}</td>
         <td class="num"><b class="${critical(i) || (i.qty != null && +i.qty <= 0) ? 'late-txt' : ''}" style="font-size:15px">${i.qty == null ? '<span class="sub">—</span>' : fmtQ(i.qty)}</b> <span class="sub">${esc(i.unit || '')}</span></td>
         <td class="num sub">${i.min_qty == null ? '' : fmtQ(i.min_qty)}</td>
         <td class="num">${fmtMoney(i.unit_price, i.currency)}</td><td style="white-space:nowrap">${esc(i.location || '') || '<span class="sub">—</span>'}</td>
         <td><span class="clamp1">${esc(supName(i.supplier_id) || i.supplier_text || '') || '<span class="sub">—</span>'}</span></td>
         <td><span class="sub clamp1">${[...(usedIn[i.id] || [])].map(bomName).filter(Boolean).slice(0, 3).map(esc).join(', ')}${(usedIn[i.id] || new Set()).size > 3 ? '…' : ''}</span></td></tr>`).join('')}</tbody>
-      <tfoot><tr class="tfoot"><td colspan="8">${rows.length} kalem${rows.length > 600 ? ' (ilk 600 gösteriliyor; aramayı daraltın)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+      <tfoot><tr class="tfoot"><td colspan="${canReq ? 9 : 8}">${rows.length} kalem${rows.length > 600 ? ' (ilk 600 gösteriliyor; aramayı daraltın)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     rowNav('#stbl tr[data-iid]', 'iid', 'stok');
+    qa('#stbl .ckc').forEach(c => c.onclick = e => e.stopPropagation());
+    qa('.sck').forEach(c => c.onchange = () => { c.checked ? sel.add(+c.value) : sel.delete(+c.value); reqBtn(); });
   };
+  const reqBtn = () => { const b = q('#sreq'); if (!b) return; b.hidden = !sel.size; clearTimeout(b._ct); delete b.dataset.ok; b.textContent = `Seçilen ${sel.size} parça için talep aç`; };
   draw();
+  q('#sreq') && (q('#sreq').onclick = e => busy(e.currentTarget, async () => {
+    const it = S.items.filter(i => sel.has(i.id));
+    if (!confirmTwice(e.target, `${it.length} talep açılacak — tekrar tıkla`)) return;
+    const rowsIns = it.map(i => { const lp = lastP[i.id] || {}, n = reqQty(i), pr = lp.unit_price ?? i.unit_price ?? null;
+      return { kind:'alim', item_name:i.name, item_id:i.id, qty:n, unit_price:pr, currency:lp.unit_price != null ? lp.currency || 'TRY' : i.currency || 'TRY', total:pr != null ? Math.round(n * pr * 100) / 100 : null,
+        supplier_id:lp.supplier_id || i.supplier_id || null, supplier_text:lp.supplier_id || i.supplier_id ? null : lp.supplier_text || i.supplier_text || null, unit:g === 'm' ? 'Mekanik' : 'Elektronik', general_use:true,
+        status:'talep', requester:S.profile.id, requester_name:S.profile.full_name || S.profile.email, source:'Kritik stok', note:`Kritik stok: stok ${fmtQ(i.qty)}${i.min_qty != null ? ', minimum ' + fmtQ(i.min_qty) : ''}` }; });
+    const { error } = await sb.from('purchases').insert(rowsIns); if (error) return toast(dbErr(error), true);
+    toast(`${rowsIns.length} alım talebi açıldı`); location.hash = '#/alimlar'; }));
   qa('#scat button').forEach(b => b.onclick = () => { s.cat = b.dataset.c; qa('#scat button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
   const setOnly = v => { s.only = v; qa('#sonly button').forEach(x => x.classList.toggle('on', x.dataset.o === v)); draw(); };
   qa('#sonly button').forEach(b => b.onclick = () => setOnly(b.dataset.o));

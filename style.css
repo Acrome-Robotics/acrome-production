@@ -924,3 +924,5 @@ a.rowlink{color:inherit;text-decoration:none;display:block}a.rowlink:hover{text-
   .feed-min .feed-h h2,.feed-min #feedl{display:none}
   .feed-min .feed-vt{display:block;writing-mode:vertical-rl;margin:18px auto 0;font-size:12.5px;font-weight:650;color:var(--muted);letter-spacing:.04em}
 }
+
+.ckc{width:30px;text-align:center;white-space:nowrap}
