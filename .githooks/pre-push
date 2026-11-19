@@ -1,0 +1,8 @@
+#!/bin/sh
+# Push öncesi: sözdizimi + sürüm denetimi + sahte veriyle duman testi. Atlatmak yasak (docs/YAYIN.md).
+echo "pre-push: node --check app.js"
+node --check app.js || { echo "pre-push: app.js sözdizimi hatası, push durdu." >&2; exit 1; }
+echo "pre-push: sürüm denetimi"
+node tools/surum.js kontrol || { echo "pre-push: sürüm denetimi başarısız, push durdu." >&2; exit 1; }
+echo "pre-push: duman testi"
+node tools/duman.js || { echo "pre-push: duman testi başarısız, push durdu." >&2; exit 1; }

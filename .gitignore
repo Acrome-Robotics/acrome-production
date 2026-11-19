@@ -1,0 +1,4 @@
+.claude/
+_livetest/
+*.local
+node_modules/

@@ -1,0 +1,14 @@
+#!/bin/sh
+# app.js / style.css / config.js commit'e giriyorsa index.html'deki ?v= değerlerini otomatik artırır ve docs/SURUMLER.md'yi yeniler.
+rm -f .git/surum-bekleyen
+if ! git diff --cached --name-only | grep -qE '^(app\.js|style\.css|config\.js)$'; then exit 0; fi
+if ! git diff --quiet -- index.html; then
+  echo "pre-commit: index.html'de hazırlanmamış (unstaged) değişiklik var; ?v= otomatik artırılamıyor." >&2
+  echo "            index.html değişikliğini 'git add index.html' ile ekleyin ya da geri alın, sonra tekrar deneyin." >&2
+  exit 1
+fi
+V=$(node tools/surum.js bump) || exit 1
+node tools/surum.js yaz "$V" || exit 1
+git add index.html docs/SURUMLER.md
+echo "$V" > .git/surum-bekleyen
+echo "pre-commit: sürüm $V"
