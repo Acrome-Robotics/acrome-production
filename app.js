@@ -373,8 +373,8 @@ async function gsPrime(){
 }
 async function gsPrimeLoad(){
   const get = p => p.then(r => r.data || [], () => []);
-  const [K, R, N, D] = await Promise.all([kysLoad().catch(() => null), get(sb.from('kys_records').select('id,code,kind,record_no,label,project_id').in('kind', ['doc', 'form'])),
-    get(sb.from('ncr').select('id,no,title,product').order('id', { ascending:false }).limit(500)), get(sb.from('q_devices').select('id,code,name,serial_no,brand,model'))]);
+  const [K, R, N, D, U] = await Promise.all([kysLoad().catch(() => null), get(sb.from('kys_records').select('id,code,kind,record_no,label,project_id').in('kind', ['doc', 'form'])),
+    get(sb.from('ncr').select('id,no,title,product').order('id', { ascending:false }).limit(500)), get(sb.from('q_devices').select('id,code,name,serial_no,brand,model')), get(sb.from('checklists').select('title,serial_no').not('serial_no', 'is', null))]);
   const out = [];
   if (K) K.ITEMS.forEach(i => out.push({ t:i.title, s:[i.no || i.code, i._m && i._m.title].filter(Boolean).join(' · '), c:[i.no, i.code], h:kHref(i.code), kind:'Kalite belgesi' }));
   R.forEach(r => out.push(r.kind === 'form' ? { t:r.record_no || r.code, s:[(K && K.BY[r.code] || {}).title, r.label].filter(Boolean).join(' · '), c:[r.record_no], h:`#/kalite/i/${encodeURIComponent(r.code)}?r=${r.id}`, kind:'Form kaydı' }
@@ -384,6 +384,7 @@ async function gsPrimeLoad(){
     out.push({ t:`${no} · ${K.BY[c].title}`, s:kPName(P), c:[no], h:kHref(c, P), kind:'Proje belgesi' }); }));
   N.forEach(n => out.push({ t:`${n.no || ''} · ${n.title || ''}`, s:n.product || '', c:[n.no], h:'#/uygunsuzluk/' + n.id, kind:'Uygunsuzluk' }));
   D.forEach(d => out.push({ t:d.name || d.code, s:[d.code, d.brand, d.model, d.serial_no].filter(Boolean).join(' · '), c:[d.code, d.serial_no], h:'#/kalibrasyon/' + d.id, kind:'Kalibrasyon' }));
+  U.forEach(u => out.push({ t:u.serial_no, s:u.title, c:[u.serial_no], h:unitHref(u.serial_no), kind:'Cihaz' }));
   S._gsx.items = out;
 }
 function gsIndex(){
@@ -592,6 +593,7 @@ function route(){
     case 'uretim-pano': case 'pano': return viewBoard();
     case 'checklist-sablon': return a ? viewClTemplate(a === 'yeni' ? null : +a) : viewClTemplates();
     case 'checklist': return viewChecklist(+a);
+    case 'cihaz': return viewUnit(a);
     case 'yeni': return can('sales','orders','admin') ? viewForm(null) : viewReport();
     case 'kayit': return viewDetail(+a);
     case 'silinenler': return can('sales','admin') ? viewTrash() : viewReport();
@@ -1228,6 +1230,49 @@ async function loadChain(d){
   box.innerHTML = `<section class="panel mt"><h2>Malzeme ve kalite zaman çizelgesi <span class="sub">${ev.length}</span></h2><ol class="chain">${ev.map(e => `<li class="${e.t > T ? 'fut' : ''}"><span class="cdate">${fmtD(e.t)}</span><span class="ctag ct-${esc(e.tag.split(' ')[0].toLowerCase())}">${esc(e.tag)}</span>${e.href ? `<a href="${e.href}">${esc(e.txt)}</a>` : `<span>${esc(e.txt)}</span>`}</li>`).join('')}</ol></section>`;
 }
 
+// ==== Cihaz geçmişi (#/cihaz/<seri no>) ====
+// Seri no yalnız checklist'te (ve nadiren RMA'da) tutuluyor; support, motor testi ve sevk cihaza değil siparişe bağlı, o yüzden siparişten gelir ve "sipariş" diye işaretlenir.
+// Eşleştirme codeKey ile: büyük-küçük harf, boşluk, tire fark etmez (eski kayıtlar düzeltilmez).
+const unitHref = s => '#/cihaz/' + encodeURIComponent(String(s).trim());
+const unitLink = s => s ? `<a class="mono" href="${unitHref(s)}" onclick="event.stopPropagation()">${esc(s)}</a>` : '—';
+async function viewUnit(raw){
+  const sn = decodeURIComponent(raw || '').trim(), k = codeKey(sn), at = location.hash;
+  shell('ara', '<div class="empty">Yükleniyor…</div>');
+  const get = p => p.then(r => r.data || [], () => []);
+  const [CL, RM] = await Promise.all([get(sb.from('checklists').select('id,deal_id,title,serial_no,result,check_date,checked_by,created_at')),
+    get(sb.from('rma').select('id,code,status,serial_no,deal_id,ticket_id,product,requested_at,received_at,repaired_at,shipped_back_at,fault_reported'))]);
+  const cl = CL.filter(c => codeKey(c.serial_no) === k);
+  const dIds = [...new Set(cl.map(c => c.deal_id).concat(RM.filter(r => codeKey(r.serial_no) === k).map(r => r.deal_id)).filter(Boolean))];
+  const D = dIds.map(id => S.deals.find(d => d.id === id)).filter(Boolean);
+  // siparişe bağlı ama seri no'su boş RMA bu cihaz olabilir; başka seri no yazılıysa o cihazındır
+  const rm = RM.filter(r => codeKey(r.serial_no) === k || (!r.serial_no && dIds.includes(r.deal_id)));
+  const refs = D.map(refNo).filter(r => r !== '—');
+  const [TK, MT, ST] = await Promise.all([dIds.length ? get(sb.from('support_tickets').select('id,subject,opened_at,closed_at,deal_id').in('deal_id', dIds)) : [],
+    refs.length ? get(sb.from('motor_tests').select('id,order_ref,result,tested_at').in('order_ref', refs)) : [],
+    dIds.length ? get(sb.from('deal_stages').select('deal_id,stage,status,done_at').in('deal_id', dIds).eq('status', 'bitti')) : []]);
+  const ev = [], add = (t, tag, txt, href, lvl) => { if (t) ev.push({ t:String(t).slice(0, 10), tag, txt, href, lvl }); };
+  D.forEach(d => { const h = '#/kayit/' + d.id, o = `${refNo(d)} · ${custName(d)}`;
+    add(d.order_date, 'Sipariş', o + ' · sipariş alındı', h, 'sipariş');
+    ST.filter(s => s.deal_id === d.id).forEach(s => add(s.done_at, 'Aşama', `${(STG.find(g => g[0] === s.stage) || [, s.stage])[1]} bitti`, h, 'sipariş'));
+    add(d.ship_date, 'Sevk', o + ' · gönderildi', h, 'sipariş'); });
+  cl.forEach(c => add(c.check_date || c.created_at, 'Checklist', `${c.title}${c.result ? ' · ' + CL_RES[c.result][0] : ' · sonuç girilmedi'}${c.checked_by ? ' · ' + c.checked_by : ''}`, '#/checklist/' + c.id));
+  const mtDays = {}; MT.forEach(m => { const t = (m.tested_at || '').slice(0, 10); (mtDays[t] = mtDays[t] || []).push(m); });
+  Object.entries(mtDays).forEach(([t, L]) => { const bad = L.filter(m => m.result && m.result !== 'GEÇTİ').length;
+    add(t, 'Motor testi', `${L.length} motor test edildi${bad ? ` · ${bad} uyarı/hata` : ''}`, '#/motor-test', 'sipariş'); });
+  TK.forEach(t => { add(t.opened_at, 'Support', `#${t.id} · ${t.subject}`, '#/support/' + t.id, 'sipariş'); if (t.closed_at) add(t.closed_at, 'Support', `#${t.id} kapandı`, '#/support/' + t.id, 'sipariş'); });
+  rm.forEach(r => { const h = '#/rma/' + r.id, lv = r.serial_no ? null : 'sipariş';
+    add(r.requested_at, 'RMA', `${r.code} · ${r.fault_reported || RMA_ST[r.status] || ''}`.slice(0, 140), h, lv);
+    add(r.received_at, 'RMA', `${r.code} · ürün teslim alındı`, h, lv); add(r.repaired_at, 'RMA', `${r.code} · onarıldı`, h, lv); add(r.shipped_back_at, 'RMA', `${r.code} · geri gönderildi`, h, lv); });
+  if (location.hash !== at) return;
+  ev.sort((a, b) => b.t.localeCompare(a.t));
+  const T = today(), last = cl.slice().sort((a, b) => (b.check_date || '').localeCompare(a.check_date || ''))[0];
+  const name = (cl[0] || rm.find(r => r.serial_no) || {}).serial_no || sn;
+  shell('ara', `<div class="pagehead"><div><h1>Cihaz <span class="mono">${esc(name)}</span></h1>
+    <p class="lede">${D.length ? D.map(d => `<a href="#/kayit/${d.id}">${esc(refNo(d))} · ${esc(custName(d))}</a>`).join(', ') : 'Bağlı sipariş bulunamadı'}${last ? ` · ${esc(last.title)}` : ''}. "sipariş" işaretli satırlar cihaza değil siparişin tamamına ait.</p></div></div>
+    ${ev.length ? `<section class="panel"><h2>Geçmiş <span class="sub">${ev.length} · en yeni üstte</span></h2><ol class="chain">${ev.map(e => `<li class="${e.t > T ? 'fut' : ''}"><span class="cdate">${fmtD(e.t)}</span><span class="ctag ct-${esc(e.tag.split(' ')[0].toLowerCase())}">${esc(e.tag)}</span>${e.href ? `<a href="${e.href}">${esc(e.txt)}</a>` : `<span>${esc(e.txt)}</span>`}${e.lvl ? ' <span class="chip">' + e.lvl + '</span>' : ''}</li>`).join('')}</ol></section>`
+      : `<div class="empty">"${esc(sn)}" seri numaralı kayıt bulunamadı. Seri no checklist'te veya RMA'da yazılı olmalı.</div>`}`);
+}
+
 // siparişe bağlı riskler: şirket geneli risk kaydı (ACR-LS-RK-01) ve sipariş bir kalite projesine bağlıysa o projenin risk satırları (ACR-LS-RK-02); yalnız Kalite / Yönetici / Satış / Sipariş görür ve bağlar
 async function loadRiskBox(d){
   const box = q('#drisk'); if (!box || !can('kalite', 'admin', 'sales', 'orders')) return;
@@ -1498,7 +1543,7 @@ async function loadClBox(d){
   const opts = [...new Set([...Object.keys(items), ...T.map(t => t.product_code).filter(Boolean)])];
   box.innerHTML = `<h2>Checklist <span class="sub" style="font-weight:400">· müşteriye giden belge, her ürün adedi için bir tane</span></h2>
     ${C.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Seri no</th><th class="nosort">Ürün</th><th class="nosort num">İşaretli</th><th class="nosort">Kontrol</th><th class="nosort">Sonuç</th></tr></thead><tbody>
-      ${C.map(c => `<tr data-cl="${c.id}"><td class="mono">${esc(c.serial_no || '—')}</td><td>${esc(c.title)}${c.unit_no == null ? ' <span class="chip">elle</span>' : ''}${over(c) ? ' <span class="chip dupchip" title="Sipariş adedi azaldı; doldurulmuş olduğu için silinmedi">adetten fazla</span>' : ''}</td>
+      ${C.map(c => `<tr data-cl="${c.id}"><td>${unitLink(c.serial_no)}</td><td>${esc(c.title)}${c.unit_no == null ? ' <span class="chip">elle</span>' : ''}${over(c) ? ' <span class="chip dupchip" title="Sipariş adedi azaldı; doldurulmuş olduğu için silinmedi">adetten fazla</span>' : ''}</td>
         <td class="num">${clCount(c.checklist_items)}</td><td>${c.checked_by ? esc(c.checked_by) + (c.check_date ? ` <span class="sub">${fmtD(c.check_date)}</span>` : '') : '<span class="sub">—</span>'}</td><td>${c.result ? esc(CL_RES[c.result][0]) : '<span class="sub">—</span>'}</td></tr>`).join('')}</tbody></table></div>`
       : `<p class="sub" style="margin:0">${d.status === 'production' ? 'Bu siparişte şablonu olan ürün yok.' : 'Checklist açılmamış.'}</p>`}
     ${noTpl.length ? `<p class="note">Şablonu olmayan ürün: ${noTpl.map(k => esc(prodName(k)) + ' ×' + fmtN(items[k])).join(', ')} — gerekirse aşağıdan boş checklist ekleyin.</p>` : ''}
@@ -1525,7 +1570,7 @@ async function viewChecklist(id){
   const qty = Math.floor(+(d.items || {})[c.product_code] || 0), canDel = !ro && (c.unit_no == null || c.unit_no > qty || can('admin'));
   const H = { title:c.title, serial_no:c.serial_no || '', checked_by:c.checked_by || (ro ? '' : S.profile.full_name || ''), check_date:c.check_date || (ro ? '' : today()), result:c.result || '', test_note:c.test_note || '' };
   shell('kayitlar/' + d.status, `<div class="noprint"><p><a href="#/kayit/${d.id}">← ${esc(refNo(d))} · ${esc(custName(d))}</a></p>
-    <div class="pagehead"><div><h1>${esc(c.title)} <span class="mono" style="font-size:.7em">${esc(c.serial_no || '')}</span></h1><p class="lede">Müşteriye giden checklist. Satır ekleyip çıkarmak yalnız bu checklist'i değiştirir, şablonu etkilemez.${c.updated_by_name ? ` Son kayıt: ${esc(c.updated_by_name)} · ${fmtDT(c.updated_at)}.` : ''}</p></div>
+    <div class="pagehead"><div><h1>${esc(c.title)} <span style="font-size:.7em">${c.serial_no ? unitLink(c.serial_no) : ''}</span></h1><p class="lede">Müşteriye giden checklist. Satır ekleyip çıkarmak yalnız bu checklist'i değiştirir, şablonu etkilemez.${c.updated_by_name ? ` Son kayıt: ${esc(c.updated_by_name)} · ${fmtDT(c.updated_at)}.` : ''}</p></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="clprint" type="button">Yazdır / PDF</button>${canDel ? '<button class="btn danger" id="cldel" type="button">Sil</button>' : ''}</div></div>
     <form id="clf" class="fs" novalidate><div class="row r4">
       <label class="f">Ürün başlığı <span class="hint">çıktıda</span><input name="title" maxlength="120" value="${esc(H.title)}" ${ro ? 'disabled' : ''}></label>
@@ -2875,7 +2920,7 @@ async function viewRma(){
     q('#rtbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">RMA</th><th class="nosort">Müşteri</th><th class="nosort">Ürün / seri no</th><th class="nosort">Durum</th><th class="nosort">Garanti</th><th class="nosort">Ürün geliş</th><th class="nosort">Tahmini hazır</th><th class="nosort num">Maliyet</th></tr></thead><tbody>
       ${rows.map(r => `<tr data-rid="${r.id}"><td class="mono" style="white-space:nowrap">${esc(r.code)}${r.is_draft?' <span class="pill rp-draft">Taslak</span>':''}${rmaNoCause(r)}<div class="sub">${fmtD(r.requested_at)}</div></td>
         <td>${esc(r.customer || '—')}${r.ticket_id?`<div class="sub">Support #${r.ticket_id}</div>`:''}</td>
-        <td>${r.product?esc(prodName(r.product)):'—'}${r.serial_no?`<div class="sub mono">${esc(r.serial_no)}</div>`:''}</td>
+        <td>${r.product?esc(prodName(r.product)):'—'}${r.serial_no?`<div class="sub">${unitLink(r.serial_no)}</div>`:''}</td>
         <td>${rmaPill(r.status)}${r.outcome?`<div class="sub">${RMA_OUT[r.outcome]}</div>`:''}${r.failed_component?`<div class="sub">${esc(r.failed_component)}</div>`:''}</td>
         <td>${r.in_warranty == null ? '<span class="sub">—</span>' : r.in_warranty ? '<span class="ok-txt">Garanti içi</span>' : '<span class="amber-txt">Garanti dışı</span>'}${r.warranty_end?`<div class="sub">${fmtD(r.warranty_end)}'e kadar</div>`:''}</td>
         <td>${fmtD(r.received_at)}</td>
@@ -3070,6 +3115,7 @@ async function viewRmaForm(id, preset){
         <label class="f">Support konusu no<input name="ticket_id" type="number" value="${v('ticket_id')}" placeholder="ör. 13"></label></div>
       <datalist id="rdeals">${S.deals.filter(x=>x.order_no).slice(-500).map(x=>`<option value="${esc(x.order_no)}">${esc(custName(x))}</option>`).join('')}</datalist>
       <div class="row r2">${tx('customer_name','Müşteri')}<label class="f">Ürün<select name="product"><option value="">—</option>${S.products.map(p=>`<option value="${p.code}" ${r.product===p.code?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label></div>
+      ${r.serial_no ? `<p class="small noprint">Cihaz geçmişi: ${unitLink(r.serial_no)}</p>` : ''}
       <div class="row r2">${tx('serial_no','Seri numarası')}<label class="f">Garanti <span class="hint">${esc(warrantyTxt)}</span><select name="warranty_override"><option value="">Otomatik (sevk tarihinden)</option><option value="true" ${r.warranty_override===true?'selected':''}>Garanti içi say</option><option value="false" ${r.warranty_override===false?'selected':''}>Garanti dışı say</option></select></label></div>
       ${ta('fault_reported','Müşterinin bildirdiği arıza')}
     </section>
