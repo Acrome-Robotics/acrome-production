@@ -9,9 +9,10 @@ git config core.hooksPath .githooks
 Gerekenler: Node 22+ ve Chrome ya da Edge. Duman testi sahte veriyi `..\AcromeERP-tasarim\mock-*.js` klasöründen okur (başka yerdeyse `DUMAN_MOCK=<klasör>`; tarayıcı için `CHROME=<yol>`). Bunlar yoksa duman testi uyarıyla atlanır; sözdizimi ve sürüm denetimi yine çalışır.
 
 ## Kancalar
-- `pre-commit`: `app.js`, `style.css` ya da `config.js` commit'e giriyorsa `index.html`'deki üç `?v=` değerini otomatik `YYYYAAGGSSDD` yapar, `docs/SURUMLER.md`'yi yeniler, ikisini de commit'e ekler. `index.html`'de hazırlanmamış değişiklik varsa durur.
-- `prepare-commit-msg`: commit mesajına `Surum: <v>` satırı ekler. Sürüm kaydı bundan üretilir (`node tools/surum.js liste`). Son satır, bir sonraki commit'e kadar "(bu commit)" görünür.
-- `pre-push`: `node --check app.js` + `node tools/surum.js kontrol` (üç `?v=` aynı mı, varlık değişince index de güncellendi mi) + `node tools/duman.js` (sahte veriyle tüm rotaları admin, satış, üretim, alım rolleriyle açar; konsol hatası / boş sayfa sayar, ~30 sn).
+- `pre-commit`: `app.js`, `style.css` ya da `config.js` commit'e giriyorsa `index.html`'deki üç `?v=` değerini otomatik `YYYYAAGGSSDD` yapar (aynı dakikada ikinci commit'te önceki değer +1), `docs/SURUMLER.md`'yi yeniler, ikisini de commit'e ekler. `index.html`'de hazırlanmamış değişiklik varsa durur.
+- `prepare-commit-msg` + `post-commit`: aynı commit'in pre-commit'i sürüm yazdıysa mesaja `Surum: <v>` satırı eklenir; sürüm kaydı bundan üretilir (`node tools/surum.js liste`). Son satır, bir sonraki commit'e kadar "(bu commit)" görünür. `git revert` ve merge'de pre-commit çalışmaz, bu yüzden bu commit'lere sürüm satırı eklenmez ve `?v=` KENDİLİĞİNDEN artmaz.
+- `pre-push`: itilen değişiklikte `app.js`/`style.css`/`config.js` varsa `index.html`'deki `?v=` uzaktakinden farklı olmalı (revert ve merge dahil; değilse push durur: `node tools/surum.js bump` çalıştırıp `index.html`'i commit edin) + `node --check app.js` + üç `?v=` aynı mı + `node tools/duman.js` (sahte veriyle tüm rotaları admin, satış, üretim, alım rolleriyle açar; konsol hatası / boş sayfa sayar, ~30 sn).
+- `.gitattributes` kanca ve araç dosyalarını her platformda LF tutar (CRLF'li `#!/bin/sh` çalışmaz); kancalar çalıştırılabilir (`100755`) olarak kayıtlıdır.
 - Bilinen hatalar `tools/duman-bilinen.json`'da; yalnız YENİ hata push'u durdurur. Tabanı güncellemek: `node tools/duman.js --taban-yaz` (nedenini commit mesajına yazın).
 - **Kancayı atlatmak yasak** (`--no-verify`, `core.hooksPath` değiştirme). Kanca bir sorun buluyorsa sorunu düzeltin ya da konuşun.
 
@@ -22,7 +23,7 @@ Gerekenler: Node 22+ ve Chrome ya da Edge. Duman testi sahte veriyi `..\AcromeER
 4. Kaldırma işleri iki aşamalıdır: önce kod kullanmayı bıraksın, sonra SQL kaldırsın.
 
 ## Geri alma
-- Kod: `git revert <commit>` + push (≈1 dk). Sürüm `?v=` yeniden artar, kullanıcılar yeni sürümü alır.
+- Kod: `git revert <commit>` + `node tools/surum.js bump` + `index.html`'i commit et + push (≈1 dk). Revert pre-commit'i çalıştırmadığı için `?v=` kendiliğinden artmaz; atlanırsa `pre-push` yakalar ve push'u durdurur.
 - SQL: ilgili `*_geri.sql` ya da snapshot şemasından geri yükleme. Veri silen değişiklik yapılmaz.
 
 ## İşletim görünürlüğü

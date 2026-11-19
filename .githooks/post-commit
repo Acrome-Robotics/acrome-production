@@ -1,0 +1,3 @@
+#!/bin/sh
+# commit bitti: bekleyen sürüm işareti kalmasın (sonraki revert / merge yanlış sürüm satırı almasın)
+rm -f "$(git rev-parse --git-dir)/surum-bekleyen"

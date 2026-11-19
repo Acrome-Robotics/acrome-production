@@ -131,6 +131,9 @@ begin
 end $function$;
 
 drop function if exists public.purchase_inspect(bigint, text, text, text, bigint, boolean);
+drop index if exists public.purchase_inspections_valid_uq;
+-- eski tekil kısıt: geçersiz (voided) satırlar silinmeden geri konamaz; gerekirse önce: delete from public.purchase_inspections where voided_at is not null;
+-- alter table public.purchase_inspections add constraint purchase_inspections_purchase_id_key unique (purchase_id);
 drop index if exists public.stock_moves_purchase_alim_uq;
 -- veri kaybı onayıyla:
 -- drop table public.purchase_inspections;

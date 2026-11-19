@@ -1,5 +1,8 @@
 #!/bin/sh
-# Push öncesi: sözdizimi + sürüm denetimi + sahte veriyle duman testi. Atlatmak yasak (docs/YAYIN.md).
+# Push öncesi: itilen değişiklikte sürüm denetimi + sözdizimi + sürüm tutarlılığı + sahte veriyle duman testi. Atlatmak yasak (docs/YAYIN.md).
+while read lref lsha rref rsha; do
+  node tools/surum.js push "$rsha" "$lsha" || { echo "pre-push: sürüm (?v=) denetimi başarısız, push durdu." >&2; exit 1; }
+done
 echo "pre-push: node --check app.js"
 node --check app.js || { echo "pre-push: app.js sözdizimi hatası, push durdu." >&2; exit 1; }
 echo "pre-push: sürüm denetimi"

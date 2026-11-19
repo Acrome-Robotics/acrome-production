@@ -1,7 +1,8 @@
-// Sürüm aracı (bağımlılıksız). Kullanım: node tools/surum.js bump [--kuru] | yaz [<sürüm>] | liste | kontrol
-// bump   : index.html'deki style.css / config.js / app.js ?v= değerlerini YYYYMMDDHHMM yapar, sürümü yazdırır
+// Sürüm aracı (bağımlılıksız). Kullanım: node tools/surum.js bump [--kuru] | yaz [<sürüm>] | liste | kontrol | push <uzak_sha> <yerel_sha>
+// bump   : index.html'deki style.css / config.js / app.js ?v= değerlerini YYYYMMDDHHMM yapar (aynı dakikada ise mevcut +1), sürümü yazdırır
 // yaz    : docs/SURUMLER.md'yi git geçmişinden ("Surum: <v>" satırlı commit'ler) üretir; liste: aynısını ekrana yazar
-// kontrol: üç ?v= aynı mı; varlıklar (app.js/style.css/config.js) en son değiştiği commit'te index.html de değişti mi
+// kontrol: index.html'deki üç ?v= değeri aynı mı
+// push   : itilen değişiklikte varlık değişmişse index.html'deki ?v= uzaktakinden farklı olmalı (revert / merge dahil)
 const fs = require('fs'), path = require('path'), cp = require('child_process');
 const root = path.resolve(__dirname, '..');
 const IDX = path.join(root, 'index.html'), LOG = path.join(root, 'docs', 'SURUMLER.md');
@@ -11,9 +12,12 @@ const p2 = n => String(n).padStart(2, '0');
 const cmd = process.argv[2];
 
 if (cmd === 'bump') {
-  const d = new Date(), v = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}`;
-  const s = fs.readFileSync(IDX, 'utf8'), n = (s.match(RE) || []).length;
-  if (n !== 3) { console.error(`index.html'de 3 adet ?v= bekleniyordu, ${n} bulundu`); process.exit(1); }
+  const d = new Date(), s = fs.readFileSync(IDX, 'utf8'), all = [...s.matchAll(RE)];
+  if (all.length !== 3) { console.error(`index.html'de 3 adet ?v= bekleniyordu, ${all.length} bulundu`); process.exit(1); }
+  let v = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}${p2(d.getHours())}${p2(d.getMinutes())}`;
+  let cur = /^\d+$/.test(all[0][2]) ? BigInt(all[0][2]) : 0n;
+  try { for (const m of git(['log', '-100', '--format=%B']).matchAll(/^Surum: (\d{12})\s*$/gm)) if (BigInt(m[1]) > cur) cur = BigInt(m[1]); } catch { /* geçmiş yok */ }   // revert sonrası eski numara tekrar kullanılmasın
+  if (BigInt(v) <= cur) v = String(cur + 1n);   // aynı dakikada ikinci commit: numara hep artar
   if (process.argv.includes('--kuru')) console.log(`[kuru] ${v} yazılacaktı`);
   else fs.writeFileSync(IDX, s.replace(RE, `$1${v}`));
   console.log(v);
@@ -29,14 +33,16 @@ if (cmd === 'bump') {
   if (cur) rows.push(`| ${cur} | ${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())} | (bu commit; mesajı bir sonraki commit'te yazılır) |`);
   const txt = '# Sürümler\n\nindex.html\'deki `?v=` değeri her varlık değişikliğinde commit kancası tarafından otomatik artırılır; tablo git geçmişinden üretilir (`node tools/surum.js liste`).\n\n| Sürüm | Tarih | Commit mesajı |\n|---|---|---|\n' + rows.join('\n') + '\n';
   if (cmd === 'yaz') { fs.mkdirSync(path.dirname(LOG), { recursive: true }); fs.writeFileSync(LOG, txt); } else console.log(rows.join('\n'));
+} else if (cmd === 'push') {
+  const [rs, ls] = process.argv.slice(3), zero = /^0+$/;
+  if (!ls || zero.test(ls)) process.exit(0);
+  let base = rs;
+  if (!rs || zero.test(rs)) { try { base = git(['merge-base', ls, 'origin/main']); } catch { process.exit(0); } }
+  let changed = '', a, b; const ver = t => (/app\.js\?v=([^"'&\s]+)/.exec(t) || [])[1];
+  try { changed = git(['diff', '--name-only', base, ls, '--', 'app.js', 'style.css', 'config.js']); a = ver(git(['show', base + ':index.html'])); b = ver(git(['show', ls + ':index.html'])); } catch { process.exit(0); }   // uzak commit yerelde yoksa denetlenemez
+  if (changed && a === b) { console.error(`push: ${changed.split(/\r?\n/).join(', ')} değişiyor ama index.html ?v= aynı kalıyor (${b}). 'node tools/surum.js bump' çalıştırıp index.html'i commit edin.`); process.exit(1); }
 } else if (cmd === 'kontrol') {
   const vs = [...new Set([...fs.readFileSync(IDX, 'utf8').matchAll(RE)].map(m => m[2]))];
   if (vs.length !== 1) { console.error('index.html: üç ?v= değeri aynı olmalı: ' + vs.join(', ')); process.exit(1); }
-  const last = a => git(['log', '-1', '--format=%H', '--', ...a]);
-  const asset = last(['app.js', 'style.css', 'config.js']), index = last(['index.html']);
-  if (asset && asset !== index) {
-    let ok = false; try { cp.execFileSync('git', ['merge-base', '--is-ancestor', asset, index], { cwd: root }); ok = true; } catch { /* değil */ }
-    if (!ok) { console.error('app.js / style.css / config.js en son ' + asset.slice(0, 7) + ' commit\'inde değişti ama index.html (?v=) sonrasında güncellenmemiş. Kancalar kurulu mu? (git config core.hooksPath .githooks)'); process.exit(1); }
-  }
   console.log('sürüm denetimi tamam: ' + vs[0]);
-} else { console.error('kullanım: node tools/surum.js bump [--kuru] | yaz [<sürüm>] | liste | kontrol'); process.exit(2); }
+} else { console.error('kullanım: node tools/surum.js bump [--kuru] | yaz [<sürüm>] | liste | kontrol | push <uzak_sha> <yerel_sha>'); process.exit(2); }

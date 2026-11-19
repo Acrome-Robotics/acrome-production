@@ -1,0 +1,4 @@
+# kancalar ve araçlar her platformda LF (CRLF'li #!/bin/sh çöker)
+.githooks/* text eol=lf
+*.sh text eol=lf
+tools/*.js text eol=lf

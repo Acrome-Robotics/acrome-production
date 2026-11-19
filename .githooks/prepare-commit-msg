@@ -1,4 +1,7 @@
 #!/bin/sh
-# pre-commit bir sürüm yazdıysa commit mesajına "Surum: <v>" satırı ekler (docs/SURUMLER.md bu satırlardan üretilir).
-[ -f .git/surum-bekleyen ] || exit 0
-git interpret-trailers --in-place --trailer "Surum: $(cat .git/surum-bekleyen)" "$1"
+# pre-commit bu commit için bir sürüm yazdıysa mesaja "Surum: <v>" satırı ekler (docs/SURUMLER.md bu satırlardan üretilir).
+F="$(git rev-parse --git-dir)/surum-bekleyen"
+[ -f "$F" ] || exit 0
+read V T < "$F"
+[ "$T" = "$(git write-tree 2>/dev/null)" ] || exit 0
+git interpret-trailers --in-place --trailer "Surum: $V" "$1"

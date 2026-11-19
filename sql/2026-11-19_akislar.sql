@@ -1,7 +1,7 @@
 -- Faz 2: kopuk akışlar (19.11.2026). Faz 1 (2026-11-19_yetki.sql) uygulanmış varsayılır. Yalnız YENİ kayıtlar etkilenir; eski veri arşivdir.
 -- 1) Alım giriş kontrolü: "Teslim alındı" (alindi) olan yeni alım inspection_status='bekliyor' olur ve stoğa girmez;
 --    purchase_inspect() sonucu (Geçti / Kaldı / Şartlı kabul) kaydeder, Geçti ve Şartlı kabulde stoğa girişi aynı işlemde yapar.
---    Şartlı kabulde sorun / sapma açıklaması zorunlu ve kayıtlıdır (purchase_inspections). Çift giriş: stock_moves(ref_id) kısmi UNIQUE + purchase_inspections(purchase_id) UNIQUE.
+--    Şartlı kabulde sorun / sapma açıklaması zorunlu ve kayıtlıdır (purchase_inspections). Çift giriş: stock_moves(ref_id) kısmi UNIQUE + alım başına tek geçerli kayıt (purchase_inspections kısmi UNIQUE); geri alınan alımın kaydı silinmez, voided_at ile geçersiz işaretlenir.
 -- 2) RMA: kök neden boşken "kök nedensiz ilerlet" (rma.root_cause_waived).
 -- 3) Üretime alınırken planlanan sevk tarihi zorunlu (deals_validate, yalnız yeni geçişte).
 -- Geri alma: 2026-11-19_akislar_geri.sql.
@@ -12,7 +12,7 @@ create index if not exists purchases_inspection_idx on public.purchases(inspecti
 
 create table if not exists public.purchase_inspections (
   id bigint generated always as identity primary key,
-  purchase_id bigint not null unique references public.purchases(id) on delete cascade,
+  purchase_id bigint not null references public.purchases(id) on delete cascade,
   result text not null check (result in ('gecti','kaldi','sartli')),
   note text,
   deviation_note text,
@@ -25,9 +25,13 @@ create table if not exists public.purchase_inspections (
   inspected_by uuid references public.profiles(id) on delete set null,
   inspected_by_name text,
   inspected_at timestamptz not null default now(),
+  voided_at timestamptz,                    -- alım "teslim alındı"dan geri alınınca kayıt silinmez, geçersiz işaretlenir (şartlı kabul notu korunur)
+  voided_by_name text,
   constraint purchase_inspections_sartli_note check (result <> 'sartli' or length(trim(coalesce(deviation_note, ''))) >= 3)
 );
-create index if not exists purchase_inspections_item_idx on public.purchase_inspections(item_id) where result = 'sartli';
+-- alım başına tek GEÇERLİ kayıt; geri alınmış (voided_at dolu) eski kayıtlar tutulur, yeniden kontrol yeni satırdır
+create unique index if not exists purchase_inspections_valid_uq on public.purchase_inspections(purchase_id) where voided_at is null;
+create index if not exists purchase_inspections_item_idx on public.purchase_inspections(item_id) where result = 'sartli' and voided_at is null;
 create index if not exists purchase_inspections_result_idx on public.purchase_inspections(result, inspected_at desc);
 alter table public.purchase_inspections enable row level security;
 revoke all on public.purchase_inspections from anon;
@@ -63,12 +67,12 @@ begin
     end if;
     if old.inspection_status is not null then
       new.inspection_status := null;
-      delete from purchase_inspections where purchase_id = new.id;
+      update purchase_inspections set voided_at = now(), voided_by_name = coalesce(public._q_me(), 'Sistem') where purchase_id = new.id and voided_at is null;
     end if;
   end if;
   if new.status = 'alindi' and (tg_op = 'INSERT' or old.status is distinct from 'alindi') then
-    if tg_op = 'UPDATE' and new.kind = 'alim' then
-      new.inspection_status := 'bekliyor';        -- giriş kontrolü sonucuna kadar stoğa girmez (purchase_inspect)
+    if new.kind = 'alim' then
+      new.inspection_status := 'bekliyor';        -- INSERT ile doğrudan 'alindi' eklenen alım dahil: giriş kontrolü sonucuna kadar stoğa girmez (purchase_inspect)
     elsif new.item_id is not null and not new.received_into_stock and coalesce(new.qty, 0) > 0 then
       perform stock_move(new.item_id, new.qty, null, 'alim', 'Alım #' || new.id || ': ' || new.item_name, 'purchase', new.id);
       new.received_into_stock := true;

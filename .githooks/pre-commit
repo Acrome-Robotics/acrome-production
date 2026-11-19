@@ -1,6 +1,7 @@
 #!/bin/sh
 # app.js / style.css / config.js commit'e giriyorsa index.html'deki ?v= değerlerini otomatik artırır ve docs/SURUMLER.md'yi yeniler.
-rm -f .git/surum-bekleyen
+GD=$(git rev-parse --git-dir)
+rm -f "$GD/surum-bekleyen"
 if ! git diff --cached --name-only | grep -qE '^(app\.js|style\.css|config\.js)$'; then exit 0; fi
 if ! git diff --quiet -- index.html; then
   echo "pre-commit: index.html'de hazırlanmamış (unstaged) değişiklik var; ?v= otomatik artırılamıyor." >&2
@@ -10,5 +11,6 @@ fi
 V=$(node tools/surum.js bump) || exit 1
 node tools/surum.js yaz "$V" || exit 1
 git add index.html docs/SURUMLER.md
-echo "$V" > .git/surum-bekleyen
+# sürüm + eklenen indeksin özeti: prepare-commit-msg yalnız AYNI commit için kullanır (revert / merge'de pre-commit çalışmaz)
+echo "$V $(git write-tree)" > "$GD/surum-bekleyen"
 echo "pre-commit: sürüm $V"

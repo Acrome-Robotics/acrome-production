@@ -878,7 +878,7 @@ a.rowlink{color:inherit;text-decoration:none;display:block}a.rowlink:hover{text-
 
 /* ortak aramalı açılır liste (tedarikçi, sipariş seçici) */
 .cbx{position:relative}
-.cbx-list{position:absolute;z-index:40;left:0;right:0;top:100%;margin:2px 0 0;padding:4px;list-style:none;max-height:280px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.cbx-list{position:fixed;z-index:60;margin:0;padding:4px;list-style:none;max-height:280px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.18)}
 .cbx-list li{padding:7px 10px;border-radius:4px;cursor:pointer}
 .cbx-list li:hover,.cbx-list li.on{background:var(--soft)}
 .cbx-list li.sel{font-weight:650}

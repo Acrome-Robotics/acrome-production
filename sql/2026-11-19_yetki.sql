@@ -3,7 +3,7 @@
 --    Sipariş tutarının genel görünürlüğü değişmez.
 -- 2) Siparişi (deals) yalnız Satış, Sipariş ve Yönetici düzenler. Üretim yalnız planlanan sevk, sevk tarihi, durum ve gecikme açıklamasını
 --    deal_production_set işleviyle (save_deal ve deal_stage_set üzerinden) yazar; sütun sınırı deals_validate tetikleyicisinde de sürer.
--- Geri alma: 2026-11-19_yetki_geri.sql. Yayın sırası: önce kod, sonra bu dosya.
+-- Geri alma: 2026-11-19_yetki_geri.sql. Yayın sırası: ÖNCE bu SQL, SONRA kod (kod deal_payment_plan işlevine dayanır; işlev yoksa kod çökmez, Sipariş rolünde plan alanları kapalı ve uyarılı kalır).
 
 -- ---------- 1) tahsilat okuma (deal_payments yazma politikası yok; yazma save_deal_payments / deal_payment_mark işlevleriyle)
 drop policy if exists deal_payments_read on public.deal_payments;
