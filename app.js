@@ -906,7 +906,8 @@ const BASES = { order:['Sipariş tarihi', d => d.order_date || d.lead_date], shi
 const defBasis = tab => tab === 'shipped' ? 'ship' : tab === 'pipeline' || tab === 'lost' || tab === 'archived' ? 'lead' : 'order';
 function viewList(tab){
   const T = today();
-  const tabs = { waiting:'Beklemede', production:'Üretimde', pipeline:'Fırsatlar', shipped:'Gönderilenler', lost:'Kaybedilenler', archived:'Arşiv', all:'Tümü' };
+  // sekmeler bölüme göre: Üretim'den girilen sayfada satış sekmeleri yok (sol menüde bölüm değişmesin)
+  const tabs = ['production', 'shipped'].includes(tab) ? { production:'Üretimde', shipped:'Gönderilenler' } : { pipeline:'Fırsatlar', waiting:'Beklemede', lost:'Kaybedilenler', archived:'Arşiv', all:'Tümü' };
   if (listState._tab !== tab) { listState._tab = tab; listState.basis = defBasis(tab); listState.sort = 'date'; listState.dir = -1; listState.stage = ''; const n = new Date(); listState.year = tab === 'shipped' || tab === 'pipeline' ? n.getFullYear() : ''; listState.month = tab === 'shipped' ? n.getMonth() + 1 : ''; }
   // fırsatlarda aşama süzgeci: açık aşamalar bu sekmede; Kazanıldı / Kaybedildi kapanan fırsatları (sipariş olanlar, kaybedilenler) getirir
   const PST = tab === 'pipeline' ? listState.stage || '' : '';
@@ -948,7 +949,7 @@ function viewList(tab){
     q('#csv').onclick = () => csv(rows, `acrome-${tab}-${T}.csv`);
   };
   if (tab === 'production' && listState.sort === 'date') { listState.sort = 'due'; listState.dir = 1; }
-  shell('kayitlar/' + tab, `<div class="pagehead"><div><h1>${{waiting:'Bekleyen siparişler',production:'Üretimdeki siparişler',pipeline:'Açık fırsatlar',shipped:'Gönderilen siparişler',lost:'Kaybedilen fırsatlar',archived:'Arşiv',all:'Tüm kayıtlar'}[tab]}</h1>
+  shell('kayitlar/' + (['lost', 'archived'].includes(tab) ? 'all' : tab), `<div class="pagehead"><div><h1>${{waiting:'Bekleyen siparişler',production:'Üretimdeki siparişler',pipeline:'Açık fırsatlar',shipped:'Gönderilen siparişler',lost:'Kaybedilen fırsatlar',archived:'Arşiv',all:'Tüm kayıtlar'}[tab]}</h1>
     <p class="lede">${tab==='archived'?'Excel\'in eski yıllarında kalan ve 2026 listesine taşınmamış fırsatlar.':'Satıra tıklayınca kaydın detayı açılır.'}</p></div>
     <div style="display:flex;gap:8px"><button class="btn" id="csv">CSV indir</button>${can('sales','orders','admin')?'<a class="btn primary" href="#/yeni">Yeni kayıt</a>':''}</div></div>
     <div class="toolbar"><div class="seg">${Object.entries(tabs).map(([k,v])=>`<button data-t="${k}" class="${k===tab?'on':''}">${v}</button>`).join('')}</div></div>
