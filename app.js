@@ -633,7 +633,7 @@ function route(){
       return viewPurchase(null, it ? { item_id:it.id, item_name:it.name, unit:grpOfCat(it.category) === 'm' ? 'Mekanik' : 'Elektronik', supplier_id:it.supplier_id, unit_price:it.unit_price, currency:it.currency } : {}); }
     case 'tedarikciler': return viewSuppliers(a);
     case 'rapor': return viewReport();
-    case 'kalite': return a === 'hedefler' ? (canKpi() ? viewKpis() : viewToday()) : a === 'sartli' ? (canQ() ? viewCondAccept() : viewToday()) : canQ() ? viewKys() : viewToday();
+    case 'kalite': return a === 'denetim' ? (canQ() ? viewAuditPack() : viewToday()) : a === 'hedefler' ? (canKpi() ? viewKpis() : viewToday()) : a === 'sartli' ? (canQ() ? viewCondAccept() : viewToday()) : canQ() ? viewKys() : viewToday();
     case 'uygunsuzluk': return a ? viewNcr(+a) : viewNcrList();
     case 'uygunsuzluk-yeni': return viewNcr(null, a);
     case 'kalibrasyon': return a ? viewDevice(a === 'yeni' ? null : +a) : viewDevices();
@@ -5370,6 +5370,34 @@ async function viewKpis(){
     toast('Kaydedildi'); kpSel = r.data[0] ? r.data[0].id : null; kpMode = ''; viewKpis(); }); });
 }
 
+// ==== Denetim paketi (#/kalite/denetim) ====
+// Tetkikçiye o anki hâliyle tek sayfalık özet; sayılar ilgili ekranların kullandığı aynı sorgulardan gelir. Tarayıcıdan PDF.
+async function viewAuditPack(){
+  shell('kalite', '<div class="empty">Yükleniyor…</div>');
+  const get = p => p.then(r => r.data || [], () => []);
+  const [K, , N, D, RK, SU, KR] = await Promise.all([kysLoad(), kpLoad(), get(sb.from('ncr').select('id,no,title,status,opened_at,product').order('opened_at', { ascending:false })),
+    get(sb.from('q_devices').select('id,code,name,status,cal_required,last_cal_date,next_cal_date,cal_provider').order('code')),
+    get(sb.from('kys_records').select('id,data').eq('code', 'ACR-LS-RK-01').eq('kind', 'row')), get(sb.from('suppliers').select('id,name,approval,score,score_date,blacklisted').order('name')), supKarne()]);
+  const T = today(), tbl = (h, rows) => rows.length ? `<div class="tablewrap"><table><thead><tr>${h.map(x => `<th class="nosort">${x}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr style="cursor:default">${r.map(c => `<td>${c ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '<p class="sub">Kayıt yok.</p>';
+  const cnt = (L, f) => Object.entries(L.reduce((m, x) => (m[f(x)] = (m[f(x)] || 0) + 1, m), {})).map(([k, n]) => `${esc(k)}: <b>${n}</b>`).join(' · ');
+  const docs = K ? K.ITEMS.filter(i => i.kind === 'doc' || i.kind === 'form') : [];
+  const nOpen = N.filter(n => !['kapali', 'iptal'].includes(n.status));
+  const dLate = D.filter(d => d.cal_required && d.status === 'kullanimda' && d.next_cal_date && d.next_cal_date < T);
+  const risks = RK.map(rkG).filter(r => RK_OPEN.includes(r.st));
+  const sup = SU.filter(x => x.approval || KR[x.id]);
+  shell('kalite', `<div class="kys"><div class="noprint">${K ? kysNav(K, 'denetim') : ''}</div>
+    <div class="pagehead"><div><h1>Denetim paketi</h1><p class="lede">Hazırlanma: ${fmtDT(new Date().toISOString())} · ${esc(S.profile.full_name || '')}. İçerik bu anın verisidir.</p></div><button class="btn noprint" id="aprint">Yazdır / PDF</button></div>
+    <section class="panel"><h2>Özet</h2><dl class="kv"><dt>Yürürlükteki doküman / form</dt><dd>${docs.length}</dd><dt>Açık uygunsuzluk / DF</dt><dd>${nOpen.length} / ${N.length}</dd><dt>Kalibrasyonu geçmiş cihaz</dt><dd>${dLate.length} / ${D.length}</dd>
+      <dt>Açık risk / fırsat</dt><dd>${risks.length}</dd><dt>Süreç hedefi (tuttu / ölçülen)</dt><dd>${KP.R.filter(k => kpSt(kpLast(k)) === 'met').length} / ${KP.R.filter(k => kpLast(k)).length} · toplam ${KP.R.length}</dd></dl></section>
+    <section class="panel mt"><h2>Yürürlükteki dokümanlar <span class="sub">${docs.length}</span></h2>${tbl(['No', 'Başlık', 'Rev', 'Tarih', 'Sorumlu'], docs.map(i => [`<span class="mono">${esc(i.no || i.code)}</span>`, esc(i.title), esc(i.rev || '00'), esc(kDate(K, i)), esc(i.owner || '')]))}</section>
+    <section class="panel mt"><h2>Uygunsuzluk / DF <span class="sub">${cnt(N, n => NCR_ST[n.status] || n.status)}</span></h2>${tbl(['No', 'Başlık', 'Ürün', 'Açılış', 'Durum'], nOpen.map(n => [`<a href="#/uygunsuzluk/${n.id}">${esc(n.no || '#' + n.id)}</a>`, esc(n.title || ''), esc(n.product || ''), fmtD((n.opened_at || '').slice(0, 10)), esc(NCR_ST[n.status] || n.status)]))}</section>
+    <section class="panel mt"><h2>Kalibrasyon listesi <span class="sub">${D.length}</span></h2>${tbl(['Kod', 'Cihaz', 'Durum', 'Son', 'Sonraki', 'Sağlayıcı'], D.map(d => [esc(d.code || ''), esc(d.name || ''), esc(DEV_ST[d.status] || d.status || ''), fmtD(d.last_cal_date), d.cal_required ? `<span class="${dLate.includes(d) ? 'late-txt' : ''}">${fmtD(d.next_cal_date)}</span>` : 'Gerekmiyor', esc(d.cal_provider || '')]))}</section>
+    <section class="panel mt"><h2>Süreç hedefleri <span class="sub">${KP.R.length}</span></h2>${tbl(['KPI', 'Gösterge', 'Hedef', 'Son dönem', 'Değer', 'Durum'], KP.R.map(k => { const v = kpLast(k); return [esc(k.code), esc(k.indicator), esc(k.target_text || ''), v ? fmtD(v.period_end) : '—', esc(kpShow(k, v)), { met:'Tuttu', miss:'Tutmadı', none:'Ölçülmedi' }[kpSt(v)]]; }))}</section>
+    <section class="panel mt"><h2>Risk kaydı · açık <span class="sub">${risks.length}</span></h2>${tbl(['No', 'Tür', 'Tanım', 'Seviye', 'Durum'], risks.map(r => [esc(r.w[0] || ''), esc(r.w[1] || ''), esc(r.w[2] || ''), esc(r.lv), esc(r.st)]))}</section>
+    <section class="panel mt"><h2>Tedarikçi değerlendirme <span class="sub">${sup.length} · karne son 12 ay</span></h2>${tbl(['Firma', 'Onay', 'Puan', 'Karne'], sup.map(x => [esc(x.name), SUP_APP[x.approval] || '—', x.score != null ? `${fmtQ(x.score)}${x.score_date ? ' · ' + fmtD(x.score_date) : ''}` : '—', esc(karneTxt(KR[x.id]) || '—')]))}</section></div>`);
+  q('#aprint').onclick = () => window.print();
+}
+
 // ---------------------------------------------------------------- KALİTE BELGELERİ (KYS)
 // Belge içeriği veritabanındadır (kys_content); depo herkese açık olduğu için burada yalnız görüntüleyici var.
 // Projeler kys_projects'te. Projeye özel belgeler (META.projectFile.docs) her projede kys_records 'doc' kaydıdır; numarası şablon kodu + proje kodu,
@@ -5427,7 +5455,7 @@ const kHead = (K, it, o) => `<div class="dochead"><div class="lg">${kLogo}ACROME
 
 function kysNav(K, sub, code){
   const cur = sub === 'm' ? code : sub === 'i' && K.BY[code] ? K.BY[code]._m.id : '';
-  return `<div class="toolbar noprint knav"><div class="seg"><a class="segl ${!sub ? 'on' : ''}" href="#/kalite">Genel bakış</a><a class="segl ${sub === 'belgeler' ? 'on' : ''}" href="#/kalite/belgeler">Doküman listesi</a><a class="segl ${sub === 'proje' ? 'on' : ''}" href="#/kalite/proje">Projeler</a></div>
+  return `<div class="toolbar noprint knav"><div class="seg"><a class="segl ${!sub ? 'on' : ''}" href="#/kalite">Genel bakış</a><a class="segl ${sub === 'belgeler' ? 'on' : ''}" href="#/kalite/belgeler">Doküman listesi</a><a class="segl ${sub === 'proje' ? 'on' : ''}" href="#/kalite/proje">Projeler</a><a class="segl ${sub === 'denetim' ? 'on' : ''}" href="#/kalite/denetim">Denetim paketi</a></div>
     <select id="kmsel" aria-label="Süreç"><option value="">Süreç seç…</option>${K.M.map(m => `<option value="${esc(m.id)}" ${cur === m.id ? 'selected' : ''}>${m._no} · ${esc(m.title)}</option>`).join('')}</select></div>`;
 }
 function kysDf(K){
