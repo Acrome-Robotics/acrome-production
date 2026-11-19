@@ -86,6 +86,8 @@ const yearOf = d => d ? +d.slice(0,4) : null;
 const can = (...roles) => !!S.profile && userRoles(S.profile).some(r => roles.includes(r));
 // tahsilat (ödeme planı, ödemeler, tahsilat sayfaları ve raporu): yalnız Satış, Muhasebe, Yönetici; Sipariş rolü dahil değil
 const canPay = () => can('sales', 'muhasebe', 'admin');
+// ödeme planını sipariş formunda girmek / okumak: Sipariş rolü de yapar ama tahsilatı (alınan / kalan, rapor, işaretleme) görmez
+const canPayPlan = () => can('sales', 'orders', 'admin');
 const pill = st => `<span class="pill st-${st}">${STATUSES[st]||st}</span>`;
 const prodName = c => (S.products.find(p => p.code === c) || {}).name || c;
 const ctryName = c => (S.countries.find(x => x.code === c) || {}).name || c || '—';
@@ -293,6 +295,7 @@ function shell(active, html){
     ...(canQ() ? [['Kalite', 'shield', [
       ['kalite','Kalite belgeleri'],
       ['kalite/hedefler','Süreç hedefleri'],
+      ['kalite/sartli','Şartlı kabuller'],
       ['uygunsuzluk','Uygunsuzluklar', S.ncrOpen || ''],
       ['kalibrasyon','Kalibrasyon'],
     ]]] : []),
@@ -616,7 +619,7 @@ function route(){
       return viewPurchase(null, it ? { item_id:it.id, item_name:it.name, unit:grpOfCat(it.category) === 'm' ? 'Mekanik' : 'Elektronik', supplier_id:it.supplier_id, unit_price:it.unit_price, currency:it.currency } : {}); }
     case 'tedarikciler': return viewSuppliers(a);
     case 'rapor': return viewReport();
-    case 'kalite': return a === 'hedefler' ? (canKpi() ? viewKpis() : viewToday()) : canQ() ? viewKys() : viewToday();
+    case 'kalite': return a === 'hedefler' ? (canKpi() ? viewKpis() : viewToday()) : a === 'sartli' ? (canQ() ? viewCondAccept() : viewToday()) : canQ() ? viewKys() : viewToday();
     case 'uygunsuzluk': return a ? viewNcr(+a) : viewNcrList();
     case 'uygunsuzluk-yeni': return viewNcr(null, a);
     case 'kalibrasyon': return a ? viewDevice(a === 'yeni' ? null : +a) : viewDevices();
@@ -656,7 +659,7 @@ function todaySections(){
   }
   if (prodR || view) {
     const late = prod.filter(d => due(d) && due(d) < T).sort((a,b) => due(a).localeCompare(due(b)));
-    S_.push({ id:'late', title:'Geciken siparişler', link:'#/kayitlar/production', rows: late.map(d => dRow(d, true)), empty:'Geciken sipariş yok.', alert:true });
+    S_.push({ id:'late', title:'Geciken siparişler', link:'#/kayitlar/production', rows: late.map(d => ({ ...dRow(d, true), act: can('sales', 'orders', 'admin', 'production') ? delayAct(d) : '' })), empty:'Geciken sipariş yok.', alert:true });
     const soon = prod.filter(d => due(d) && due(d) >= T && due(d) <= in14).sort((a,b) => due(a).localeCompare(due(b)));
     S_.push({ id:'soon', title:'14 gün içinde sevk edilecekler', link:'#/kayitlar/production', rows: soon.map(d => dRow(d, false)), empty:'Önümüzdeki 14 günde sevk yok.' });
     if (can('production','admin')) { const np = prod.filter(d => !d.planned_ship_date);
@@ -697,6 +700,11 @@ function todaySections(){
     S_.push({ max:5, foot: out.length && !one ? `${out.filter(i => grpOfCat(i.category) === 'm').length} mekanik · ${out.filter(i => grpOfCat(i.category) === 'e').length} elektronik` : '', id:'out',
       title:`Stokta biten ${one === 'm' ? 'mekanik ' : one === 'e' ? 'elektronik ' : ''}parçalar (ürünlerde kullanılan)`, link: one === 'e' ? '#/elektronik-stok' : '#/mekanik-stok', rows: out.map(i => ({ href:'#/stok/' + i.id, main:esc(i.name), sub:esc(i.supplier_text || ''), meta:'<span class="amber-txt">stok 0</span>', hot:false })), empty:'Ürünlerde kullanılan parçalarda biten yok.' });
   }
+  if (canIns() && (S.insPending || []).length) S_.push({ id:'ins', title:'Giriş kontrolü bekleyen malzemeler', link:'#/alimlar', alert:true,
+    rows: S.insPending.map(p => ({ href:'#/alimlar/' + p.id, main:esc(p.item_name), sub:esc(supName(p.supplier_id) || p.supplier_text || ''), meta:`<span class="amber-txt">${p.qty == null ? '' : fmtQ(p.qty) + ' adet · '}kontrol bekliyor</span>`, hot:true })) });
+  if (canPay()) { const od = (S.payments || []).filter(x => !x.received_at && x.due_date && x.due_date < T).map(x => ({ x, d:S.deals.find(d => d.id === x.deal_id) })).filter(o => o.d && !o.d.is_internal).sort((a, b) => a.x.due_date.localeCompare(b.x.due_date));
+    S_.push({ id:'tah', title:'Vadesi geçen tahsilat', link:'#/tahsilat', alert:true, empty:'Vadesi geçen tahsilat yok.',
+      rows: od.map(({ x, d }) => { const a = payAmt(x, d.amount_usd); return { href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub: a != null ? fmtUSD(a) : '', meta:`<span class="late-txt">${days(x.due_date, T)} gün gecikti</span>`, hot:true }; }) }); }
   if (canAcc() && (S.expPendingList || []).length) S_.push({ id:'exp', title:'Onay bekleyen masraf formları', link:'#/masraf-liste', alert:true,
     rows: S.expPendingList.map(r => ({ href:'#/masraf/' + r.id, main:esc(r.user_name || ''), sub:esc(r.title), meta:`<span class="sub">${sumByCur(r.expense_items)}</span>`, hot:true })) });
   if (isAdmin) { const n = S.issues.filter(i => !i.resolved).length + liveProblemCount();
@@ -714,6 +722,17 @@ async function savePref(key, value){
 }
 async function loadPrefs(){ const { data } = await sb.from('user_prefs').select('key,value'); S.prefs = Object.fromEntries((data || []).map(r => [r.key, r.value])); }
 let todayEdit = false;
+// geciken siparişte nedeni tek tıkla yaz; üretim rolü deals'e doğrudan yazamaz, deal_production_set kullanır
+const DELAY_WHY = ['Parça bekleniyor', 'Test sürüyor', 'Müşteri talebi', 'Kapasite'];
+const delayAct = d => d.delay_reason ? `<div class="sub tact-why">Gecikme nedeni: ${esc(d.delay_reason)}</div>` : `<div class="tact" data-d="${d.id}">${DELAY_WHY.map(t => `<button type="button" class="chip" data-delay="${esc(t)}">${esc(t)}</button>`).join('')}<button type="button" class="chip" data-delay="*">Diğer…</button></div>`;
+async function setDelayReason(id, reason){
+  const d = S.deals.find(x => x.id === id); if (!d) return;
+  const { error } = can('production') && !can('sales', 'orders', 'admin')
+    ? await sb.rpc('deal_production_set', { p_deal:id, p_planned_ship_date:d.planned_ship_date || null, p_ship_date:d.ship_date || null, p_status:d.status, p_delay_reason:reason })
+    : await sb.from('deals').update({ delay_reason:reason }).eq('id', id);
+  if (error) return toast(dbErr(error), true);
+  d.delay_reason = reason; toast('Gecikme nedeni kaydedildi'); viewToday();
+}
 function viewToday(){
   const secs = todaySections(), name = (S.profile.full_name || S.profile.email || '').split(' ')[0];
   const h = new Date().getHours(), hi = h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : 'İyi akşamlar';
@@ -736,7 +755,7 @@ function viewToday(){
         : `<a class="more" href="${x.link}">Tümü →</a>`}
       <button type="button" class="iconbtn tmin" aria-expanded="${!mini}" aria-label="${mini ? 'Kutuyu aç' : 'Kutuyu küçült'}" title="${mini ? 'Aç' : 'Küçült'}">${mini ? '▸' : '▾'}</button></header>
       ${mini ? '' : `${x.foot ? `<p class="tfoot-note">${x.foot}</p>` : ''}
-      <ul class="tlist">${x.rows.slice(0, MAX).map(r => `<li><a href="${r.href}"><span class="tm">${r.main}${r.sub ? `<span class="sub">${r.sub}</span>` : ''}</span><span class="tmeta">${r.meta}</span></a></li>`).join('')}</ul>${x.rows.length > MAX ? `<a class="tmore" href="${x.link}">+${x.rows.length - MAX} tane daha</a>` : ''}`}</section>`; };
+      <ul class="tlist">${x.rows.slice(0, MAX).map(r => `<li><a href="${r.href}"><span class="tm">${r.main}${r.sub ? `<span class="sub">${r.sub}</span>` : ''}</span><span class="tmeta">${r.meta}</span></a>${r.act || ''}</li>`).join('')}</ul>${x.rows.length > MAX ? `<a class="tmore" href="${x.link}">+${x.rows.length - MAX} tane daha</a>` : ''}`}</section>`; };
   shell('bugun', `<div class="pagehead"><div><h1>${hi}, ${esc(name)}</h1><p class="lede">${dstr} · ${esc(roleLabel(S.profile))} görünümü · ${hotN ? `<b class="late-txt">${hotN} iş dikkat istiyor</b>` : 'Acil bekleyen iş yok'}</p></div>
       <div class="tlayout">${todayEdit ? `<button class="btn sm" id="treset" type="button" title="Kutuların yerini ve açık/küçük durumunu varsayılana döndürür">Varsayılana dön</button><button class="btn sm primary" id="tedit" type="button">Bitti</button>` : `<button class="btn sm" id="tedit" type="button" title="Kutuları sürükleyerek ya da oklarla yerleştirin; düzen hesabınıza kaydedilir">Düzeni değiştir</button>`}${bellBtn()}</div></div>
     ${countBanner()}
@@ -745,6 +764,10 @@ function viewToday(){
     ${more.length ? `<div class="tclear"><span>Diğer kutular: ${more.map(x => `<a href="${x.link}">${x.title} (${x.count ?? x.rows.length})</a>`).join(' · ')}</span></div>` : ''}
     ${secs.some(x => !x.rows.length) ? `<div class="tclear">${secs.filter(x => !x.rows.length).map(x => `<span>✓ ${x.empty}</span>`).join('')}</div>` : ''}`);
   bindBell();
+  qa('.tact [data-delay]').forEach(b => b.onclick = async e => { e.preventDefault(); const w = b.closest('.tact'), id = +w.dataset.d; let t = b.dataset.delay;
+    if (t === '*') { w.innerHTML = '<input type="text" maxlength="200" placeholder="Gecikme nedeni" aria-label="Gecikme nedeni"><button type="button" class="chip" data-ok="1">Kaydet</button>'; const i = q('input', w); i.focus();
+      q('[data-ok]', w).onclick = () => i.value.trim() && setDelayReason(id, i.value.trim()); i.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); i.value.trim() && setDelayReason(id, i.value.trim()); } }; return; }
+    setDelayReason(id, t); });
   // mevcut ekrandaki düzeni oku ve kaydet
   const current = () => qa('.tcols .tcol').map(c => qa('.tday[data-sec]', c).map(p => p.dataset.sec));
   const persist = async (re = true) => { await savePref(TL_KEY, { cols: current(), min: [...minSet] }); if (re) viewToday(); };
@@ -1128,8 +1151,11 @@ function viewDetail(id){
       </tbody></table></div><p style="margin:8px 0 0"><a href="#/alimlar?siparis=${id}">Alımlar listesinde göster</a></p></section>`;
     qa('#dpur tr[data-pid]').forEach(r => r.onclick = () => location.hash = '#/alimlar/' + r.dataset.pid); });
   q('#toprod') && (q('#toprod').onclick = async e => {
-    if (!confirmInline(e.target, 'Üretime alınsın mı? Üretime bildirim gider; onaylamak için tekrar bas')) return;
-    const { error } = await sb.from('deals').update({ status:'production' }).eq('id', id); if (error) return toast(dbErr(error), true);
+    // üretime alırken planlanan sevk tarihi istenir; tarih seçilince ikinci düğmeyle onaylanır
+    if (!q('#tpbox')) { e.target.insertAdjacentHTML('afterend', `<span id="tpbox" class="tpbox"><label class="f" style="display:inline-flex;gap:6px;align-items:center">Planlanan sevk <input type="date" id="tpship" value="${esc(d.planned_ship_date || d.requested_ship_date || '')}" min="${today()}"></label><button class="btn primary" id="tpok" type="button">Onayla, üretime al</button></span>`); e.target.hidden = true; q('#tpship').focus();
+      q('#tpok').onclick = () => { const v = q('#tpship').value; if (!v) { q('#tpship').focus(); return toast('Planlanan sevk tarihini girin', true); } q('#toprod').dataset.ship = v; q('#toprod').hidden = false; q('#toprod').click(); }; return; }
+    const ship = q('#toprod').dataset.ship; if (!ship) return;
+    const { error } = await sb.from('deals').update({ status:'production', planned_ship_date:ship }).eq('id', id); if (error) return toast(dbErr(error), true);
     await loadAll(); toast('Üretime alındı'); viewDetail(id); });
   q('#towait') && (q('#towait').onclick = async e => {
     if (!confirmInline(e.target, 'Beklemeye alınsın mı? Üretimdeki listeden çıkar, üretime bildirim gider; onaylamak için tekrar bas')) return;
@@ -1222,7 +1248,11 @@ function bindStgActions(root, d, after){
     e.preventDefault(); e.stopPropagation();
     const k = btn.dataset.sg, to = btn.dataset.to, wrap = btn.closest('[data-stgrow]') || root;
     const noteEl = q(`[data-sn="${k}"]`, wrap), ship = (q(`[data-sd="${k}"]`, wrap) || {}).value;
-    if (k === 'gonderim' && to === 'bitti' && !ship) return toast('Sevk tarihini seç', true);
+    if (k === 'gonderim' && to === 'bitti') {
+      if (!ship) { const di = q(`[data-sd="${k}"]`, wrap); if (di) di.focus(); return toast('Sevk tarihini seç', true); }
+      // ödeme planı yoksa uyarı (engel değil): yalnız tahsilatı görenlere, ikinci basışta devam eder
+      if (canPay() && !d.is_internal && !(S.payments || []).some(p => p.deal_id === d.id) && btn.dataset.w !== '1') {
+        btn.dataset.w = '1'; btn.textContent = 'Ödeme planı yok · yine de gönder'; return toast('Bu siparişin ödeme planı girilmemiş. Yine de göndermek için tekrar bas', true); } }
     btn.disabled = true;
     if (await setStage(d, k, to, noteEl ? noteEl.value : null, ship)) after(); else btn.disabled = false;
   });
@@ -1829,6 +1859,8 @@ function viewForm(id){
   const ex = id ? S.deals.find(x => x.id === id) : null;
   if (id && !ex) return viewDetail(id);
   if (!can('sales','orders','admin','production')) return viewDetail(id);
+  // Sipariş rolü tahsilat tablosunu okuyamaz; formdaki plan satırlarını deal_payment_plan işleviyle alır (alınmış satırlar kilitli gelir)
+  if (id && !canPay() && canPayPlan() && !(S.planRows && S.planRows.deal === id)) return sb.rpc('deal_payment_plan', { p_deal:id }).then(r => { S.planRows = { deal:id, rows:r.error ? [] : r.data || [] }; viewForm(id); });
   const convert = /siparis/.test(location.hash);
   const prodOnly = can('production') && !can('sales','orders','admin');
   const d = ex ? structuredClone(ex) : { status:'pipeline', stage:'qualify', currency:'USD', items:{}, lead_date: today() };
@@ -1836,13 +1868,13 @@ function viewForm(id){
   let kind = ['waiting','production','shipped'].includes(d.status) ? 'order' : 'opp';
   const cust = ex ? S.customers.find(c => c.id === ex.customer_id) : null;
   const payRow = () => ({ pct:'', amount:'', due_date:'', note:'' });
-  d.pays = ex ? (S.payments || []).filter(p => p.deal_id === ex.id).sort((a, b) => a.seq - b.seq).map(p => ({ ...p, pct:p.pct ?? '', amount:p.amount ?? '' })) : [];
-  const padPays = () => { if (canPay() && kind === 'order' && !d.pays.length) d.pays = [payRow(), payRow(), payRow()]; };
+  d.pays = ex ? (canPay() ? (S.payments || []).filter(p => p.deal_id === ex.id) : (S.planRows && S.planRows.deal === ex.id ? S.planRows.rows.map(r => ({ ...r, deal_id:ex.id, received_at:r.locked ? '1970-01-01' : null })) : [])).sort((a, b) => a.seq - b.seq).map(p => ({ ...p, pct:p.pct ?? '', amount:p.amount ?? '' })) : [];
+  const padPays = () => { if (canPayPlan() && kind === 'order' && !d.pays.length) d.pays = [payRow(), payRow(), payRow()]; };
   padPays();
   const payFilled = () => d.pays.filter(p => p.received_at || hasV(p.pct) || hasV(p.amount) || p.due_date || p.note);
   const paySig = () => JSON.stringify(payFilled().map(p => [p.id || 0, hasV(p.amount) ? 'a' + +p.amount : 'p' + +p.pct, p.due_date, p.note || '']));
   const pays0 = paySig(); // plana dokunulmadıysa tutar farkı kaydı engellemez, yalnız uyarır
-  const payNeeded = () => canPay() && kind === 'order' && (!ex || convert) && !d.is_internal; // eski siparişlerde zorunlu değil
+  const payNeeded = () => canPayPlan() && kind === 'order' && (!ex || convert) && !d.is_internal; // eski siparişlerde zorunlu değil
   const dealTotal = () => +d.amount_usd || 0;
   // USD dışı tutar: kur TCMB'den (fx-rate) gelir; gelmezse elle kur kutusu açılır
   let fxForm = false; // F() aşağıda tanımlı; form kurulmadan d'den oku
@@ -1922,10 +1954,10 @@ function viewForm(id){
         <label class="f">SMD satış tutarı (USD)<input type="number" name="smd_sales_usd" min="0" step="0.01" value="${v('smd_sales_usd')}" ${dis('smd_sales_usd')}></label>
         <label class="f">Ödeme notu<input type="text" name="payment_terms" value="${v('payment_terms')}" placeholder="ör. akreditif, vade farkı, kur şartı" ${dis('payment_terms')}></label>
       </div>
-      ${kind==='order' && canPay() ? `<div style="margin:4px 0 12px"><div style="font-weight:600;font-size:13px;margin-bottom:6px">Ödeme planı <span class="hint">her satırda oran ya da tutar ve ödeme tarihi; toplam USD sipariş tutarına eşit olmalı</span></div>
+      ${kind==='order' && canPayPlan() ? `<div style="margin:4px 0 12px"><div style="font-weight:600;font-size:13px;margin-bottom:6px">Ödeme planı <span class="hint">her satırda oran ya da tutar ve ödeme tarihi; toplam USD sipariş tutarına eşit olmalı</span></div>
         <div class="tablewrap"><table><thead><tr><th class="nosort">#</th><th class="nosort num">Oran %</th><th class="nosort num">Tutar (USD)</th><th class="nosort">Ödeme tarihi</th><th class="nosort">Not</th><th class="nosort"></th></tr></thead><tbody>
         ${d.pays.map((p, i) => p.received_at
-          ? `<tr style="cursor:default"><td>${i + 1}</td><td class="num pay-pct" data-i="${i}"></td><td class="num pay-amt" data-i="${i}"></td><td>${fmtD(p.due_date)}</td><td>${esc(p.note || '')}<div class="sub ok-txt">Geldi · ${fmtD(p.received_at)}</div></td><td></td></tr>`
+          ? `<tr style="cursor:default"><td>${i + 1}</td><td class="num pay-pct" data-i="${i}"></td><td class="num pay-amt" data-i="${i}"></td><td>${fmtD(p.due_date)}</td><td>${esc(p.note || '')}<div class="sub ok-txt">${canPay() ? `Geldi · ${fmtD(p.received_at)}` : 'Kilitli (tahsil edilmiş)'}</div></td><td></td></tr>`
           : `<tr style="cursor:default"><td>${i + 1}</td>
             <td class="num"><input type="number" name="pay_pct_${i}" value="${esc(p.pct ?? '')}" min="0" max="100" step="0.01" inputmode="decimal" style="width:80px;text-align:right" aria-label="${i + 1}. ödeme oranı" ${dis('payments')}></td>
             <td class="num"><input type="number" name="pay_amt_${i}" value="${esc(p.amount ?? '')}" min="0" step="0.01" inputmode="decimal" style="width:120px;text-align:right" aria-label="${i + 1}. ödeme tutarı" ${dis('payments')}></td>
@@ -2061,7 +2093,7 @@ function viewForm(id){
       ['Tarihler tutarlı', !['lead_date','order_date','expected_po_date','requested_ship_date','planned_ship_date','ship_date'].some(k=>errs[k])],
       ['Ürün adetleri', !errs.items && !errs.other_note],
       ['Tutar ve para birimi', !errs.amount_usd && !errs.amount_orig && !errs.rate],
-      ...(kind === 'order' && canPay() ? [['Ödeme planı', !errs.payments]] : []),
+      ...(kind === 'order' && canPayPlan() ? [['Ödeme planı', !errs.payments]] : []),
     ];
     q('#chk').innerHTML = checks.map(([t,ok]) => `<li class="${ok?'ok':(f.dataset.tried?'bad':'')}">${t}</li>`).join('') + (!existingCust && custTxt.length>=2 ? `<li class="ok">Yeni müşteri eklenecek: ${esc(custTxt)}</li>` : '');
     return errs;
@@ -2091,6 +2123,7 @@ function viewForm(id){
     }
     const ri = q('#resolveIss');
     if (ex && ri && ri.checked) { const ids = S.issues.filter(i => i.deal_id === ex.id && !i.resolved).map(i => i.id); if (ids.length) await sb.from('import_issues').update({ resolved:true }).in('id', ids); }
+    S.planRows = null;
     await loadAll().catch(() => {}); // kayıt yazıldı; yenileme hatası düğmeyi kilitli bırakmasın
     if (payErr) toast('Kayıt kaydedildi ama ödeme planı kaydedilemedi: ' + dbErr(payErr), true);
     else toast(ex ? 'Değişiklikler kaydedildi' : 'Kayıt oluşturuldu');
@@ -2725,7 +2758,9 @@ const rmaState = { tab:'open', q:'' };
 async function loadRma(){
   const { data, error } = await sb.from('v_rma').select('*').order('requested_at', { ascending:false }).order('id', { ascending:false });
   S.rmas = error ? [] : data; S.rmaErr = error ? error.message : null;
+  const w = await sb.from('rma').select('id').eq('root_cause_waived', true); S.rmaWaived = new Set(w.error ? [] : (w.data || []).map(x => x.id)); // kök nedensiz ilerletilenler (SQL öncesi boş)
 }
+const rmaNoCause = r => (S.rmaWaived || new Set()).has(r.id) && !String(r.root_cause || '').trim() ? ' <span class="pill" style="background:var(--amber-soft);color:var(--amber)">kök neden yok</span>' : '';
 // ürün bazlı geçmiş ortalama tamir süresi (geliş → tamir bitişi), tahmini süre önerisi için
 function avgRepairDays(product){
   const xs = (S.rmas||[]).filter(r => r.product === product && r.received_at && r.repaired_at).map(r => dDiff(r.received_at, r.repaired_at));
@@ -2744,7 +2779,7 @@ async function viewRma(){
     const rows = R.filter(r => (s.tab === 'all' || (s.tab === 'draft' ? r.is_draft : s.tab === 'open' ? rmaOpen(r) && !r.is_draft : s.tab === 'atus' ? rmaAtUs(r) : s.tab === 'late' ? rmaLate(r) : !rmaOpen(r)))
       && (!ql || [r.code, r.customer, r.serial_no, r.fault_reported, r.diagnosis, r.failed_component, r.root_cause, prodName(r.product), r.order_no, r.invoice_in_no, r.invoice_out_no, r.import_decl_no, r.export_decl_no].join(' ').toLocaleLowerCase('tr').includes(ql)));
     q('#rtbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">RMA</th><th class="nosort">Müşteri</th><th class="nosort">Ürün / seri no</th><th class="nosort">Durum</th><th class="nosort">Garanti</th><th class="nosort">Ürün geliş</th><th class="nosort">Tahmini hazır</th><th class="nosort num">Maliyet</th></tr></thead><tbody>
-      ${rows.map(r => `<tr data-rid="${r.id}"><td class="mono" style="white-space:nowrap">${esc(r.code)}${r.is_draft?' <span class="pill rp-draft">Taslak</span>':''}<div class="sub">${fmtD(r.requested_at)}</div></td>
+      ${rows.map(r => `<tr data-rid="${r.id}"><td class="mono" style="white-space:nowrap">${esc(r.code)}${r.is_draft?' <span class="pill rp-draft">Taslak</span>':''}${rmaNoCause(r)}<div class="sub">${fmtD(r.requested_at)}</div></td>
         <td>${esc(r.customer || '—')}${r.ticket_id?`<div class="sub">Support #${r.ticket_id}</div>`:''}</td>
         <td>${r.product?esc(prodName(r.product)):'—'}${r.serial_no?`<div class="sub mono">${esc(r.serial_no)}</div>`:''}</td>
         <td>${rmaPill(r.status)}${r.outcome?`<div class="sub">${RMA_OUT[r.outcome]}</div>`:''}${r.failed_component?`<div class="sub">${esc(r.failed_component)}</div>`:''}</td>
@@ -3014,7 +3049,17 @@ async function viewRmaForm(id, preset){
     if (res.error) return toast(dbErr(res.error), true);
     toast(id ? 'Kaydedildi' : 'RMA açıldı'); await loadRma(); location.hash = '#/rma/' + res.data.id; if (id) viewRmaForm(id);
   }); };
-  q('#rnext') && (q('#rnext').onclick = async () => { const { error } = await sb.from('rma').update({ status: nextSt }).eq('id', id); if (error) return toast(dbErr(error), true); toast(RMA_ST[nextSt]); await loadRma(); viewRmaForm(id); });
+  q('#rnext') && (q('#rnext').onclick = async e => {
+    const go = async o => { const { error } = await sb.from('rma').update({ status:nextSt, ...o }).eq('id', id); if (error) return toast(dbErr(error), true); toast(RMA_ST[nextSt]); await loadRma(); viewRmaForm(id); };
+    // tamir sonrası aşamalar (test, geri gönderildi, kapandı) kök neden ister; boşsa sorulur, istenirse "kök nedensiz" ilerletilir
+    if (['test', 'shipped_back', 'closed'].includes(nextSt) && !String(r.root_cause || '').trim()) {
+      if (q('#rcbox')) return; const closing = nextSt === 'closed', b = e.currentTarget;
+      b.insertAdjacentHTML('afterend', `<span id="rcbox" class="tpbox"><label class="f" style="display:inline-flex;gap:6px;align-items:center">Sorunu ne çıkardı? <input id="rcin" maxlength="500" style="min-width:240px"></label>
+        <button class="btn primary" id="rcsave" type="button">Kaydet ve ${closing ? 'kapat' : 'ilerle'}</button><button class="btn" id="rcwaive" type="button">Kök nedensiz ${closing ? 'kapat' : 'ilerle'}</button>${ncrBtn('rma', id, 'btn')}</span>`);
+      q('#rcin').focus();
+      q('#rcsave').onclick = () => { const v = q('#rcin').value.trim(); if (!v) { q('#rcin').focus(); return toast('Kök nedeni yazın ya da "kök nedensiz" devam edin', true); } go({ root_cause:v }); };
+      q('#rcwaive').onclick = () => go({ root_cause_waived:true }); return; }
+    go({}); });
   q('#rconfirm') && (q('#rconfirm').onclick = async () => { const { error } = await sb.from('rma').update({ is_draft:false }).eq('id', id); if (error) return toast(dbErr(error), true); toast('Taslak onaylandı'); await loadRma(); viewRmaForm(id); });
   q('#rdel') && (q('#rdel').onclick = async e => { if (!confirmInline(e.target, 'Silmek için tekrar bas')) return; const { error } = await sb.from('rma').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('RMA silindi'); await loadRma(); location.hash = '#/rma'; });
   q('#cf') && (q('#cf').onsubmit = e => {
@@ -3048,6 +3093,10 @@ const fmtQ = n => n == null ? '—' : (+n).toLocaleString('tr-TR', { maximumFrac
 const fmtMoney = (n, cur) => n == null || n === '' ? '—' : (+n).toLocaleString('tr-TR', { maximumFractionDigits: 2 }) + ' ' + ({ TRY:'₺', USD:'$', EUR:'€' }[cur || 'TRY'] || esc(cur));
 const PUR_PRE = ['talep','onaylandi','proforma','siparis_verildi','eft_bekliyor','reddedildi']; // "Alındı"dan bunlara dönülürse stok geri düşülür
 const purPill = st => `<span class="pill pu-${st}">${PUR_ST[st] || st}</span>`;
+// giriş kontrolü (Teslim alındı sonrası): sonuç Geçti / Kaldı / Şartlı kabul; bekliyorken stoğa girmez
+const INS_ST = { bekliyor:'Kontrol bekliyor', gecti:'Geçti', kaldi:'Kaldı', sartli:'Şartlı kabul' };
+const canIns = () => can('kalite', 'stock', 'admin');
+const insPill = st => { if (!st) return ''; const c = st === 'sartli' || st === 'bekliyor' ? 'amber' : st === 'kaldi' ? 'red' : 'green'; return `<span class="pill" style="background:var(--${c}-soft);color:var(--${c})">${INS_ST[st]}</span>`; };
 // Sipariş verildi (yolda) talebin termini: geçtiyse kırmızı
 const etaTxt = p => { if (!p.expected_at) return '<div class="sub amber-txt">termin girilmemiş</div>'; const late = p.expected_at < today();
   return `<div class="sub${late ? ' late-txt' : ''}">termin ${fmtD(p.expected_at)}${late ? ` · ${days(p.expected_at, today())} gün gecikti` : ''}</div>`; };
@@ -3074,6 +3123,7 @@ async function loadPurCount(){
   const r = await sb.from('purchases').select('id,kind,item_name,project,qty,total,currency,urgency,status,requested_at,requester,requester_name,created_by,expected_at').in('status', PUR_OPEN).order('requested_at', { ascending:false }).range(0, 999);
   S.purOpenList = r.error ? [] : (r.data || []);
   S.purOpen = S.purOpenList.filter(p => p.kind === 'alim' && PUR_WAIT.includes(p.status)).length;
+  if (canIns()) { const k = await sb.from('purchases').select('id,item_name,qty,supplier_id,supplier_text,purchased_at').eq('inspection_status', 'bekliyor').order('purchased_at'); S.insPending = k.error ? [] : k.data || []; }
 }
 const itemById = id => (S.items || []).find(i => i.id === id);
 const supName = id => (S.suppliers || []).find(s => s.id === id)?.name || '';
@@ -3147,16 +3197,17 @@ async function viewStockItem(id, g){
   let i = id ? (await sb.from('stock_items').select('*').eq('id', id).maybeSingle()).data : { category:g === 'e' ? 'elektronik' : 'mekanik', unit:'adet', currency:'TRY' };
   if (!i) return shell('mekanik-stok', `<h1>Parça bulunamadı</h1><p><a href="#/mekanik-stok">Mekanik stok</a> · <a href="#/elektronik-stok">Elektronik stok</a></p>`);
   const G = STK_GRP[grpOfCat(i.category)];
-  const [mv, ln, pu] = id ? await Promise.all([
+  const [mv, ln, pu, ci] = id ? await Promise.all([
     sb.from('stock_moves').select('*').eq('item_id', id).order('at', { ascending:false }).limit(100),
     sb.from('bom_lines').select('bom_id,qty_per,alt_group').eq('item_id', id),
     sb.from('purchases').select('id,requested_at,item_name,qty,unit_price,total,currency,status,supplier_text').eq('item_id', id).order('requested_at', { ascending:false }).limit(30),
-  ]) : [{ data:[] }, { data:[] }, { data:[] }];
+    sb.from('purchase_inspections').select('purchase_id,deviation_note,qty,inspected_by_name,inspected_at').eq('item_id', id).eq('result', 'sartli').order('inspected_at', { ascending:false }).limit(10),
+  ]) : [{ data:[] }, { data:[] }, { data:[] }, { data:[] }];
   const ed = canStock(), v = k => esc(i[k] ?? '');
   const tx = (k, l, hint) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="text" name="${k}" value="${v(k)}"></label>`;
   const nm = (k, l, hint) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="number" step="any" name="${k}" value="${v(k)}"></label>`;
   shell(G.key, `<p><a href="#/${G.key}">← ${G.title}</a></p>
-  <div class="pagehead"><div><h1>${id ? esc(i.name) : 'Yeni parça'}</h1>${id ? `<p class="lede">${STK_CAT[i.category] || ''}${i.source ? ' · kaynak: ' + esc(i.source) : ''}</p>` : ''}</div>
+  <div class="pagehead"><div><h1>${id ? esc(i.name) : 'Yeni parça'} ${(ci.data || []).length ? insPill('sartli') : ''}</h1>${id ? `<p class="lede">${STK_CAT[i.category] || ''}${i.source ? ' · kaynak: ' + esc(i.source) : ''}</p>` : ''}</div>
     ${id ? `<div style="display:flex;gap:8px;align-items:center"><span class="stkbig ${lowStock(i) ? 'late-txt' : ''}">${i.qty == null ? '—' : fmtQ(i.qty)} <small>${esc(i.unit || '')}</small></span>
       <a class="btn" href="#/alim-yeni/i${i.id}">Alım talebi</a>${can('admin') ? '<button class="btn danger" id="idel">Sil</button>' : ''}</div>` : ''}</div>
   <div class="grid sup-grid"><div>
@@ -3182,6 +3233,7 @@ async function viewStockItem(id, g){
       <label class="f">Not <span class="hint">ör. sipariş no, RMA no</span><input type="text" name="note"></label>
       <p><button class="btn primary">Uygula</button></p></form></section>` : ''}
     ${id ? `<section class="panel mt"><h2>Kullanıldığı BOM'lar</h2>${(ln.data || []).length ? `<ul class="sugg">${ln.data.map(l => { const b = S.boms.find(x => x.id === l.bom_id); return b ? `<li><a href="#/bom/${b.id}">${esc(b.name)}</a> · ürün başına ${fmtQ(l.qty_per)}${l.alt_group ? ' <span class="sub">(seçenekli)</span>' : ''}</li>` : ''; }).join('')}</ul>` : '<p class="note">Bir BOM\'da kullanılmıyor.</p>'}</section>
+    ${(ci.data || []).length ? `<section class="panel mt"><h2>Şartlı kabul ${insPill('sartli')}</h2><ul class="sugg">${ci.data.map(c => `<li><a href="#/alimlar/${c.purchase_id}">${fmtD((c.inspected_at || '').slice(0, 10))}</a> · ${fmtQ(c.qty)} adet · <span class="amber-txt">${esc(c.deviation_note || '')}</span> <span class="sub">${esc(c.inspected_by_name || '')}</span></li>`).join('')}</ul></section>` : ''}
     <section class="panel mt"><h2>Alımlar</h2>${(pu.data || []).length ? `<ul class="sugg">${pu.data.map(p => `<li><a href="#/alimlar/${p.id}">${fmtD(p.requested_at)}</a> · ${fmtQ(p.qty)} adet · ${fmtMoney(p.total, p.currency)} ${purPill(p.status)}</li>`).join('')}</ul>` : '<p class="note">Bu parçaya bağlı alım yok.</p>'}</section>` : ''}
   </aside></div>`);
   if (id) sb.from('stock_item_images').select('mime,data').eq('item_id', id).maybeSingle().then(({ data }) => {
@@ -3426,6 +3478,36 @@ async function viewBom(id){
 // ikinci tık/Enter istek sürerken yutulur; x: düğme ya da submit olayı
 function busy(x, fn){ const b = x instanceof Event ? x.submitter || x.target.querySelector('button:not([type=button])') : x; if (b && b.disabled) return; if (b) b.disabled = true; const h = location.hash; return Promise.resolve().then(fn).finally(() => { if (b && location.hash === h) b.disabled = false; }); } // sayfa değiştiyse düğme zaten gidiyor; açma
 function confirmTwice(btn, msg){ if (btn.dataset.ok) { delete btn.dataset.ok; clearTimeout(btn._ct); btn.textContent = btn.dataset.orig; return true; } btn.dataset.ok = 1; btn.dataset.orig = btn.textContent; btn.textContent = msg; btn._ct = setTimeout(() => { if (btn.isConnected) { delete btn.dataset.ok; btn.textContent = btn.dataset.orig; } }, 6000); return false; }
+// Ortak aramalı açılır liste (tedarikçi ve sipariş seçici): gizli input form değerini taşır.
+// Öğeler { v, label, sub, group, hide }: hide = yalnız aramayla görünür; "Diğer" gibi özel seçenekler öğe olarak eklenir.
+const cbxNorm = s => String(s ?? '').toLocaleLowerCase('tr');
+function cbxHtml(name, items, cur, o = {}){
+  const it = (items || []).find(x => String(x.v) === String(cur ?? ''));
+  return `<div class="cbx" data-cbx="${esc(name)}"><input type="hidden" name="${esc(o.field || name)}" value="${esc(cur ?? '')}"><input type="text" class="cbx-in" role="combobox" aria-expanded="false" aria-autocomplete="list" autocomplete="off" placeholder="${esc(o.ph || 'Yazarak ara…')}" aria-label="${esc(o.label || name)}" value="${esc(it ? it.label : o.text || '')}"><ul class="cbx-list" role="listbox" hidden></ul></div>`;
+}
+// root içindeki (sonradan eklenenler dahil) .cbx[data-cbx=name] kutularını bağlar; onPick(kutu, öğe | null)
+function cbxBind(root, name, getItems, onPick){
+  const sel = `.cbx[data-cbx="${name}"]`, boxOf = el => el.closest(sel), hid = b => q('input[type=hidden]', b), inp = b => q('.cbx-in', b), ul = b => q('.cbx-list', b);
+  const close = b => { ul(b).hidden = true; inp(b).setAttribute('aria-expanded', 'false'); };
+  const label = b => { const it = getItems().find(x => String(x.v) === String(hid(b).value)); return it ? it.label : ''; };
+  const draw = b => { const t = cbxNorm(b.dataset.dirty ? inp(b).value.trim() : ''), L = ul(b); let last = null, n = 0, html = '';
+    for (const x of getItems()) { if (x.hide && !t) continue; if (t && !cbxNorm([x.label, x.sub].join(' ')).includes(t)) continue; if (++n > 80) break;
+      if (x.group && x.group !== last) { last = x.group; html += `<li class="cbx-grp" role="presentation">${esc(x.group)}</li>`; }
+      html += `<li role="option" data-v="${esc(x.v)}" class="${String(x.v) === String(hid(b).value) ? 'sel' : ''}">${esc(x.label)}${x.sub ? `<span class="sub">${esc(x.sub)}</span>` : ''}</li>`; }
+    L.innerHTML = html || '<li class="cbx-grp" role="presentation">Eşleşen yok</li>'; L.hidden = false; inp(b).setAttribute('aria-expanded', 'true'); };
+  const pick = (b, v) => { const it = getItems().find(x => String(x.v) === String(v)) || null; hid(b).value = it ? it.v : ''; inp(b).value = it ? it.label : ''; delete b.dataset.dirty; close(b); onPick && onPick(b, it); };
+  root.addEventListener('focusin', e => { const b = e.target.matches('.cbx-in') && boxOf(e.target); if (b) { delete b.dataset.dirty; draw(b); e.target.select(); } });
+  root.addEventListener('input', e => { const b = e.target.matches('.cbx-in') && boxOf(e.target); if (b) { b.dataset.dirty = 1; draw(b); } });
+  root.addEventListener('mousedown', e => { const li = e.target.closest('.cbx-list li[data-v]'), b = li && boxOf(li); if (b) { e.preventDefault(); pick(b, li.dataset.v); } });
+  root.addEventListener('focusout', e => { const b = e.target.matches('.cbx-in') && boxOf(e.target); if (!b) return;
+    if (!inp(b).value.trim()) { if (hid(b).value) { hid(b).value = ''; onPick && onPick(b, null); } } else inp(b).value = label(b);
+    delete b.dataset.dirty; close(b); });
+  root.addEventListener('keydown', e => { const b = e.target.matches('.cbx-in') && boxOf(e.target); if (!b) return; const L = ul(b), opts = qa('li[data-v]', L), cur = q('li.on', L);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (L.hidden) draw(b); const o2 = qa('li[data-v]', L), k = o2.indexOf(cur) + (e.key === 'ArrowDown' ? 1 : -1), nx = o2[(k + o2.length) % o2.length];
+      if (cur) cur.classList.remove('on'); if (nx) { nx.classList.add('on'); nx.scrollIntoView({ block:'nearest' }); } }
+    else if (e.key === 'Enter' && !L.hidden) { e.preventDefault(); const t = cur || (opts.length === 1 ? opts[0] : null); if (t) pick(b, t.dataset.v); }
+    else if (e.key === 'Escape' && !L.hidden) { e.preventDefault(); close(b); } });
+}
 
 async function viewBomNew(a){
   if (!canStock()) return viewBomList();
@@ -3682,19 +3764,40 @@ async function viewPurchase(id, preset){
   const v = k => esc(p[k] ?? '');
   const tx = (k, l, hint, t) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="${t || 'text'}" ${t === 'number' ? 'step="any"' : ''} name="${k}" value="${v(k)}"></label>`;
   const it = p.item_id ? itemById(p.item_id) : null;
+  const ins = id && p.inspection_status && p.inspection_status !== 'bekliyor' ? (await sb.from('purchase_inspections').select('*').eq('purchase_id', id).maybeSingle()).data : null;
   // bağlı siparişler RPC'den: yalnız-Muhasebe siparişleri okuyamaz ama ayrıntıyı görmeli
   const links = id ? ((await sb.rpc('purchase_deal_info', { p_purchase:id })).data || []) : [], ncrs = id ? await ncrLinked('purchase', id) : [];
-  const pdOpts = sel => { const ds = S.deals.filter(d => d.order_no).sort((x, y) => (y.order_no || '').localeCompare(x.order_no || '')), ex = sel && !ds.some(d => d.id === sel) && links.find(l => l.deal_id === sel);
-    return `<option value="">—</option>${ex ? `<option value="${sel}" selected>${esc(ex.ref_no)} · ${esc(ex.customer || '')}</option>` : ''}${ds.map(d => `<option value="${d.id}" ${sel === d.id ? 'selected' : ''}>${esc(d.order_no)} · ${esc(custName(d))}</option>`).join('')}`; };
-  const pdRow = l => `<tr style="cursor:default"><td><select name="pd_deal" aria-label="Sipariş">${pdOpts(l && l.deal_id)}</select></td><td><input type="text" name="pd_note" maxlength="200" value="${esc(l && l.note || '')}" placeholder="isteğe bağlı" aria-label="Not"></td><td><button type="button" class="linkbtn pddel" aria-label="Satırı sil">sil</button></td></tr>`;
+  // bağlı sipariş seçici: üretim panosundaki görünümle (no · müşteri · ürünler); önce Üretimde, Beklemede, Açık fırsatlar, en sonda Gönderilenler
+  const dealWhat = d => Object.entries(d.items || {}).map(([c, qn]) => `${fmtN(qn)}× ${prodName(c)}`).join(', ') || d.description || '';
+  const DG = { production:'Üretimde', waiting:'Beklemede', pipeline:'Açık fırsatlar', shipped:'Gönderilenler', lost:'Kaybedilenler', archived:'Arşiv' }, DR = Object.keys(DG);
+  const dealItems = (() => { let ns = 0;
+    const out = S.deals.slice().sort((a, b) => (DR.indexOf(a.status) - DR.indexOf(b.status)) || (b.id - a.id))
+      .map(d => ({ v:d.id, label:[refNo(d), custName(d), dealWhat(d)].filter(Boolean).join(' · '), group:DG[d.status] || 'Diğer', hide: ['lost', 'archived'].includes(d.status) || (d.status === 'shipped' && ++ns > 15) }));
+    links.forEach(l => { if (!out.some(x => x.v === l.deal_id)) out.push({ v:l.deal_id, label:`${l.ref_no} · ${l.customer || ''}`, group:'Bağlı', hide:true }); });
+    return out; })();
+  const pdRow = l => `<tr style="cursor:default"><td>${cbxHtml('pd_deal', dealItems, l && l.deal_id, { label:'Sipariş', ph:'Sipariş no, müşteri ya da açıklama yaz…' })}</td><td><input type="text" name="pd_note" maxlength="200" value="${esc(l && l.note || '')}" placeholder="isteğe bağlı" aria-label="Not"></td><td><button type="button" class="linkbtn pddel" aria-label="Satırı sil">sil</button></td></tr>`;
+  const supItems = [...S.suppliers.map(s => ({ v:s.id, label:s.name + (s.blacklisted ? ' ⚠ kara liste' : '') })), { v:'__other', label:'Diğer — elle yaz', group:'Listede yok' }];
+  const supCur = p.supplier_id || (p.supplier_text ? '__other' : '');
   const kv = (k, x) => x ? `<dt>${k}</dt><dd>${x}</dd>` : '';
   const pdCard = l => `<div class="pdcard"><div>${S.deals.some(d => d.id === l.deal_id) ? `<a href="#/kayit/${l.deal_id}" class="mono">${esc(l.ref_no)}</a>` : `<span class="mono">${esc(l.ref_no)}</span>`} · <b style="font-weight:600">${esc(l.customer || '')}</b> ${pill(l.status)}</div>
     <dl class="kv">${kv('Ülke', esc(l.country))}${kv('Açıklama', esc(l.description))}${kv('Ürünler', (l.items || []).map(i => `${esc(i.name)} × ${fmtN(i.qty)}`).join('<br>'))}${kv('Planlanan sevk', l.planned_ship_date && fmtD(l.planned_ship_date))}${kv('İstenen sevk', l.requested_ship_date && fmtD(l.requested_ship_date))}${kv('Sevk tarihi', l.ship_date && fmtD(l.ship_date))}${kv('Sevk ayı', !l.ship_date && l.ship_month && fmtM(l.ship_month))}${kv('Not', esc(l.note))}</dl></div>`;
+  const itemItems = (S.items || []).map(i => ({ v:i.id, label:i.name }));
+  const insBox = !id || !p.inspection_status ? '' : p.inspection_status === 'bekliyor'
+    ? `<div class="banner info" id="pins"><b>Giriş kontrolü bekliyor.</b> Malzeme teslim alındı; kontrol sonucu girilince stoğa girer.${canIns() ? `
+      <div class="row r2" style="margin-top:8px"><label class="f">Sonuç<select id="insres"><option value="">Seçin…</option><option value="gecti">Geçti</option><option value="sartli">Şartlı kabul</option><option value="kaldi">Kaldı</option></select></label>
+        <label class="f">Not <span class="hint">isteğe bağlı</span><input id="insnote" maxlength="300"></label></div>
+      <label class="f" id="insdevw" hidden>Sorun / sapma <span class="hint">şartlı kabulde zorunlu; kayda geçer, alım ve stok kartında görünür</span><textarea id="insdev" rows="2" maxlength="1000"></textarea></label>
+      ${p.item_id ? '' : `<div id="insstk" hidden><div class="f"><span>Stok kalemi <span class="hint">stoğa girecek parça</span></span>${cbxHtml('insitem', itemItems, '', { field:'ins_item', label:'Stok kalemi', ph:'Parça ara…' })}</div>
+        <label class="chk" style="display:flex;gap:6px;align-items:center;margin:6px 0;cursor:pointer"><input type="checkbox" id="insnostk"> Stoksuz kalem <span class="hint">stoğa girmez</span></label></div>`}
+      <label class="chk" id="insncrw" hidden style="display:flex;gap:6px;align-items:center;margin:6px 0;cursor:pointer"><input type="checkbox" id="insncr"> Kaydettikten sonra uygunsuzluk aç</label>
+      <p style="margin:8px 0 0"><button class="btn sm primary" id="inssave" type="button">Sonucu kaydet</button> <span class="sub" id="inshint"></span></p>` : ' Kalite, Depo / Stok ya da Yönetici sonuç girer.'}</div>`
+    : `<section class="panel mt"><h2>Giriş kontrolü ${insPill(p.inspection_status)}</h2><dl class="kv">${ins ? `<dt>Kontrol eden</dt><dd>${esc(ins.inspected_by_name || '')} · ${fmtDT(ins.inspected_at)}</dd>${ins.note ? `<dt>Not</dt><dd>${esc(ins.note)}</dd>` : ''}${ins.deviation_note ? `<dt>Sorun / sapma</dt><dd class="amber-txt" style="white-space:pre-wrap">${esc(ins.deviation_note)}</dd>` : ''}<dt>Stok</dt><dd>${ins.stocked ? `Stoğa girdi (${fmtQ(ins.qty)})` : ins.result === 'kaldi' ? 'Girmedi (kaldı)' : 'Stoksuz kalem'}</dd>` : ''}</dl></section>`;
   shell(id ? 'alimlar' : 'alim-yeni', `<p><a href="#/alimlar">← Alımlar</a></p>
   <div class="pagehead"><div><h1>${id ? esc(p.item_name) : 'Yeni alım talebi'}</h1>${id ? `<p class="lede">${esc(p.source || 'Sitede açıldı')}${p.requester_name ? ' · talep eden ' + esc(p.requester_name) : ''}</p>` : '<p class="lede">Talep açıldıktan sonra Satın alma (ya da Depo / Stok, Üretim, Sipariş, Yönetici) onaylayıp siparişini takip eder.</p>'}${ncrChips(ncrs)}</div>
-    ${id ? `<div style="display:flex;gap:8px;align-items:center">${purPill(p.status)}${p.kind === 'alim' ? ncrBtn('purchase', id, 'btn') : ''}${(can('admin') || (mine && p.status === 'talep')) ? '<button class="btn danger" id="pdel">Sil</button>' : ''}</div>` : ''}</div>
-  ${arrOk ? `<div class="banner info" id="parr"><b>Malzeme yolda.</b> Sipariş verildi${p.ordered_at ? ' ' + fmtD(p.ordered_at) : ''}${p.expected_at ? ` · tahmini termin <b class="${p.expected_at < today() ? 'late-txt' : ''}">${fmtD(p.expected_at)}</b>` : ''}. Elinize ulaştıysa talebi kapatın; gelmediyse satın almaya bildirin.
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" id="parbtn"><button class="btn sm primary" id="parok" type="button">Teslim alındı, talebi kapat</button><button class="btn sm" id="parno" type="button">Henüz gelmedi</button></div></div>` : ''}
+    ${id ? `<div style="display:flex;gap:8px;align-items:center">${purPill(p.status)}${insPill(p.inspection_status)}${p.kind === 'alim' ? ncrBtn('purchase', id, 'btn') : ''}${(can('admin') || (mine && p.status === 'talep')) ? '<button class="btn danger" id="pdel">Sil</button>' : ''}</div>` : ''}</div>
+  ${arrOk ? `<div class="banner info" id="parr"><b>Malzeme yolda.</b> Sipariş verildi${p.ordered_at ? ' ' + fmtD(p.ordered_at) : ''}${p.expected_at ? ` · tahmini termin <b class="${p.expected_at < today() ? 'late-txt' : ''}">${fmtD(p.expected_at)}</b>` : ''}. Elinize ulaştıysa teslim alındı deyin (ardından giriş kontrolü yapılır); gelmediyse satın almaya bildirin.
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" id="parbtn"><button class="btn sm primary" id="parok" type="button">Teslim alındı</button><button class="btn sm" id="parno" type="button">Henüz gelmedi</button></div></div>` : ''}
+  ${insBox}
   ${id && canPurchase() ? `<div class="pstatbox"><div class="pstatrow"><label class="f pstatf" for="pstsel">Talebin durumu</label>
       <select id="pstsel">${Object.entries(PUR_ST).map(([k, l]) => `<option value="${k}" ${p.status === k ? 'selected' : ''}>${l}${p.status === k ? ' (şu anki)' : ''}</option>`).join('')}</select>
       <button class="btn primary" id="pstok" type="button" disabled>Durumu kaydet</button><button class="btn" id="pstno" type="button" hidden>Vazgeç</button></div>
@@ -3705,7 +3808,7 @@ async function viewPurchase(id, preset){
     <div class="row">${tx('qty', 'Adet', '', 'number')}${tx('unit_price', 'Birim fiyat (KDV dahil)', '', 'number')}<label class="f">Para birimi${stkSel('currency', { TRY:'TRY', USD:'USD', EUR:'EUR' }, p.currency || 'TRY')}</label></div>
     <div class="row r2"><label class="f">İlgili ürün / proje <span class="hint">raporda bu başlıkta görünür</span><select name="bom_id"><option value="">—</option>${bomOpts(p.bom_id)}</select></label>${tx('project', 'Proje / sipariş notu', 'ör. ACRPO-540, ARGE denemesi')}</div>
     <div class="row r2"><label class="f">Aciliyet${stkSel('urgency', { acil:'Acil', normal:'Acil değil' }, p.urgency || 'normal', '—')}</label>${tx('priority', 'Ne zamana', 'ör. 1 hafta içinde')}</div>
-    <div class="row r2"><label class="f">Tedarikçi<select name="supplier_id"><option value="">—</option>${S.suppliers.map(s => `<option value="${s.id}" ${p.supplier_id === s.id ? 'selected' : ''}>${esc(s.name)}${s.blacklisted ? ' ⚠ kara liste' : ''}</option>`).join('')}</select></label>${tx('supplier_text', 'Tedarikçi notu', 'listede yoksa')}</div>
+    <div class="row r2"><div class="f"><span>Tedarikçi</span>${cbxHtml('sup', supItems, supCur, { field:'supplier_id', label:'Tedarikçi', ph:'Tedarikçi ara…' })}</div><div id="suptxt" ${supCur === '__other' ? '' : 'hidden'}>${tx('supplier_text', 'Tedarikçi (elle yaz)', 'listede yoksa')}</div></div>
     ${tx('link', 'Bağlantı', 'ürün sayfası, proforma, Drive')}
     <div class="row r2">${tx('requester_name', 'Talep eden')}${tx('requested_at', 'Talep tarihi', '', 'date')}</div>
     ${canPurchase() ? `<div class="row r2">${tx('expected_at', 'Tahmini termin', 'Sipariş verildi için zorunlu', 'date')}${tx('purchased_at', 'Teslim tarihi', 'Teslim alındı olunca kendiliğinden', 'date')}</div>` : ''}
@@ -3755,15 +3858,16 @@ async function viewPurchase(id, preset){
   q('#puf').onsubmit = e => {
     e.preventDefault(); return busy(e, async () => { const f = e.target, g = n => f[n] ? f[n].value.trim() : '';
     if (!g('item_name')) return toast('Ürün / iş adı girin', true);
+    if (f.supplier_id.value === '__other' && !g('supplier_text')) return toast('Tedarikçi adını yazın', true);
     const link = g('item_link'), li = link ? S.items.find(i => i.name.toLocaleLowerCase('tr') === link.toLocaleLowerCase('tr')) : null;
     if (link && !li) return toast('Stoktaki parça listede yok; listeden seçin ya da boş bırakın', true);
     const o = { kind:f.kind.value, unit:f.unit.value || null, area:f.area.value || null, item_name:g('item_name'), item_id:li ? li.id : null, qty:num0(g('qty')), unit_price:num0(g('unit_price')),
-      currency:f.currency.value, bom_id:f.bom_id.value ? +f.bom_id.value : null, project:g('project') || null, urgency:f.urgency.value || null, priority:g('priority') || null, supplier_id:f.supplier_id.value ? +f.supplier_id.value : null,
+      currency:f.currency.value, bom_id:f.bom_id.value ? +f.bom_id.value : null, project:g('project') || null, urgency:f.urgency.value || null, priority:g('priority') || null, supplier_id:/^\d+$/.test(f.supplier_id.value) ? +f.supplier_id.value : null,
       supplier_text:g('supplier_text') || null, general_use:f.general_use.checked, link:normUrl(g('link')), requester_name:g('requester_name') || null, requested_at:g('requested_at') || null, purpose:g('purpose') || null, note:g('note') || null };
     if (o.qty != null && o.unit_price != null) o.total = Math.round(o.qty * o.unit_price * 100) / 100;
     if (f.purchased_at) o.purchased_at = g('purchased_at') || null;
     if (f.expected_at) o.expected_at = g('expected_at') || null;
-    const pd = [...q('#pdrows').rows].map(tr => ({ deal_id:+tr.querySelector('select').value || null, note:tr.querySelector('input').value.trim() || null })).filter(r => r.deal_id);
+    const pd = [...q('#pdrows').rows].map(tr => ({ deal_id:+tr.querySelector('input[name=pd_deal]').value || null, note:tr.querySelector('input[name=pd_note]').value.trim() || null })).filter(r => r.deal_id);
     if (new Set(pd.map(r => r.deal_id)).size !== pd.length) return toast('Aynı sipariş iki kez seçilmiş', true);
     if (!id) { o.requester = S.profile.id; o.status = 'talep'; o.source = 'Sitede açıldı';
       const { data, error } = await sb.from('purchases').insert(o).select('id').single(); if (error) return toast(dbErr(error), true);
@@ -3773,16 +3877,18 @@ async function viewPurchase(id, preset){
     const r = await sb.rpc('purchase_deals_set', { p_purchase:id, p_rows:pd }); if (r.error) return toast('Bağlı siparişler kaydedilemedi: ' + dbErr(r.error), true);
     toast('Kaydedildi'); await viewPurchase(id);
   }); };
+  cbxBind(q('#puf'), 'sup', () => supItems, (b, it) => { q('#suptxt').hidden = !(it && it.v === '__other'); });
+  cbxBind(q('#puf'), 'pd_deal', () => dealItems);
   { const body = q('#pdrows');
     q('#pdadd') && (q('#pdadd').onclick = () => body.insertAdjacentHTML('beforeend', pdRow(null)));
     body.onclick = e => { const b = e.target.closest('.pddel'); if (!b) return; const tr = b.closest('tr');
-      if (body.rows.length > 1) tr.remove(); else { tr.querySelector('select').value = ''; tr.querySelector('input').value = ''; } }; }
+      if (body.rows.length > 1) tr.remove(); else qa('input', tr).forEach(i => { i.value = ''; }); }; }
   // durum tek tıkla değişmez: listeden seç → "Durumu kaydet"
   if (q('#pstsel')) { const sel = q('#pstsel'), box = q('#pstconf'), ok = q('#pstok'), no = q('#pstno');
     const clear = () => { sel.value = p.status; box.hidden = true; box.innerHTML = ''; ok.disabled = true; no.hidden = true; sel.classList.remove('pend'); };
     sel.onchange = () => { const ns = sel.value; if (ns === p.status) return clear();
       const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
-      const warn = ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
+      const warn = ns === 'alindi' && p.kind === 'alim' ? 'Kaydedince giriş kontrolü beklemeye girer; stoğa kontrol sonucundan sonra girer.' : ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
         : back ? `Kaydedince stoğa girmiş ${fmtQ(p.qty)} adet geri düşülür.` : '';
       const needPf = ns === 'proforma' && !pfN, needEta = ns === 'siparis_verildi';
       box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}${needPf ? '<div class="late-txt">Önce Belgeler bölümünden proforma yükleyin.</div>' : ''}
@@ -3797,12 +3903,26 @@ async function viewPurchase(id, preset){
       const { error } = await sb.from('purchases').update(up).eq('id', id);
       if (error) { ok.disabled = false; return toast(dbErr(error), true); }
       toast('Durum kaydedildi: ' + PUR_ST[ns]); S.stockLoaded = false; loadPurCount(); viewPurchase(id); }; }
-  q('#parok') && (q('#parok').onclick = e => { if (!confirmInline(e.target, 'Talep kapanır; parça bağlıysa stoğa girer. Onaylamak için tekrar bas')) return;
+  q('#parok') && (q('#parok').onclick = e => { if (!confirmInline(e.target, 'Talep teslim alındı olur; giriş kontrolü sonrası stoğa girer. Onaylamak için tekrar bas')) return;
     busy(e.currentTarget, async () => { const { error } = await sb.rpc('purchase_arrived', { p_purchase:id }); if (error) return toast(dbErr(error), true);
-      toast('Teslim alındı; talep kapandı'); S.stockLoaded = false; loadPurCount(); await viewPurchase(id); }); });
+      toast('Teslim alındı; giriş kontrolü bekliyor'); S.stockLoaded = false; loadPurCount(); await viewPurchase(id); }); });
   q('#parno') && (q('#parno').onclick = () => { q('#parbtn').innerHTML = `<input type="text" id="parnote" maxlength="300" placeholder="Not (isteğe bağlı)" style="flex:1;min-width:200px"><button class="btn sm primary" id="parsend" type="button">Satın almaya bildir</button>`;
     q('#parsend').onclick = e => busy(e.currentTarget, async () => { const { error } = await sb.rpc('purchase_not_arrived', { p_purchase:id, p_note:q('#parnote').value.trim() || null }); if (error) return toast(dbErr(error), true);
       toast('Satın almaya bildirildi; yeni termin girilince o gün tekrar sorulur'); await viewPurchase(id); }); });
+  if (q('#insres')) { const res = q('#insres'), box = q('#pins');
+    cbxBind(box, 'insitem', () => itemItems);
+    res.onchange = () => { const r = res.value; q('#insdevw').hidden = r !== 'sartli'; q('#insncrw').hidden = r !== 'sartli'; q('#insstk') && (q('#insstk').hidden = r !== 'gecti' && r !== 'sartli');
+      q('#inshint').textContent = r === 'kaldi' ? 'Stoğa girmez; uygunsuzluk formu açılır.' : r === 'sartli' ? 'Stoğa girer; sorun / sapma kayda geçer.' : r === 'gecti' ? 'Stoğa girer.' : ''; };
+    q('#inssave').onclick = e => busy(e.currentTarget, async () => { const r = res.value, dev = (q('#insdev').value || '').trim();
+      if (!r) return toast('Sonucu seçin', true);
+      if (r === 'sartli' && dev.length < 3) return toast('Şartlı kabulde sorun / sapma açıklaması zorunlu', true);
+      const item = q('input[name=ins_item]', box), noStk = q('#insnostk') && q('#insnostk').checked;
+      if ((r === 'gecti' || r === 'sartli') && !p.item_id && !(item && item.value) && !noStk) return toast('Stok kalemini seçin ya da "Stoksuz kalem" işaretleyin', true);
+      const { error } = await sb.rpc('purchase_inspect', { p_purchase:id, p_result:r, p_note:q('#insnote').value.trim() || null, p_deviation:r === 'sartli' ? dev : null, p_item:item && item.value ? +item.value : null, p_no_stock:!!noStk });
+      if (error) return toast(dbErr(error), true);
+      S.stockLoaded = false; loadPurCount(); toast('Giriş kontrolü kaydedildi: ' + INS_ST[r]);
+      if (r === 'kaldi' || (q('#insncr') && q('#insncr').checked)) { location.hash = '#/uygunsuzluk-yeni/purchase-' + id; return; }
+      await viewPurchase(id); }); }
   q('#pdel') && (q('#pdel').onclick = async () => { if (!confirmTwice(q('#pdel'), 'Emin misin? Tekrar bas')) return;
     const { error } = await sb.from('purchases').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/alimlar'; });
 }
@@ -4342,13 +4462,15 @@ async function viewInvoice(id){
     .in('status', ['onaylandi', 'proforma', 'siparis_verildi', 'eft_bekliyor', 'alindi']).is('invoice_id', null).order('id', { ascending:false }).limit(3000));
   const ref = Date.parse(iv.inv_date || iv.period), C = (cd || []).filter(p => p.kind !== 'kontrol' && !p.invoice_id).map(p => ({ ...p, sc:(iv.supplier_id && p.supplier_id === iv.supplier_id ? 0 : 1) * 1e12 + Math.abs(Date.parse(p.purchased_at || p.requested_at || '2000-01-01') - ref) }))
     .sort((a, b) => a.sc - b.sc), sel = new Set();
+  const supDiff = p => !!(iv.supplier_id && p.supplier_id && p.supplier_id !== iv.supplier_id); // ikisi de listedeki tedarikçiyse ve farklıysa uyarılır
   const draw = () => { const ql = (q('#ivq').value || '').trim().toLocaleLowerCase('tr');
     const rows = C.filter(p => !ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id)].join(' ').toLocaleLowerCase('tr').includes(ql)).slice(0, 40);
     q('#ivcand').innerHTML = rows.length ? `<div class="tablewrap"><table><tbody>${rows.map(p => `<tr style="cursor:default"><td style="width:28px"><input type="checkbox" data-c="${p.id}" ${sel.has(p.id) ? 'checked' : ''} aria-label="Seç"></td>
-      <td><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a><div class="sub">${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.project ? ' · ' + esc(p.project) : ''}</div></td><td class="num">${fmtMoney(p.total, p.currency)}</td><td style="white-space:nowrap">${fmtD(p.purchased_at || p.requested_at)}<div>${purPill(p.status)}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Eşleşen alım talebi yok.</div>';
+      <td><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a><div class="sub">${esc(supName(p.supplier_id) || p.supplier_text || '')}${p.project ? ' · ' + esc(p.project) : ''}${supDiff(p) ? ' · <span class="amber-txt">faturadan farklı tedarikçi</span>' : ''}</div></td><td class="num">${fmtMoney(p.total, p.currency)}</td><td style="white-space:nowrap">${fmtD(p.purchased_at || p.requested_at)}<div>${purPill(p.status)}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Eşleşen alım talebi yok.</div>';
     qa('#ivcand [data-c]').forEach(c => c.onchange = () => { c.checked ? sel.add(+c.dataset.c) : sel.delete(+c.dataset.c); q('#ivlink').disabled = !sel.size; q('#ivlink').textContent = sel.size ? `Seçilen ${sel.size} talebi bağla` : 'Seçilenleri bağla'; }); };
   draw(); q('#ivq').oninput = draw;
-  q('#ivlink').onclick = async () => { const { error } = await sb.rpc('purchase_invoice_link', { p_invoice:id, p_add:[...sel], p_remove:[] }); if (error) return toast(dbErr(error), true); toast(sel.size + ' talep bağlandı'); viewInvoice(id); };
+  q('#ivlink').onclick = async e => { const bad = C.filter(p => sel.has(p.id) && supDiff(p)); if (bad.length && !confirmInline(e.currentTarget, `${bad.length} talebin tedarikçisi faturadakinden farklı. Yine de bağlamak için tekrar bas`)) return;
+    const { error } = await sb.rpc('purchase_invoice_link', { p_invoice:id, p_add:[...sel], p_remove:[] }); if (error) return toast(dbErr(error), true); toast(sel.size + ' talep bağlandı'); viewInvoice(id); };
 }
 
 // ---------------------------------------------------------------- İÇE AKTARMA (yönetici, tek sefer)
@@ -4768,7 +4890,8 @@ async function ncrPreset(arg){
     product:[r.motor_type, r.stroke, r.force].filter(Boolean).join(' · ') || null, item_ident:r.barcode ? 'Barkod ' + r.barcode : null, control_method:'Fonksiyon testi' };
   if (k === 'pcb_log') return { source_kind:k, source_id:id, source_ref:r.no, title:cut(`${r.pcb || 'Kart'} ${r.version || ''}: ${r.reason || ''}${r.note ? ' · ' + r.note : ''}`), description:r.note, product:r.pcb,
     item_ident:[r.pcb, r.version, r.no && 'kayıt ' + r.no].filter(Boolean).join(' · ') || null, control_method:'Süreç içi kontrol' };
-  return { source_kind:k, source_id:id, source_ref:'Alım #' + id, title:cut('Alım: ' + (r.item_name || '')), product:r.project || null, item_ident:r.item_name, qty:r.qty, supplier_id:r.supplier_id || null };
+  const gi = r.inspection_status && r.inspection_status !== 'bekliyor' ? (await sb.from('purchase_inspections').select('note,deviation_note').eq('purchase_id', id).maybeSingle()).data : null;
+  return { source_kind:k, source_id:id, source_ref:'Alım #' + id, title:cut('Alım: ' + (r.item_name || '')), description:gi ? [gi.deviation_note, gi.note].filter(Boolean).join(String.fromCharCode(10, 10)) || null : null, product:r.project || null, item_ident:r.item_name, qty:r.qty, supplier_id:r.supplier_id || null, control_method:gi ? 'Giriş kontrolü' : null };
 }
 
 const ncrState = { st:'open', q:'', p:'' };
@@ -4910,6 +5033,19 @@ async function viewDevice(id){
     toast('Kaydedildi'); if (id) viewDevice(id); else location.hash = '#/kalibrasyon/' + r.data[0].id; }); };
   q('#ddel') && (q('#ddel').onclick = async () => { if (!confirmTwice(q('#ddel'), 'Emin misin? Tekrar bas')) return;
     const { error } = await sb.from('q_devices').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); location.hash = '#/kalibrasyon'; });
+}
+
+// ---------------------------------------------------------------- ŞARTLI KABULLER (alım giriş kontrolü)
+// Giriş kontrolünde "şartlı kabul" verilip stoğa alınan malzemeler ve kayıtlı sorun / sapma; kayıt purchase_inspections'tadır.
+async function viewCondAccept(){
+  shell('kalite/sartli', '<h1>Şartlı kabuller</h1><p class="sub">Yükleniyor…</p>');
+  await loadStock();
+  const { data, error } = await sb.from('purchase_inspections').select('*').eq('result', 'sartli').order('inspected_at', { ascending:false });
+  const R = data || [];
+  shell('kalite/sartli', `<div class="pagehead"><div><h1>Şartlı kabuller</h1><p class="lede">Giriş kontrolünde şartlı kabul edilip stoğa alınan malzemeler, kayıtlı sorun / sapma ile. Satıra tıklayınca alım açılır.</p></div></div>
+    ${error ? `<div class="empty">${esc(dbErr(error))}</div>` : `<div class="tablewrap">${R.length ? `<table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Malzeme</th><th class="nosort">Tedarikçi</th><th class="nosort num">Adet</th><th class="nosort">Sorun / sapma</th><th class="nosort">Kontrol eden</th><th class="nosort"></th></tr></thead><tbody>
+      ${R.map(r => `<tr data-pid="${r.purchase_id}"><td style="white-space:nowrap">${fmtD((r.inspected_at || '').slice(0, 10))}</td><td>${esc(r.item_name || '')}</td><td>${esc(supName(r.supplier_id) || '')}</td><td class="num">${r.qty == null ? '—' : fmtQ(r.qty)}</td><td class="amber-txt" style="white-space:pre-wrap">${esc(r.deviation_note || '')}</td><td class="sub">${esc(r.inspected_by_name || '')}</td><td>${ncrBtn('purchase', r.purchase_id)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Şartlı kabul kaydı yok.</div>'}</div>`}`);
+  qa('tr[data-pid]').forEach(t => t.onclick = e => { if (!e.target.closest('a')) location.hash = '#/alimlar/' + t.dataset.pid; });
 }
 
 // ---------------------------------------------------------------- SÜREÇ HEDEFLERİ (ACR-LS-KY-02)

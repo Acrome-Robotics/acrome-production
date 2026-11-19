@@ -1,5 +1,5 @@
 -- Yetki düzeni (19.11.2026)
--- 1) Tahsilat (deal_payments, ödeme planı, tahsilat sayfaları ve raporu) yalnız Satış, Muhasebe, Yönetici. Sipariş (orders) dahil değil.
+-- 1) Tahsilat (deal_payments, ödemeler, tahsilat sayfaları ve raporu, ödeme alındı işareti) yalnız Satış, Muhasebe, Yönetici. Sipariş (orders) yalnız sipariş formunda ödeme planını girer / okur (deal_payment_plan, save_deal_payments).
 --    Sipariş tutarının genel görünürlüğü değişmez.
 -- 2) Siparişi (deals) yalnız Satış, Sipariş ve Yönetici düzenler. Üretim yalnız planlanan sevk, sevk tarihi, durum ve gecikme açıklamasını
 --    deal_production_set işleviyle (save_deal ve deal_stage_set üzerinden) yazar; sütun sınırı deals_validate tetikleyicisinde de sürer.
@@ -53,7 +53,7 @@ create or replace function public.save_deal_payments(p_deal bigint, p_rows jsonb
 as $function$
 declare r jsonb; v_ids bigint[]; v_tot numeric; v_n int; v_namt int; v_pct numeric; v_sum numeric; v_diff numeric;
 begin
-  if not has_role(array['sales','muhasebe','admin']) then raise exception 'Bu işlem için yetkiniz yok'; end if;
+  if not has_role(array['sales','orders','muhasebe','admin']) then raise exception 'Bu işlem için yetkiniz yok'; end if;
   select amount_usd into v_tot from public.deals where id = p_deal;
   if not found then raise exception 'Kayıt bulunamadı'; end if;
   p_rows := coalesce(p_rows, '[]'::jsonb);
@@ -82,6 +82,20 @@ begin
     raise exception 'Ödeme planı toplamı sipariş tutarını tutmuyor: % USD %', abs(v_diff), case when v_diff < 0 then 'eksik' else 'fazla' end;
   end if;
 end $function$;
+
+-- Sipariş rolü (orders) ödeme planını sipariş formunda girer ve okur, ama tahsilatı görmez: deal_payments okuma politikasına eklenmez (alınan tutar, kim aldı, not gibi alanlar açılırdı);
+-- yalnız plan satırlarını döndüren dar bir işlev kullanır. Alınmış satır "locked" olarak gelir (tarih ve kişi verilmez), formda kilitli görünür.
+create or replace function public.deal_payment_plan(p_deal bigint)
+ returns table(id bigint, seq int, pct numeric, amount numeric, due_date date, note text, locked boolean)
+ language plpgsql stable security definer set search_path to 'public'
+as $function$
+begin
+  if not has_role(array['sales','orders','muhasebe','admin']) then raise exception 'Bu işlem için yetkiniz yok'; end if;
+  return query select p.id, p.seq, p.pct, p.amount, p.due_date, p.note, p.received_at is not null
+    from public.deal_payments p join public.deals d on d.id = p.deal_id where p.deal_id = p_deal and d.deleted_at is null order by p.seq;
+end $function$;
+revoke all on function public.deal_payment_plan(bigint) from public, anon;
+grant execute on function public.deal_payment_plan(bigint) to authenticated;
 
 -- ---------- 2) sipariş düzenleme: Üretim çıkar
 drop policy if exists deals_upd on public.deals;

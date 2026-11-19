@@ -164,3 +164,4 @@ begin
 end $function$;
 
 drop function if exists public.deal_production_set(bigint, date, date, text, text);
+drop function if exists public.deal_payment_plan(bigint);
