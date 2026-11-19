@@ -50,12 +50,6 @@ const themeSwitch = () => `<div class="theme" role="group" aria-label="Görünü
 document.addEventListener('click', e => { const b = e.target.closest('.theme button'); if (b) setTheme(b.dataset.th); });
 setTheme(getTheme());
 // yoğunluk: Rahat / Kompakt (kompakt: sıkı satırlar, ikincil ayrıntılar gizli, gerekli bilgi kalır)
-function getDensity(){ try { return localStorage.getItem('density') || 'comfy'; } catch { return 'comfy'; } }
-function setDensity(v){ document.documentElement.classList.toggle('compact', v === 'compact'); try { localStorage.setItem('density', v); } catch {}
-  qa('.dens button').forEach(b => b.setAttribute('aria-pressed', b.dataset.dn === v)); }
-const densSwitch = () => `<div class="theme dens" role="group" aria-label="Tablo yoğunluğu">${[['comfy','Rahat'],['compact','Kompakt']].map(([k,v]) => `<button type="button" data-dn="${k}" aria-pressed="${getDensity()===k}">${v}</button>`).join('')}</div>`;
-document.addEventListener('click', e => { const b = e.target.closest('.dens button'); if (b) setDensity(b.dataset.dn); });
-setDensity(getDensity());
 
 // ---------------------------------------------------------------- durum
 const S = { session:null, profile:null, deals:[], customers:[], products:[], countries:[], issues:[], loaded:false };
@@ -316,13 +310,14 @@ function shell(active, html){
   ];
   const todayHot = staffOnly() ? 0 : todayCount();
   const home = staffOnly() ? '#/calisma-plani' : '#/bugun';
+  S._navAll = nav.flatMap(([g, , items]) => items.filter(n => n[0]).map(n => ({ k:n[0], t:String(n[1]).replace(/<[^>]+>/g, ''), g })));
   $app.innerHTML = `<div class="topbar"><a class="brand homelink" href="${home}" style="padding:0" title="Ana sayfa">${logo()} Acrome</a><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side"><button class="btn sm side-close" id="sideclose" type="button">Kapat ✕</button>
     <a class="brand homelink" href="${home}" title="Ana sayfa">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></a>
     <nav class="nav">${staffOnly() ? '' : `<a href="#/bugun" class="ntop ${active==='bugun'?'on':''}">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>`}${nav.map(([g, ic, items]) => { const cur = items.some(n => (n[5] || n[0]) === active), closed = !cur && (navClosed().includes(g) || matchMedia('(max-width:820px)').matches), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
       return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===(n[5]||n[0])?'on':''}${n[4]==='sub'?' sub2':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
-    <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${esc(roleLabel(S.profile))} · <button class="linkbtn" id="lo">Çıkış</button>${realAdmin() ? ` · <a href="#/rol-onizleme">Rol önizleme</a>` : ''}<div class="prefs">${themeSwitch()}${densSwitch()}</div></div>
-  </aside><main class="main" id="main">${NAV_DEPTH > 0 && active !== 'bugun' && !(staffOnly() && active === 'calisma-plani') && !/^\s*<p><a href="#\/[^"]*">←/.test(html) ? '<button type="button" class="backbtn" id="gback" title="Bir önceki sayfaya dön (Alt + ←)">← Geri</button>' : ''}${S.profile._preview ? `<div class="pvbar" role="status"><span>👁 <b>Rol önizleme:</b> ${esc(roleLabel(S.profile))}${myDeps().length ? ' · bölüm: ' + esc(myDeps().map(stgName).join(', ')) : ''}. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkinle yapılır.</span><span><a href="#/rol-onizleme">Değiştir</a> · <button class="linkbtn" id="pvexit">Önizlemeden çık</button></span></div>` : ''}${html}</main>${feedBox()}</div>`;
+    <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${esc(roleLabel(S.profile))} · <button class="linkbtn" id="lo">Çıkış</button>${realAdmin() ? ` · <a href="#/rol-onizleme">Rol önizleme</a>` : ''}<div class="prefs">${themeSwitch()}</div></div>
+  </aside><main class="main" id="main">${sbarHtml()}${NAV_DEPTH > 0 && active !== 'bugun' && !(staffOnly() && active === 'calisma-plani') && !/^\s*<p><a href="#\/[^"]*">←/.test(html) ? '<button type="button" class="backbtn" id="gback" title="Bir önceki sayfaya dön (Alt + ←)">← Geri</button>' : ''}${S.profile._preview ? `<div class="pvbar" role="status"><span>👁 <b>Rol önizleme:</b> ${esc(roleLabel(S.profile))}${myDeps().length ? ' · bölüm: ' + esc(myDeps().map(stgName).join(', ')) : ''}. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkinle yapılır.</span><span><a href="#/rol-onizleme">Değiştir</a> · <button class="linkbtn" id="pvexit">Önizlemeden çık</button></span></div>` : ''}${html}</main>${feedBox()}</div>`;
   q('#lo').onclick = () => sb.auth.signOut();
   q('#gback') && (q('#gback').onclick = goBack);
   q('#pvexit') && (q('#pvexit').onclick = () => { try { localStorage.removeItem(PV_KEY); } catch {} location.hash = '#/kullanicilar'; location.reload(); });
@@ -332,7 +327,145 @@ function shell(active, html){
   q('#menu').onclick = e => { const s = q('#side'); s.classList.toggle('open'); e.target.setAttribute('aria-expanded', s.classList.contains('open')); };
   qa('#side a').forEach(a => a.onclick = () => q('#side').classList.remove('open'));
   q('#sideclose').onclick = () => { q('#side').classList.remove('open'); q('#menu').setAttribute('aria-expanded', 'false'); };
+  sbarBind();
   fillFeed();
+}
+
+// ---------------------------------------------------------------- üst bar: arama + sık kullanılanlar
+// Arama yüklü veride (S) ve kalite önbelleğinde yapılır; her kişi yalnız rolünün menüsünü ve okuyabildiği kayıtları bulur.
+// Sık kullanılanlar kişiye özel user_prefs 'bookmarks' anahtarında: her cihazda aynı liste.
+const BM_KEY = 'bookmarks';
+// ı/İ/I ve Türkçe harfler tek biçime: "pid" PID'i, "celik" çeliği bulsun
+const gsFold = s => String(s ?? '').toLocaleLowerCase('tr').replace(/ı/g, 'i').normalize('NFD').replace(/[̀-ͯ]/g, '');
+const codeKey = s => gsFold(s).replace(/[\s\-_.\/#]/g, '');
+const bmList = () => Array.isArray((S.prefs || {})[BM_KEY]) ? S.prefs[BM_KEY] : [];
+const bmHash = () => (location.hash || '#/bugun').replace(/^#\/?$/, '#/bugun');
+const bmSave = list => savePref(BM_KEY, list);
+// sayfa adı: h1; kalite belgelerinde belge başlığı (açık form kaydı varsa numarasıyla)
+const bmTitle = () => { const h = q('#main h1'); if (h) return h.textContent.trim(); const d = q('#main .dochead .tt'); if (!d) return '';
+  const t = ((d.firstChild || {}).textContent || '').trim(), r = ((q('#kcur') || {}).textContent || '').replace(/^Açık kayıt:\s*/, '').trim(); return r ? `${r} · ${t}` : t; };
+let gsQ = '', gsT;
+const sbarHtml = () => { const on = bmList().some(b => b.h === bmHash());
+  return `<div class="sbar noprint" role="search"><div class="gsearch"><input id="gq" type="search" value="${esc(gsQ)}" placeholder="Acrome ERP yazılımında ara: sayfa, sipariş no, müşteri, parça, form kodu…" autocomplete="off" aria-label="Ara" aria-controls="gspop" aria-expanded="false"><kbd class="gs-kbd">Ctrl K</kbd><div class="gs-pop" id="gspop" role="listbox" hidden></div></div>
+    <button type="button" class="btn sm" id="gqbtn">Ara</button>
+    <button type="button" class="btn sm bm-star${on ? ' on' : ''}" id="bmtog" aria-pressed="${on}" title="${on ? 'Sık kullanılanlardan çıkar' : 'Bu sayfayı sık kullanılanlara ekle'}">${on ? '★' : '☆'}</button>
+    <div class="bm-wrap"><button type="button" class="btn sm" id="bmbtn" aria-expanded="false"><span class="bm-l">Sık kullanılanlar</span><span class="bm-s" aria-hidden="true">★</span> ▾</button><div class="bm-pop" id="bmpop" hidden></div></div></div>`; };
+
+// kalite belgeleri / kayıtları, uygunsuzluk ve kalibrasyon yalnız Kalite + Yönetici için; ilk odakta okunur, 2 dk önbellek
+async function gsPrime(){
+  if (!canQ() || staffOnly()) return;
+  if (S._gsx && Date.now() - S._gsx.at < 120e3) return S._gsx.p;
+  S._gsx = { at:Date.now(), items:(S._gsx || {}).items || [] };
+  return (S._gsx.p = gsPrimeLoad());
+}
+async function gsPrimeLoad(){
+  const get = p => p.then(r => r.data || [], () => []);
+  const [K, R, N, D] = await Promise.all([kysLoad().catch(() => null), get(sb.from('kys_records').select('id,code,kind,record_no,label,project_id').in('kind', ['doc', 'form'])),
+    get(sb.from('ncr').select('id,no,title,product').order('id', { ascending:false }).limit(500)), get(sb.from('q_devices').select('id,code,name,serial_no,brand,model'))]);
+  const out = [];
+  if (K) K.ITEMS.forEach(i => out.push({ t:i.title, s:[i.no || i.code, i._m && i._m.title].filter(Boolean).join(' · '), c:[i.no, i.code], h:kHref(i.code), kind:'Kalite belgesi' }));
+  R.forEach(r => out.push(r.kind === 'form' ? { t:r.record_no || r.code, s:[(K && K.BY[r.code] || {}).title, r.label].filter(Boolean).join(' · '), c:[r.record_no], h:`#/kalite/i/${encodeURIComponent(r.code)}?r=${r.id}`, kind:'Form kaydı' }
+    : { t:r.label || r.record_no, s:r.record_no, c:[r.record_no], h:kHref(r.code, { id:r.project_id }), kind:'Proje belgesi' }));
+  // projeye özel belgeler kayıt açılmadan da numarasıyla bulunsun (numara = şablon kodu + proje kodu)
+  if (K) K.P.forEach(P => Object.keys(K.PT.docs).forEach(c => { if (!kInst(K, P, c)) return; const no = c + '-' + P.code;
+    out.push({ t:`${no} · ${K.BY[c].title}`, s:kPName(P), c:[no], h:kHref(c, P), kind:'Proje belgesi' }); }));
+  N.forEach(n => out.push({ t:`${n.no || ''} · ${n.title || ''}`, s:n.product || '', c:[n.no], h:'#/uygunsuzluk/' + n.id, kind:'Uygunsuzluk' }));
+  D.forEach(d => out.push({ t:d.name || d.code, s:[d.code, d.brand, d.model, d.serial_no].filter(Boolean).join(' · '), c:[d.code, d.serial_no], h:'#/kalibrasyon/' + d.id, kind:'Kalibrasyon' }));
+  S._gsx.items = out;
+}
+function gsIndex(){
+  const out = [{ t:'Sık kullanılanlar', s:'Kişisel liste', h:'#/sik-kullanilanlar', kind:'Sayfa' }];
+  if (!staffOnly()) out.push({ t:'Bugün', s:'Ana sayfa', h:'#/bugun', kind:'Sayfa' });
+  (S._navAll || []).forEach(n => out.push({ t:n.t, s:n.g, h:'#/' + n.k, kind:'Sayfa' }));
+  bmList().forEach(b => out.push({ t:b.t, s:'Sık kullanılan', h:b.h, kind:'★' }));
+  if (staffOnly()) return out;
+  if (!accOnly()) (S.deals || []).forEach(d => out.push({ t:`${refNo(d)} · ${d.customer_name || ''}`, s:[STATUSES[d.status], d.description].filter(Boolean).join(' · '), c:[d.order_no, d.opp_no, d.quote_no], h:'#/kayit/' + d.id, kind:'Sipariş / fırsat' }));
+  (S.purOpenList || []).forEach(p => out.push({ t:p.item_name, s:[p.project, p.requester_name].filter(Boolean).join(' · '), h:'#/alimlar/' + p.id, kind:'Talep' }));
+  (S.items || []).forEach(i => out.push({ t:i.name, s:[i.code, i.mfr_no, i.location].filter(Boolean).join(' · '), c:[i.code, i.mfr_no], h:'#/stok/' + i.id, kind:'Stok' }));
+  (S.boms || []).forEach(b => out.push({ t:b.name, s:[b.short_code, b.product_code].filter(Boolean).join(' · '), c:[b.short_code, b.product_code], h:'#/bom/' + b.id, kind:'BOM' }));
+  (S.tickets || []).forEach(t => out.push({ t:t.subject, s:[`#${t.id}`, t.customer_name || t.organization].filter(Boolean).join(' · '), c:['#' + t.id], h:'#/support/' + t.id, kind:'Support' }));
+  (S.rmas || []).forEach(r => out.push({ t:r.code || ('RMA #' + r.id), s:[r.customer_name || r.customer, r.product, r.serial_no].filter(Boolean).join(' · '), c:[r.code, r.serial_no], h:'#/rma/' + r.id, kind:'RMA' }));
+  return out.concat((S._gsx || {}).items || []);
+}
+// puan: kod tam eşleşme > kod başı > başlık başı > kelime başı > içinde geçiyor; tüm kelimeler bulunmalı
+function gsSearch(qs, max){
+  const words = gsFold(qs).split(/\s+/).filter(Boolean), ck = codeKey(qs); if (!words.length) return [];
+  const res = [];
+  for (const x of gsIndex()) {
+    const t = gsFold(x.t), hay = t + ' ' + gsFold(x.s) + ' ' + gsFold(x.kind), codes = (x.c || []).filter(Boolean).map(codeKey);
+    let sc = 0;
+    if (ck.length >= 2 && codes.some(c => c === ck)) sc = 1000;
+    else if (ck.length >= 2 && codes.some(c => c.startsWith(ck))) sc = 600;
+    else if (words.every(w => hay.includes(w)) || (ck.length >= 3 && codeKey(hay).includes(ck))) {
+      sc = t.startsWith(words[0]) ? 300 : words.every(w => (' ' + t).includes(' ' + w)) ? 200 : words.every(w => t.includes(w)) ? 120 : 50;
+      if (x.kind === 'Sayfa' || x.kind === '★') sc += 30;
+    }
+    if (sc) res.push({ ...x, sc });
+  }
+  const seen = new Set();
+  return res.sort((a, b) => b.sc - a.sc || a.t.length - b.t.length).filter(x => !seen.has(x.h) && seen.add(x.h)).slice(0, max || 200);
+}
+const gsRow = (x, i, sel) => `<a href="${esc(x.h)}" class="gs-i${i === sel ? ' on' : ''}" role="option" aria-selected="${i === sel}" data-i="${i}"><span class="gs-k">${esc(x.kind)}</span><span class="gs-t">${esc(x.t)}${x.s ? `<small>${esc(x.s)}</small>` : ''}</span></a>`;
+function sbarBind(){
+  const inp = q('#gq'), pop = q('#gspop'); if (!inp) return;
+  let res = [], sel = -1, total = 0;
+  const open = on => { pop.hidden = !on; inp.setAttribute('aria-expanded', on); };
+  const toPage = () => { const v = inp.value.trim(); if (v) { open(false); location.hash = '#/ara?q=' + encodeURIComponent(v); } };
+  const draw = () => { const v = inp.value.trim();
+    if (!v) { const bm = bmList(); res = bm.map(b => ({ ...b, kind:'★' })); total = res.length;
+      pop.innerHTML = res.length ? `<div class="gs-h">Sık kullanılanlar</div>${res.map((x, i) => gsRow(x, i, sel)).join('')}` : '<div class="gs-none">Yazmaya başlayın: sayfa adı, sipariş no, müşteri, parça kodu, form kayıt no (FR-…)</div>';
+    } else { const all = gsSearch(v); total = all.length; res = all.slice(0, 8);
+      pop.innerHTML = (res.length ? res.map((x, i) => gsRow(x, i, sel)).join('') : '<div class="gs-none">Sonuç yok</div>')
+        + (total ? `<button type="button" class="gs-all" id="gsall">${total > res.length ? `Tüm sonuçlar (${total}) →` : 'Sonuçlar sayfasında aç →'}</button>` : ''); }
+    qa('.gs-i', pop).forEach(a => a.onmousedown = e => e.preventDefault());
+    q('#gsall', pop) && (q('#gsall', pop).onmousedown = e => { e.preventDefault(); toPage(); });
+    open(true); };
+  inp.onfocus = () => { gsPrime().then(() => { if (document.activeElement === inp && inp.value.trim()) draw(); }); draw(); };
+  inp.oninput = () => { gsQ = inp.value; sel = -1; clearTimeout(gsT); gsT = setTimeout(draw, 120); gsPrime().then(() => { if (inp.isConnected && inp.value.trim()) draw(); }); };
+  inp.onblur = () => setTimeout(() => open(false), 150);
+  inp.onkeydown = e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { if (!res.length) return; sel = e.key === 'ArrowDown' ? Math.min(sel + 1, res.length - 1) : Math.max(sel - 1, -1); draw(); e.preventDefault(); }
+    else if (e.key === 'Enter') { e.preventDefault(); const v = inp.value.trim(), x = sel >= 0 ? res[sel] : !v ? null : total === 1 || (res[0] && res[0].sc >= 1000 && !(res[1] && res[1].sc >= 1000)) ? res[0] : null;
+      if (x) { open(false); gsQ = ''; location.hash = x.h; } else toPage(); }
+    else if (e.key === 'Escape') { open(false); inp.blur(); } };
+  pop.onclick = e => { if (e.target.closest('.gs-i')) { gsQ = ''; open(false); } };
+  q('#gqbtn').onclick = () => inp.value.trim() ? toPage() : inp.focus();
+  // yıldız: bu sayfayı ekle / çıkar (başlık sayfanın h1'inden)
+  q('#bmtog').onclick = async () => { const h = bmHash(), list = bmList();
+    if (list.some(b => b.h === h)) { await bmSave(list.filter(b => b.h !== h)); toast('Sık kullanılanlardan çıkarıldı'); }
+    else { const nv = gsIndex().find(x => x.h === h), t = bmTitle() || (nv && nv.t) || h;
+      await bmSave([...list, { h, t:t.slice(0, 80) }]); toast('Sık kullanılanlara eklendi'); }
+    const b = q('#bmtog'), on = bmList().some(x => x.h === h); b.classList.toggle('on', on); b.textContent = on ? '★' : '☆'; b.setAttribute('aria-pressed', on); b.title = on ? 'Sık kullanılanlardan çıkar' : 'Bu sayfayı sık kullanılanlara ekle'; };
+  const bp = q('#bmpop'), bb = q('#bmbtn');
+  bb.onclick = () => { if (!bp.hidden) { bp.hidden = true; bb.setAttribute('aria-expanded', false); return; } const list = bmList();
+    bp.innerHTML = (list.length ? list.map(b => `<a href="${esc(b.h)}">${esc(b.t)}</a>`).join('') : '<div class="gs-none">Henüz yok. Bir sayfadayken ☆ ile ekleyin.</div>') + '<a class="bm-all" href="#/sik-kullanilanlar">Listeyi düzenle →</a>';
+    bp.hidden = false; bb.setAttribute('aria-expanded', true); };
+  bp.onclick = e => { if (e.target.closest('a')) bp.hidden = true; };
+}
+document.addEventListener('click', e => { const bp = q('#bmpop'); if (bp && !bp.hidden && !e.target.closest('.bm-wrap')) { bp.hidden = true; q('#bmbtn') && q('#bmbtn').setAttribute('aria-expanded', false); } });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K') && !document.documentElement.classList.contains('yeni') && q('#gq')) { e.preventDefault(); q('#gq').focus(); q('#gq').select(); } });
+
+function viewSearch(){
+  const v = new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
+  gsQ = '';
+  const draw = () => { const R = gsSearch(v), groups = [...new Set(R.map(x => x.kind))];
+    q('#gsres').innerHTML = !v ? '<p class="note">Üstteki arama kutusuna yazın.</p>' : R.length ? `<p class="small">${R.length} sonuç${R.length >= 200 ? ' (ilk 200)' : ''}</p>` + groups.map(g => `<h2>${esc(g)} <span class="tcount">${R.filter(x => x.kind === g).length}</span></h2><div class="gs-list">${R.filter(x => x.kind === g).map(x => `<a href="${esc(x.h)}"><b>${esc(x.t)}</b>${x.s ? `<span class="sub">${esc(x.s)}</span>` : ''}</a>`).join('')}</div>`).join('')
+      : `<div class="empty">"${esc(v)}" için sonuç yok. Kod arıyorsanız tire ve boşluk fark etmez (FR-KY-01 = frky01).</div>`; };
+  shell('ara', `<div class="pagehead"><div><h1>Arama sonuçları</h1><p class="lede">${v ? `"${esc(v)}" için en yakın sonuçlar` : ''}</p></div></div><div id="gsres"></div>`);
+  if (q('#gq')) q('#gq').value = v;
+  draw(); gsPrime().then(() => q('#gsres') && draw());
+}
+function viewBookmarks(){
+  const draw = () => { const L = bmList();
+    q('#bml').innerHTML = L.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Sayfa</th><th class="nosort">Adres</th><th class="nosort"></th></tr></thead><tbody>${L.map((b, i) => `<tr style="cursor:default" data-i="${i}"><td><a href="${esc(b.h)}"><b>${esc(b.t)}</b></a></td><td class="sub mono">${esc(b.h.replace(/^#/, ''))}</td>
+      <td style="white-space:nowrap"><button type="button" class="btn sm bmup" ${i ? '' : 'disabled'} title="Yukarı">↑</button> <button type="button" class="btn sm bmdn" ${i < L.length - 1 ? '' : 'disabled'} title="Aşağı">↓</button> <button type="button" class="btn sm bmren">Adını değiştir</button> <button type="button" class="btn sm bmdel">Çıkar</button></td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty">Henüz sık kullanılan sayfa yok. İstediğiniz sayfayı açıp üst bardaki ☆ düğmesine basın.</div>';
+    const at = b => +b.closest('tr').dataset.i, mv = async (i, d) => { const L2 = bmList().slice(); [L2[i], L2[i + d]] = [L2[i + d], L2[i]]; await bmSave(L2); draw(); };
+    qa('.bmup').forEach(b => b.onclick = () => mv(at(b), -1)); qa('.bmdn').forEach(b => b.onclick = () => mv(at(b), 1));
+    qa('.bmdel').forEach(b => b.onclick = async () => { const i = at(b); await bmSave(bmList().filter((_, j) => j !== i)); draw(); });
+    qa('.bmren').forEach(b => b.onclick = async () => { const i = at(b), L2 = bmList().slice(), t = prompt('Yeni ad', L2[i].t); if (!t || !t.trim()) return; L2[i] = { ...L2[i], t:t.trim().slice(0, 80) }; await bmSave(L2); draw(); }); };
+  shell('sik-kullanilanlar', `<div class="pagehead"><div><h1>Sık kullanılanlar</h1><p class="lede">Sık açtığınız sayfalar. Eklemek için sayfayı açıp üst bardaki ☆ düğmesine basın; liste hesabınıza bağlıdır, her cihazda aynı görünür.</p></div></div><div id="bml"></div>`);
+  draw();
 }
 
 // ---------------------------------------------------------------- son hareketler (geniş ekranda sağ sütun)
@@ -418,6 +551,8 @@ function route(){
   if (p === 'rol-onizleme' && realAdmin()) return viewRolePreview();
   if (p === 'masraf') return a ? viewExpenseDetail(+a) : viewExpense();
   if (p === 'masraf-liste') return canAcc() ? viewExpenseList() : viewExpense();
+  if (p === 'ara') return viewSearch();
+  if (p === 'sik-kullanilanlar') return viewBookmarks();
   if (staffOnly()) return p === 'sifre' ? viewNewPassword() : p === 'daily' ? viewDaily(a) : p === 'gec-kalma' ? viewAttLate(a) : p === 'bildirimler' ? viewNotifications() : viewAttendance(a);
   switch(p){
     case 'calisma-plani': case 'yoklama': return viewAttendance(a);
@@ -772,8 +907,10 @@ const defBasis = tab => tab === 'shipped' ? 'ship' : tab === 'pipeline' || tab =
 function viewList(tab){
   const T = today();
   const tabs = { waiting:'Beklemede', production:'Üretimde', pipeline:'Fırsatlar', shipped:'Gönderilenler', lost:'Kaybedilenler', archived:'Arşiv', all:'Tümü' };
-  const base = tab === 'all' ? S.deals : S.deals.filter(d => d.status === tab);
-  if (listState._tab !== tab) { listState._tab = tab; listState.basis = defBasis(tab); listState.sort = 'date'; listState.dir = -1; const n = new Date(); listState.year = tab === 'shipped' ? n.getFullYear() : ''; listState.month = tab === 'shipped' ? n.getMonth() + 1 : ''; }
+  if (listState._tab !== tab) { listState._tab = tab; listState.basis = defBasis(tab); listState.sort = 'date'; listState.dir = -1; listState.stage = ''; const n = new Date(); listState.year = tab === 'shipped' || tab === 'pipeline' ? n.getFullYear() : ''; listState.month = tab === 'shipped' ? n.getMonth() + 1 : ''; }
+  // fırsatlarda aşama süzgeci: açık aşamalar bu sekmede; Kazanıldı / Kaybedildi kapanan fırsatları (sipariş olanlar, kaybedilenler) getirir
+  const PST = tab === 'pipeline' ? listState.stage || '' : '';
+  const base = tab === 'all' ? S.deals : PST === 'won' || PST === 'lost' ? S.deals.filter(d => d.stage === PST) : S.deals.filter(d => d.status === tab && (!PST || d.stage === PST));
   const bdate = BASES[listState.basis][1];
   const years = [...new Set([...base.map(d => yearOf(bdate(d))).filter(Boolean), ...(listState.year ? [+listState.year] : [])])].sort().reverse(); // seçili yıl veride yoksa da seçenek kalsın
   const ctrs = [...new Set(base.map(d => d.country).filter(Boolean))].sort((a,b)=>ctryName(a).localeCompare(ctryName(b),'tr'));
@@ -783,8 +920,8 @@ function viewList(tab){
       (!ql || [d.order_no,d.opp_no,custName(d),d.description,d.details,d.reseller,d.notes,d.other_note].join(' ').toLocaleLowerCase('tr').includes(ql)) &&
       (!s.year || yearOf(bdate(d)) === +s.year) &&
       (!s.month || (bdate(d) && +bdate(d).slice(5,7) === +s.month)) &&
-      (!s.country || d.country === s.country) &&
-      (!s.product || (d.items||{})[s.product]));
+      (tab === 'pipeline' || !s.country || d.country === s.country) &&
+      (tab === 'pipeline' || !s.product || (d.items||{})[s.product]));
     const key = { date: d => d.order_date || d.lead_date || (d.created_at||'').slice(0,10), due: d => d.requested_ship_date || '9999', cust: d => custName(d).toLocaleLowerCase('tr'), amt: d => +d.amount_usd||0, ref: d => refNo(d) }[s.sort];
     rows.sort((a,b) => { const x = key(a), y = key(b); return (x<y?-1:x>y?1:0) * s.dir || b.id - a.id; });
     const total = rows.reduce((t,d) => t + (+d.amount_usd||0), 0);
@@ -820,16 +957,17 @@ function viewList(tab){
       <select id="fb" aria-label="Tarih esası" title="Yıl ve ay filtresi bu tarihe göre uygulanır">${Object.entries(BASES).map(([k,[l]])=>`<option value="${k}" ${listState.basis===k?'selected':''}>Tarih: ${l}</option>`).join('')}</select>
       <select id="fy" aria-label="Yıl"><option value="">Tüm yıllar</option>${years.map(y=>`<option ${+listState.year===y?'selected':''}>${y}</option>`).join('')}</select>
       <select id="fm" aria-label="Ay"><option value="">Tüm aylar</option>${MONTHS_LONG.map((m,i)=>`<option value="${i+1}" ${+listState.month===i+1?'selected':''}>${m}</option>`).join('')}</select>
-      <select id="fc" aria-label="Ülke"><option value="">Tüm ülkeler</option>${ctrs.map(c=>`<option value="${c}" ${listState.country===c?'selected':''}>${esc(ctryName(c))}</option>`).join('')}</select>
-      <select id="fp" aria-label="Ürün"><option value="">Tüm ürünler</option>${S.products.map(p=>`<option value="${p.code}" ${listState.product===p.code?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+      ${tab === 'pipeline' ? `<select id="fs" aria-label="Aşama"><option value="">Tüm açık aşamalar</option>${Object.entries(STAGES).map(([k, l]) => `<option value="${k}" ${PST === k ? 'selected' : ''}>${k === 'won' || k === 'lost' ? 'Kapanan: ' : ''}${l}</option>`).join('')}</select>` : `<select id="fc" aria-label="Ülke"><option value="">Tüm ülkeler</option>${ctrs.map(c=>`<option value="${c}" ${listState.country===c?'selected':''}>${esc(ctryName(c))}</option>`).join('')}</select>
+      <select id="fp" aria-label="Ürün"><option value="">Tüm ürünler</option>${S.products.map(p=>`<option value="${p.code}" ${listState.product===p.code?'selected':''}>${esc(p.name)}</option>`).join('')}</select>`}
     </div><div class="tablewrap" id="tbl"></div>`);
   qa('[data-t]').forEach(b => b.onclick = () => location.hash = '#/kayitlar/' + b.dataset.t);
   q('#fq').oninput = e => { listState.q = e.target.value; draw(); };
   q('#fy').onchange = e => { listState.year = e.target.value; draw(); };
   q('#fm').onchange = e => { listState.month = e.target.value; draw(); };
   q('#fb').onchange = e => { listState.basis = e.target.value; viewList(tab); };
-  q('#fc').onchange = e => { listState.country = e.target.value; draw(); };
-  q('#fp').onchange = e => { listState.product = e.target.value; draw(); };
+  q('#fc') && (q('#fc').onchange = e => { listState.country = e.target.value; draw(); });
+  q('#fp') && (q('#fp').onchange = e => { listState.product = e.target.value; draw(); });
+  q('#fs') && (q('#fs').onchange = e => { listState.stage = e.target.value; viewList(tab); });
   draw();
 }
 function csv(rows, name){
@@ -4981,7 +5119,8 @@ function kysFormBind(K, it, P){
       kysRec = r.id; const no = q('.krno', sheet); if (no) no.value = r.record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.record_no || ''); kysRecalc(); window.scrollTo(0, 0); });
     qa('.kdel', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'Emin misin?')) return; const rid = +b.closest('tr').dataset.r;
       const { error } = await sb.from('kys_records').delete().eq('id', rid); if (error) return toast(dbErr(error), true); if (kysRec === rid) { kysRec = null; q('#kcur').textContent = ''; } toast('Silindi'); list(); }); };
-  list();
+  // aramadan gelen bağlantı (#/kalite/i/KOD?r=ID) o kaydı açık getirir
+  list().then(() => { const rid = +new URLSearchParams(location.hash.split('?')[1] || '').get('r'), b = rid && q(`tr[data-r="${rid}"] .kopen`, box); if (b) b.click(); });
   q('#ksave').onclick = e => busy(e.currentTarget, async () => { const v = {}; F().forEach(x => { v[x.dataset.k] = x.type === 'checkbox' || x.type === 'radio' ? x.checked : x.value; });
     if (!Object.values(v).some(x => x === true || (typeof x === 'string' && x.trim()))) return toast('Form boş', true);
     const pe = q('[data-proj]', sheet), pid = pe && pe.value ? +pe.value : P ? P.id : null, s = k => typeof v[k] === 'string' ? v[k].trim() : '';
@@ -4989,7 +5128,7 @@ function kysFormBind(K, it, P){
     const o = { project_id:pid, label:(it.header ? [(kPj(K, pid) || {}).code, s('h:Kayıt sahibi'), s('h:Tarih')] : txt.slice(0, 2)).filter(Boolean).join(' · ').slice(0, 200) || null, status:it.header ? (s('h:Durum') || null) : null, data:{ v } };
     const r = kysRec ? await sb.from('kys_records').update(o).eq('id', kysRec).select('id,record_no') : await sb.from('kys_records').insert({ ...o, code:it.code, kind:'form' }).select('id,record_no');
     if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Kaydedilemedi', true);
-    kysRec = r.data[0].id; const no = q('.krno', sheet); if (no) no.value = r.data[0].record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.data[0].record_no || ''); toast((r.data[0].record_no || 'Kayıt') + ' kaydedildi'); list(); });
+    kysRec = r.data[0].id; S._gsx = null; const no = q('.krno', sheet); if (no) no.value = r.data[0].record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.data[0].record_no || ''); toast((r.data[0].record_no || 'Kayıt') + ' kaydedildi'); list(); });
   q('#kclear').onclick = () => viewKys();
 }
 async function viewKys(){
