@@ -2632,7 +2632,7 @@ async function enablePush(btn){
     toast('Bu cihazda bildirimler açıldı'); viewNotifications();
   } catch(e) { btn.disabled = false; toast(e.message || String(e), true); }
 }
-const NOTIF_KIND = { sayim:'Stok sayımı', sayim_rapor:'Stok sayımı', masraf:'Masraf', asama:'Üretim aşaması', alim:'Alım', mesai:'Geç kalma' };
+const NOTIF_KIND = { sayim:'Stok sayımı', sayim_rapor:'Stok sayımı', masraf:'Masraf', asama:'Üretim aşaması', alim:'Alım', mesai:'Geç kalma', ncr:'Uygunsuzluk' };
 const notifText = n => { if (n.ticket_id) { const t = (S.tickets || []).find(x => x.id === n.ticket_id); return `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}`; }
   return n.title ? `${NOTIF_KIND[n.kind] ? `<b>${NOTIF_KIND[n.kind]}</b> · ` : ''}${esc(n.title)}` : 'Test bildirimi'; };
 async function viewNotifications(){
@@ -4796,7 +4796,9 @@ async function viewNcr(id, arg){
   const tx = (k, l, hint, t, list) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="${t || 'text'}" ${t === 'number' ? 'step="any" min="0"' : ''} name="${k}" value="${v(k)}" ${list ? `list="${list}"` : ''}></label>`;
   const ta = (k, l, rows, hint) => `<label class="f">${l}${hint ? ` <span class="hint">${hint}</span>` : ''}<textarea name="${k}" rows="${rows || 3}">${v(k)}</textarea></label>`;
   const opt = (o, val, blank) => `${blank !== undefined ? `<option value="">${blank}</option>` : ''}${(Array.isArray(o) ? o.map(x => Array.isArray(x) ? x : [x, x]) : Object.entries(o)).map(([k, l]) => `<option value="${esc(k)}" ${String(val ?? '') === String(k) ? 'selected' : ''}>${esc(l)}</option>`).join('')}`;
-  const sups = (S.suppliers || []).filter(s => s.kind !== 'kargo');
+  const sups = (S.suppliers || []).filter(s => s.kind !== 'kargo'), pe = await people().catch(() => []);
+  // kişi seçimi bildirim ve e-posta için; eski metin sütunu ad olarak da yazılır, kişiye bağlı olmayan eski metin korunur
+  const psel = (k, l) => `<label class="f">${l}<select name="${k}_id">${opt(pe.map(p => [p.id, p.name]), n[k + '_id'], '—')}</select>${n[k] && !n[k + '_id'] ? `<span class="sub">Eski kayıt: ${esc(n[k])}</span>` : ''}</label>`;
   shell('uygunsuzluk', `<p><a href="#/uygunsuzluk">← Uygunsuzluklar</a></p>
   <div class="pagehead"><div><h1>${id ? `<span class="mono">${esc(n.no)}</span> ${esc(n.title)}` : 'Yeni uygunsuzluk kaydı'}</h1>
     <p class="lede">${n.source_id || n.source_kind !== 'diger' ? 'Kaynak: ' + ncrSrcLink(n) : 'Kayıt numarası kaydedince verilir.'}${id ? ` · açan ${esc(n.created_by_name || '—')} · ${fmtD(n.opened_at)}` : ''}${n.closed_at ? ` · kapandı ${fmtD(n.closed_at)}` : ''}</p></div>
@@ -4813,7 +4815,7 @@ async function viewNcr(id, arg){
       <div class="row r2">${ta('description', 'Bulgu', 3, 'ne görüldü, ölçüm ya da gözlem')}${ta('requirement', 'Şart', 3, 'şartname, çizim, kabul kriteri')}</div>
       <div class="row r4">${tx('detected_by', 'Tespit eden', '', 'text', 'qppl')}<div style="grid-column:span 3">${ta('other_lots', 'Etkilenebilecek diğer ürün / parti taraması', 2)}</div></div></fieldset>
     <fieldset ${ed ? '' : 'disabled'} class="plainfs"><h2>Sorumluluk ve hemen alınan önlem</h2>
-      <div class="row r4">${tx('responsible', 'Sorumlu', '', 'text', 'qppl')}<label class="f">Durum<select name="status">${opt(NCR_ST, n.status)}</select></label><div style="grid-column:span 2">${ta('containment', 'Hemen alınan önlem', 2)}</div></div>
+      <div class="row r4">${psel('responsible', 'Sorumlu')}<label class="f">Durum<select name="status">${opt(NCR_ST, n.status)}</select></label><div style="grid-column:span 2">${ta('containment', 'Hemen alınan önlem', 2)}</div></div>
       <h2>MRB kararı</h2>
       <div class="row r4">${tx('mrb_date', 'MRB tarihi', '', 'date')}<label class="f" style="grid-column:span 2">Karar yetkilisi / MRB üyeleri<input type="text" name="mrb_members" maxlength="300" value="${v('mrb_members')}"></label><label class="f">Müşteri yazılı onayı<select name="customer_approval">${opt({ false:'Gerekmiyor', true:'Gerekli' }, n.customer_approval == null ? '' : String(n.customer_approval), '—')}</select></label></div>
       <div class="row r2">${ta('mrb_decision', 'Karar, gerekçe ve talimat', 2)}<div>${tx('customer_approval_ref', 'Müşteri onay yazısı', 'tarih / ek')}<label class="f">Müşteriye rapor<select name="customer_report">${opt({ false:'Gerekmiyor', true:'Gerekli' }, n.customer_report == null ? '' : String(n.customer_report), '—')}</select></label></div></div>
@@ -4822,13 +4824,14 @@ async function viewNcr(id, arg){
       ${ta('root_cause', 'Belirlenen kök neden', 2)}
       <h2>Düzeltici faaliyet</h2>
       <div class="row r4"><div style="grid-column:span 4">${ta('corrective_action', 'Faaliyet', 3)}</div></div>
-      <div class="row r4">${tx('action_owner', 'Faaliyet sorumlusu', '', 'text', 'qppl')}${tx('action_due', 'Termin', '', 'date')}${tx('action_done_at', 'Tamamlanma tarihi', '', 'date')}<span></span></div>
+      <div class="row r4">${psel('action_owner', 'Faaliyet sorumlusu')}${tx('action_due', 'Termin', '', 'date')}${tx('action_done_at', 'Tamamlanma tarihi', '', 'date')}<span></span></div>
       <h2>Doğrulama ve kapanış</h2>
       <div class="row r4"><div style="grid-column:span 2">${ta('verify_method', 'Doğrulama nasıl yapıldı', 2, 'tekrar test, kontrol, izleme süresi')}</div><label class="f">Sonuç<select name="verify_result">${opt({ etkin:'Etkin', etkin_degil:'Etkin değil' }, n.verify_result, '—')}</select></label><div>${tx('verified_by', 'Doğrulayan', '', 'text', 'qppl')}${tx('verified_at', 'Doğrulama tarihi', '', 'date')}</div></div>
       <p class="note">Kayıt "Kapandı" yapılırken doğrulayan, doğrulama tarihi ve "Etkin" sonucu aranır.</p></fieldset>
     ${basic ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Kaydı aç'}</button></p>` : ''}</form>
   <datalist id="qppl">${ppl.map(p => `<option value="${esc(p)}">`).join('')}</datalist>`);
   const f = q('#nf'), el = k => f.elements[k], g = k => el(k).value.trim() || null, tri = k => el(k).value === '' ? null : el(k).value === 'true';
+  const pname = k => { const i = el(k + '_id').value; return i ? (pe.find(p => p.id === i) || {}).name || null : n[k + '_id'] ? null : n[k] || null; };
   el('rca_method').onchange = () => { const t = qa('[data-rca]', f).map(x => x.value.trim()).filter(Boolean).join(' · '); q('#rcabox').innerHTML = el('rca_method').value ? rcaBox(el('rca_method').value, RCA_F[el('rca_method').value] ? '' : t) : ''; };
   f.onsubmit = e => { e.preventDefault(); return busy(e, async () => {
     if (!g('title') || g('title').length < 3) return toast('Konu girin', true);
@@ -4837,10 +4840,10 @@ async function viewNcr(id, arg){
       unit:g('unit'), severity:g('severity'), label_no:g('label_no'), quarantined:tri('quarantined'), requirement:g('requirement'), other_lots:g('other_lots') };
     if (!id) Object.assign(o, { source_id:n.source_id || null, source_ref:n.source_ref || null });
     if (ed) { const m = el('rca_method').value || null, rc = qa('[data-rca]', f);
-      Object.assign(o, { status:el('status').value, responsible:g('responsible'), containment:g('containment'), rca_method:m, root_cause:g('root_cause'),
+      Object.assign(o, { status:el('status').value, responsible:pname('responsible'), responsible_id:el('responsible_id').value || null, containment:g('containment'), rca_method:m, root_cause:g('root_cause'),
         mrb_date:g('mrb_date'), mrb_members:g('mrb_members'), mrb_decision:g('mrb_decision'), customer_approval:tri('customer_approval'), customer_approval_ref:g('customer_approval_ref'), customer_report:tri('customer_report'),
         rca_text:(RCA_F[m] ? rc.filter(x => x.value.trim()).map(x => `${x.dataset.rca}: ${x.value.trim()}`).join('\n') : rc.map(x => x.value.trim()).join('\n')) || null,
-        corrective_action:g('corrective_action'), action_owner:g('action_owner'), action_due:g('action_due'), action_done_at:g('action_done_at'),
+        corrective_action:g('corrective_action'), action_owner:pname('action_owner'), action_owner_id:el('action_owner_id').value || null, action_due:g('action_due'), action_done_at:g('action_done_at'),
         verify_method:g('verify_method'), verify_result:g('verify_result'), verified_by:g('verified_by'), verified_at:g('verified_at') }); }
     const r = id ? await sb.from('ncr').update(o).eq('id', id).select('id,no') : await sb.from('ncr').insert(o).select('id,no');
     if (r.error) return toast(dbErr(r.error).replace(/^.*?Kapatmak/, 'Kapatmak'), true);
