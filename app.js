@@ -4849,6 +4849,7 @@ async function viewDevices(){
   qa('tr[data-d]').forEach(t => t.onclick = () => location.hash = '#/kalibrasyon/' + t.dataset.d);
 }
 async function viewDevice(id){
+  const ppl = await people().catch(() => []);
   const d = id ? (await sb.from('q_devices').select('*').eq('id', id).maybeSingle()).data : { cal_required:true, status:'kullanimda' };
   if (!d) return shell('kalibrasyon', `<h1>Cihaz bulunamadı</h1><p><a href="#/kalibrasyon">Kalibrasyona dön</a></p>`);
   const ed = canQ(), v = k => esc(d[k] ?? ''), c = id ? devCal(d) : null;
@@ -4859,14 +4860,14 @@ async function viewDevice(id){
     <div class="row r4">${tx('brand', 'Marka')}${tx('model', 'Model')}${tx('serial_no', 'Seri no')}${tx('location', 'Bulunduğu yer')}</div>
     <div class="row r4"><label class="f" style="grid-column:span 2">Kullanıldığı yer <span class="hint">tasarım, üretim, kabul muayenesi</span><input type="text" name="used_in" value="${v('used_in')}"></label><label class="f">Kalibrasyon gerekli${stkSel('cal_required', { true:'Evet', false:'Hayır' }, String(d.cal_required !== false))}</label>${tx('cal_period_months', 'Periyot (ay)', '', 'number')}</div>
     <div class="row r4">${tx('last_cal_date', 'Son kalibrasyon', '', 'date')}${tx('next_cal_date', 'Sonraki kalibrasyon', 'boşsa periyottan hesaplanır', 'date')}${tx('cert_no', 'Sertifika no')}${tx('cert_link', 'Sertifika bağlantısı')}</div>
-    <div class="row r4"><label class="f" style="grid-column:span 2">Hizmet sağlayıcı<input type="text" name="cal_provider" value="${v('cal_provider')}"></label><label class="f">Akredite laboratuvar ya da üretici${stkSel('accredited', { true:'Evet', false:'Hayır' }, d.accredited == null ? '' : String(d.accredited), '—')}</label><span></span></div>
+    <div class="row r4"><label class="f" style="grid-column:span 2">Hizmet sağlayıcı<input type="text" name="cal_provider" value="${v('cal_provider')}"></label><label class="f">Akredite laboratuvar ya da üretici${stkSel('accredited', { true:'Evet', false:'Hayır' }, d.accredited == null ? '' : String(d.accredited), '—')}</label><label class="f">Sorumlu <span class="hint">kalibrasyon e-postası</span><select name="owner_id"><option value="">— (Kalite + Yönetici)</option>${ppl.map(p => `<option value="${p.id}" ${d.owner_id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label></div>
     <label class="f">Not<textarea name="notes" rows="2">${v('notes')}</textarea></label>
     ${ed ? '<p><button class="btn primary">Kaydet</button></p>' : ''}</fieldset></form>`);
   q('#df').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const f = e.target, g = k => f.elements[k].value.trim() || null;
     if (!g('name')) return toast('Cihaz adı girin', true);
     const o = { code:g('code') ? g('code').toUpperCase() : null, name:g('name'), status:f.elements.status.value, brand:g('brand'), model:g('model'), serial_no:g('serial_no'), location:g('location'), used_in:g('used_in'),
       cal_required:f.elements.cal_required.value === 'true', cal_period_months:num0(g('cal_period_months')), last_cal_date:g('last_cal_date'), next_cal_date:g('next_cal_date'), cert_no:g('cert_no'), cert_link:normUrl(g('cert_link')),
-      cal_provider:g('cal_provider'), accredited:g('accredited') == null ? null : g('accredited') === 'true', notes:g('notes') };
+      cal_provider:g('cal_provider'), owner_id:g('owner_id'), accredited:g('accredited') == null ? null : g('accredited') === 'true', notes:g('notes') };
     if (o.code && !/^[A-Z0-9-]{2,20}$/.test(o.code)) return toast('Kod yalnız harf, rakam ve tire içerebilir (2–20 karakter)', true);
     const r = id ? await sb.from('q_devices').update(o).eq('id', id).select('id') : await sb.from('q_devices').insert(o).select('id');
     if (r.error) return toast(/q_devices_code_key/.test(r.error.message) ? 'Bu kod başka bir cihazda kullanılıyor' : dbErr(r.error), true);
@@ -4882,7 +4883,7 @@ async function viewDevice(id){
 const KYS_KN = { doc:'Doküman', form:'Form', register:'Kayıt / Liste', report:'Rapor' };
 const KYS_KS = { doc:'DOK', form:'FORM', register:'KAYIT', report:'RAPOR' };
 const KYS_GRP = { doc:'Prosedürler, planlar ve talimatlar', form:'Formlar', register:'Kayıtlar ve listeler', report:'Raporlar' };
-// güncel kaydı sitede tutulan belgeler: belgedeki döküm yayın tarihindeki durumdur
+// güncel kaydı Acrome ERP yazılımında tutulan belgeler: belgedeki döküm yayın tarihindeki durumdur
 const KYS_LIVE = { 'ACR-FR-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-90':['#/rma', 'RMA kayıtları'], 'ACR-RP-UY-90':['#/support-rapor', 'Support raporu'],
   'ACR-LS-KF-90':['#/pcb/versiyon', 'PCB versiyonları'], 'ACR-LS-UR-91':['#/pcb/takip', 'PCB takip kayıtları'], 'ACR-LS-UR-90':['#/checklist-sablon', 'Checklist şablonları'], 'ACR-LS-KD-90':['#/motor-test', 'Motor testleri'],
   'ACR-LS-TD-90':['#/tedarikciler', 'Tedarikçiler'], 'ACR-LS-TD-01':['#/tedarikciler', 'Tedarikçiler (onay durumu ve puan)'], 'ACR-LS-KL-01':['#/kalibrasyon', 'Kalibrasyon'] };
@@ -4911,7 +4912,7 @@ const kPj = (K, id) => K.P.find(p => p.id === +id) || null;
 const kPjCode = (K, c) => c ? K.P.find(p => p.code === c) || null : null;
 const kPName = p => p ? p.tag || p.name : '';
 const kOwn = (K, P) => !!P && K.ITEMS.some(i => i.pk === P.code);        // belgeleri yayınlanan içerikte duran proje
-const kInst = (K, P, code) => !!(P && K.PT.docs[code] && K.BY[code] && !kOwn(K, P));    // projenin sitede tutulan kendi belgesi
+const kInst = (K, P, code) => !!(P && K.PT.docs[code] && K.BY[code] && !kOwn(K, P));    // projenin Acrome ERP yazılımında tutulan kendi belgesi
 const kDate = (K, it) => it.date || K.META.date || '';
 const kRange = p => [p.start_date, p.end_date].filter(Boolean).map(fmtD).join(' – ');
 const kHref = (code, P) => P ? `#/kalite/proje/${P.id}/${encodeURIComponent(code)}` : `#/kalite/i/${encodeURIComponent(code)}`;
@@ -4924,11 +4925,10 @@ const kCell = (K, c) => { const t = String(c ?? ''); if (/^@[a-z-]+$/.test(t)) {
 const kTbl = (K, cols, rows, reg) => `<div class="tablewrap"><table><thead><tr>${(cols || []).map(c => `<th class="nosort">${esc(c)}</th>`).join('')}</tr></thead><tbody>${(rows || []).map(r => `<tr>${r.map(c => `<td${/^[A-ZÇĞİÖŞÜ0-9][A-ZÇĞİÖŞÜa-z0-9.#\-\/]{0,19}$/.test(String(c)) ? ' class="nw"' : ''}>${kCell(K, c)}</td>`).join('')}</tr>`).join('') || (reg ? `<tr><td colspan="${(cols || []).length}" class="empty">Belgede kayıt satırı yok</td></tr>` : '')}</tbody></table></div>`;
 const kSecs = ss => (ss || []).map(s => `<div class="sec"><h3>${esc(s.h)}</h3><div class="p">${kSafe(s.p)}</div></div>`).join('');
 const kTables = (K, it) => [].concat(it.table || [], it.tables || []).map(t => `${t.caption ? `<div class="cap">${esc(t.caption)}</div>` : ''}${kTbl(K, t.columns, t.rows)}`).join('');
-const kHist = (K, it) => `<div class="sec"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], it.history || [[it.rev || '00', kDate(K, it), 'İlk yayın']])}</div>`;
-const kPrac = it => it.practice ? `<div class="practice"><b>Uygulama geçmişi</b><div>${kSafe(it.practice)}</div></div>` : '';
-const kLive = it => KYS_LIVE[it.code] ? `<p class="banner info noprint">Güncel kayıtlar sitede tutulur: <a href="${KYS_LIVE[it.code][0]}">${KYS_LIVE[it.code][1]} →</a>${it.kind === 'form' ? '' : ' Aşağıdaki döküm belgenin yayın tarihindeki durumdur.'}</p>` : '';
+const kHist = (K, it) => `<div class="sec"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], (it.history || [[it.rev || '00', kDate(K, it), 'İlk yayın']]).slice().reverse())}</div>`;
+const kLive = it => KYS_LIVE[it.code] ? `<p class="banner info noprint">Güncel kayıtlar Acrome ERP yazılımında tutulur: <a href="${KYS_LIVE[it.code][0]}">${KYS_LIVE[it.code][1]} →</a>${it.kind === 'form' ? '' : ' Aşağıdaki döküm belgenin yayın tarihindeki durumdur.'}</p>` : '';
 const kHead = (K, it, o) => `<div class="dochead"><div class="lg">${kLogo}ACROME</div><div class="tt">${esc(o.title)}<small>${esc(kType(it))}${o.proj ? ' · ' + esc(o.proj) : ''}</small></div>
-  <div class="mt"><div><b>Doküman no</b><span>${esc(o.no)}</span></div><div><b>Revizyon</b><span>${esc(o.rev)}</span></div><div><b>Yayın tarihi</b><span>${esc(o.date)}</span></div><div><b>Sahibi</b><span>${esc(it.owner)}</span></div><div><b>Süreç</b><span>${it._m._no}</span></div></div></div>`;
+  <div class="mt"><div><b>Doküman no</b><span>${esc(o.no)}</span></div><div><b>Revizyon</b><span>${esc(o.rev)}</span></div><div><b>Yayın tarihi</b><span>${esc(o.date)}</span></div><div><b>Doküman sahibi</b><span>${esc(it.owner)}</span></div><div><b>Süreç</b><span>${it._m._no}</span></div></div></div>`;
 
 function kysNav(K, sub, code){
   const cur = sub === 'm' ? code : sub === 'i' && K.BY[code] ? K.BY[code]._m.id : '';
@@ -4953,7 +4953,7 @@ function kysHome(K){
   ${kysDf(K)}
   <div class="grid g2"><div class="panel"><div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><h3>Aktif projeler</h3><a href="#/kalite/proje">Tüm projeler →</a></div>
     ${act.length ? act.map(p => `<div style="margin-top:8px"><a href="#/kalite/proje/${p.id}"><b>${esc(p.name)}</b></a> <code class="small">${esc(p.code)}</code><div class="small">${esc(p.short || [KYS_PKIND[p.kind], p.customer].filter(Boolean).join(' · '))}</div></div>`).join('') : '<p class="small">Aktif proje yok. <a href="#/kalite/proje/yeni">Yeni proje aç →</a></p>'}</div>
-  <div class="panel"><h3>Sitedeki kalite kayıtları</h3><div class="chips"><a class="chip" href="#/uygunsuzluk">Uygunsuzluklar${S.ncrOpen ? ` <b>${S.ncrOpen} açık</b>` : ''}</a><a class="chip" href="#/kalibrasyon">Kalibrasyon</a><a class="chip" href="#/tedarikciler">Tedarikçi onay durumu</a><a class="chip" href="#/pcb/takip">PCB takip (sıcaklık / nem)</a><a class="chip" href="#/bom">BOM (MTBF)</a><a class="chip" href="#/rma">RMA</a><a class="chip" href="#/motor-test">Motor testleri</a></div>
+  <div class="panel"><h3>Acrome ERP yazılımındaki kalite kayıtları</h3><div class="chips"><a class="chip" href="#/uygunsuzluk">Uygunsuzluklar${S.ncrOpen ? ` <b>${S.ncrOpen} açık</b>` : ''}</a><a class="chip" href="#/kalibrasyon">Kalibrasyon</a><a class="chip" href="#/tedarikciler">Tedarikçi onay durumu</a><a class="chip" href="#/pcb/takip">PCB takip (sıcaklık / nem)</a><a class="chip" href="#/bom">BOM (MTBF)</a><a class="chip" href="#/rma">RMA</a><a class="chip" href="#/motor-test">Motor testleri</a></div>
     <p class="small" style="margin:10px 0 0">Doküman kodu: ACR-<b>TÜR</b>-<b>SÜREÇ</b>-NN · PR prosedür, PL plan, TL talimat, FR form, LS liste / kayıt, RP rapor. Projeye özel belgelerde sona proje kodu eklenir (ACR-PL-PY-01-<b>PROJE</b>). Basılı kopyalar kontrolsüzdür; güncel sürüm bu sayfadadır.</p></div></div>
   <h2>Süreçler</h2><div class="cards">${K.M.map(m => `<a class="card" href="#/kalite/m/${esc(m.id)}"><div class="m">Süreç ${m._no} · Sorumlu: ${esc(m.owner)}</div><div class="t">${esc(m.title)}</div><div class="m">${['doc', 'form', 'register', 'report'].map(k => { const n = m.items.filter(i => i.kind === k).length; return n ? `${n} ${KYS_KN[k].toLocaleLowerCase('tr')}` : ''; }).filter(Boolean).join(' · ')}</div></a>`).join('')}</div>
   <p class="small noprint" style="margin-top:18px">${esc(K.META.docNo || '')} · Rev ${esc(K.META.rev || '')} · ${esc(K.META.date || '')}${K.at ? ` · içerik yüklendi ${fmtDT(K.at)}${K.by ? ', ' + esc(K.by) : ''}` : ''}</p>`;
@@ -5038,12 +5038,13 @@ function kysForm(K, it, P){
     else if (f.t === 'textarea') ctl = `<textarea id="${id}" data-k="${k}">${esc(v)}</textarea>`;
     else if (f.t === 'table') { const rows = f.rows || [], cols = f.columns || [];
       ctl = `<div class="tablewrap ftable" data-calc="${esc(JSON.stringify(f.calc || []))}" data-mtbf="${f.mtbf ? +f.mtbf.col || 0 : ''}"><table><thead><tr>${cols.map(c => `<th class="nosort">${esc(c)}</th>`).join('')}</tr></thead><tbody>${(rows.length ? rows : [cols.map(() => ''), cols.map(() => ''), cols.map(() => '')]).map((r, ri) => `<tr>${cols.map((c, j) => { const cv = String(kBlank(r[j]) ?? '');
-        return `<td>${j === 0 && cv.trim() ? kSafe(cv) : `<input type="text" value="${esc(E ? cv : '')}" aria-label="${esc(c)}" data-c="${j}" data-k="${k}:${ri}:${j}" ${(f.calc || []).some(x => x.col === j) ? 'readonly tabindex="-1" class="calc"' : ''}>`}</td>`; }).join('')}</tr>`).join('')}</tbody></table>${f.mtbf ? '<p class="small mtbf-out" style="margin:6px 0 0"></p>' : ''}</div>`; }
-    else ctl = f.ro ? `<input id="${id}" type="text" readonly placeholder="kaydedince verilir" class="calc krno">` : `<input id="${id}" type="text" data-k="${k}" value="${esc(v)}" ${f.t === 'date' ? 'placeholder="gg.aa.yyyy"' : ''}>`;
+        return `<td>${j === 0 && cv.trim() ? kSafe(cv) : ((f.calc || []).some(x => x.col === j) ? `<input type="text" value="${esc(E ? cv : '')}" aria-label="${esc(c)}" data-c="${j}" data-k="${k}:${ri}:${j}" readonly tabindex="-1" class="calc">`
+          : `<textarea rows="1" class="ag" aria-label="${esc(c)}" data-c="${j}" data-k="${k}:${ri}:${j}">${esc(E ? cv : '')}</textarea>`)}</td>`; }).join('')}</tr>`).join('')}</tbody></table>${f.mtbf ? '<p class="small mtbf-out" style="margin:6px 0 0"></p>' : ''}</div>`; }
+    else ctl = f.ro ? `<input id="${id}" type="text" readonly placeholder="kaydedince verilir" class="calc krno">` : w === 3 && f.t !== 'date' ? `<textarea id="${id}" rows="1" class="ag" data-k="${k}">${esc(v)}</textarea>` : `<input id="${id}" type="text" data-k="${k}" value="${esc(v)}" ${f.t === 'date' ? 'placeholder="gg.aa.yyyy"' : ''}>`;
     return `<label class="${cls}" ${['radio', 'checks', 'table'].includes(f.t) ? 'role="group"' : `for="${id}"`}>${esc(f.l)}${f.hint && !/^\s*\[/.test(f.hint) ? ` <span class="hint">${esc(f.hint)}</span>` : ''}${ctl}</label>`; };
   const signs = it.signoffs || ['Hazırlayan', 'Kontrol eden', 'Onaylayan'];
   return (it.header ? [{ h:'Kayıt bilgileri', fields:KYS_HDR, k:'h' }] : []).concat(it.groups || []).map((g, gi) => `<fieldset><legend>${esc(g.h || '')}</legend><div class="fgrid">${(g.fields || []).map(f => fld(g.k || g.h || 'g' + gi, f)).join('')}</div></fieldset>`).join('')
-    + (signs.length ? `<div class="signs">${signs.map(s => `<div>${esc(s)}<span>Ad Soyad / Tarih / İmza</span></div>`).join('')}</div>` : '');
+    + (signs.length ? `<div class="signs">${signs.map(s => `<div>${esc(s)}<input type="text" data-k="${esc('s:' + s + ':ad')}" placeholder="Ad Soyad" aria-label="${esc(s)} ad soyad"><input type="text" data-k="${esc('s:' + s + ':tarih')}" placeholder="Tarih" aria-label="${esc(s)} tarih"><span>İmza</span></div>`).join('')}</div>` : '');
 }
 const kysReport = (K, it) => `${it.period ? `<p class="small">Periyot: <b style="color:var(--ink)">${esc(it.period)}</b> · Dönem: ______________</p>` : ''}${(it.kpis || []).length ? `<div class="tablewrap" style="margin-bottom:12px"><table><thead><tr><th class="nosort">Gösterge</th><th class="nosort" style="width:22%">Dönem değeri</th><th class="nosort" style="width:22%">Hedef</th></tr></thead><tbody>${it.kpis.map(k => `<tr><td>${esc(k.l)}</td><td>${kSafe(k.v)}</td><td>${kSafe(k.target || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}${kSecs(it.sections)}${kTables(K, it)}`;
 const kSib = (it, P) => { const sib = it._m.items, ix = sib.indexOf(it); return `${ix > 0 ? `<a class="btn sm" href="${kHref(sib[ix - 1].code, P)}">← ${esc(sib[ix - 1].code)}</a>` : ''}${ix < sib.length - 1 ? `<a class="btn sm" href="${kHref(sib[ix + 1].code, P)}">${esc(sib[ix + 1].code)} →</a>` : ''}`; };
@@ -5055,8 +5056,8 @@ function kysItem(K, code, P){
   const head = kHead(K, it, { title:it.title, proj:it.pk ? kPName(pp) : '', no:it.no || it.code, rev:it.rev || '00', date:kDate(K, it) });
   const src = it.source ? `<p class="small"><b>Kaynak:</b> ${kSafe(it.source)}</p>` : '';
   // başka projenin bağlamında içerikteki proje satırları gösterilmez; yalnız o projeye eklenen kayıtlar
-  const body = it.kind === 'doc' ? kPrac(it) + kSecs(it.sections) + kTables(K, it) + kHist(K, it) : it.kind === 'form' ? kysForm(K, it, P)
-    : it.kind === 'register' ? (own ? `${src}${it.note ? `<p class="small" style="color:var(--ink)">${kSafe(it.note)}</p>` : ''}${kPrac(it)}${kTbl(K, it.columns, it.rows, true)}` : '') : src + kPrac(it) + kysReport(K, it) + kHist(K, it);
+  const body = it.kind === 'doc' ? kSecs(it.sections) + kTables(K, it) + kHist(K, it) : it.kind === 'form' ? kysForm(K, it, P)
+    : it.kind === 'register' ? (own ? `${src}${it.note ? `<p class="small" style="color:var(--ink)">${kSafe(it.note)}</p>` : ''}${kTbl(K, it.columns, it.rows, true)}` : '') : src + kysReport(K, it) + kHist(K, it);
   const frm = it.kind === 'form' && !live;
   return `<div class="crumbs noprint">${kCrumb(it, P)}</div>${kLive(it)}
   <div class="toolbar noprint"><button class="btn primary" data-print="1">Yazdır / PDF</button>${it.kind === 'form' && it.pk && own ? `<div class="seg" id="kfm"><button data-v="proj" class="${kysMode === 'proj' ? 'on' : ''}">Proje bilgileriyle</button><button data-v="bos" class="${kysMode === 'bos' ? 'on' : ''}">Boş form</button></div>` : ''}
@@ -5099,6 +5100,11 @@ function kysRows(K, code, cols, P){
       const { error } = await sb.from('kys_records').insert({ code, kind:'row', project_id:P ? P.id : null, label:row.filter(Boolean).slice(0, 2).join(' · ').slice(0, 200), data:{ row } }); if (error) return toast(dbErr(error), true); toast('Eklendi'); list(); }); }; };
   list();
 }
+// uzun metin kutuları içerik kadar uzar (ekranda ve yazdırmada kesilmesin)
+const kGrow = el => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; };
+const kGrowAll = () => qa('#ksheet textarea.ag').forEach(kGrow);
+document.addEventListener('input', e => { if (e.target.matches && e.target.matches('#ksheet textarea.ag')) kGrow(e.target); });
+addEventListener('beforeprint', kGrowAll); addEventListener('afterprint', kGrowAll);
 function kysRecalc(){
   qa('#ksheet .ftable').forEach(w => {
     let calc = []; try { calc = JSON.parse(w.dataset.calc || '[]'); } catch {}
@@ -5116,7 +5122,7 @@ function kysFormBind(K, it, P){
     box.innerHTML = `<h2>Kayıtlar <span class="tcount">${R.length}</span></h2>` + (error ? `<div class="empty">${esc(dbErr(error))}</div>` : R.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Kayıt no</th><th class="nosort">Kayıt</th><th class="nosort">Proje</th><th class="nosort">Durum</th><th class="nosort">Son değişiklik</th><th class="nosort"></th></tr></thead><tbody>${R.map(r => `<tr style="cursor:default" data-r="${r.id}"><td class="mono">${esc(r.record_no || '')}</td><td>${esc(r.label || '—')}</td><td>${esc((kPj(K, r.project_id) || {}).code || '')}</td><td>${esc(r.status || '')}</td><td class="sub">${who(r)}</td><td style="white-space:nowrap"><button type="button" class="btn sm kopen">Aç</button> <button type="button" class="btn sm kdel">Sil</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu formla henüz kayıt açılmadı. Formu doldurup "Kaydet" ile saklayın; kayıt numarası otomatik verilir.</p>');
     qa('.kopen', box).forEach(b => b.onclick = async () => { const rid = +b.closest('tr').dataset.r, { data:r } = await sb.from('kys_records').select('*').eq('id', rid).maybeSingle(); if (!r) return toast('Kayıt okunamadı', true);
       const v = (r.data && r.data.v) || {}; F().forEach(x => { const val = v[x.dataset.k]; if (x.type === 'checkbox' || x.type === 'radio') x.checked = !!val; else x.value = val ?? ''; });
-      kysRec = r.id; const no = q('.krno', sheet); if (no) no.value = r.record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.record_no || ''); kysRecalc(); window.scrollTo(0, 0); });
+      kysRec = r.id; const no = q('.krno', sheet); if (no) no.value = r.record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.record_no || ''); kysRecalc(); kGrowAll(); window.scrollTo(0, 0); });
     qa('.kdel', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'Emin misin?')) return; const rid = +b.closest('tr').dataset.r;
       const { error } = await sb.from('kys_records').delete().eq('id', rid); if (error) return toast(dbErr(error), true); if (kysRec === rid) { kysRec = null; q('#kcur').textContent = ''; } toast('Silindi'); list(); }); };
   // aramadan gelen bağlantı (#/kalite/i/KOD?r=ID) o kaydı açık getirir
@@ -5153,7 +5159,7 @@ async function viewKys(){
   const sheet = q('#ksheet'), it = sub === 'i' ? K.BY[code] : pc ? K.BY[pc] : null;
   if (sheet) { sheet.addEventListener('input', kysRecalc); kysRecalc(); }
   if (!it || !q('#krecs')) return;
-  if (it.kind === 'form') kysFormBind(K, it, P); else kysRows(K, it.code, it.columns || [], P);
+  if (it.kind === 'form') { kysFormBind(K, it, P); kGrowAll(); } else kysRows(K, it.code, it.columns || [], P);
 }
 function viewKysUpload(){
   let P = null;

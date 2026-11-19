@@ -774,23 +774,24 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
 .kys .w2{grid-column:span 2} .kys .w3{grid-column:1/-1}
 .kys .opts{display:flex;flex-wrap:wrap;gap:4px 14px;padding-top:3px}
 .kys .opts label{display:flex;align-items:center;gap:5px;font-weight:450;font-size:13px}
-.kys .ftable input{border:0;border-bottom:1px dotted var(--line);border-radius:0;min-height:26px;padding:2px 4px;background:transparent;width:100%}
+.kys .ftable input,.kys .ftable textarea{border:0;border-bottom:1px dotted var(--line);border-radius:0;min-height:26px;padding:2px 4px;background:transparent;width:100%}
+.kys textarea.ag{font-weight:400;resize:none;overflow:hidden;min-height:30px;line-height:1.4;white-space:pre-wrap}
+.kys .ftable textarea.ag{min-width:14ch;min-height:26px}
 .kys input.calc{background:var(--soft);font-weight:650}
 .kys .signs{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));border:1px solid var(--line);margin-top:16px}
 .kys .signs div{padding:8px 12px;border-left:1px solid var(--line);min-height:74px;font-size:12px;font-weight:650;color:var(--muted)}
 .kys .signs div:first-child{border-left:0}
-.kys .signs div span{display:block;font-weight:400;margin-top:26px;border-top:1px dotted var(--line);padding-top:2px}
+.kys .signs div span{display:block;font-weight:400;margin-top:18px;border-top:1px dotted var(--line);padding-top:2px}
+.kys .signs input{display:block;width:100%;margin-top:4px;border:0;border-bottom:1px dotted var(--line);border-radius:0;background:transparent;padding:2px 0;font-weight:450;color:var(--ink)}
 .kys td.nw{white-space:nowrap}
-.kys .practice{border-left:3px solid var(--green);background:var(--green-soft);padding:8px 14px;border-radius:0 var(--radius) var(--radius) 0;font-size:13.5px;margin:4px 0 14px}
-.kys .practice b{color:var(--green);display:block;margin-bottom:2px}
 @media (max-width:960px){.kys .kpis.k5{grid-template-columns:repeat(2,1fr)}.kys .fgrid{grid-template-columns:1fr}.kys .w2,.kys .w3{grid-column:auto}.kys .dochead{grid-template-columns:1fr}.kys .dochead .lg,.kys .dochead .tt{border-right:0;border-bottom:1.5px solid var(--ink)}.kys .sheet{padding:16px}}
 @media print{
   .kys .sheet{border:0;padding:0;max-width:none}
   .kys .sheet input,.kys .sheet select,.kys .sheet textarea{border:0;border-bottom:1px solid #999;border-radius:0;padding:1px 2px;min-height:20px;-webkit-appearance:none;appearance:none;background:transparent}
   .kys .sheet textarea{min-height:52px;border:1px solid #999}
+  .kys .sheet textarea.ag{min-height:0;border:0;border-bottom:1px solid #999;overflow:visible}
   .kys .sheet fieldset,.kys .sheet table,.kys .signs{break-inside:avoid}
   .kys .tablewrap{overflow:visible;border:0}
-  .kys .practice{border-left:2px solid #444;background:#fff}
 }
 
 /* son hareketler: yalnız geniş ekranda sağ sütun (dar ekranda gizli) */
