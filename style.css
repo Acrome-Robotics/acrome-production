@@ -19,6 +19,7 @@
 
 *{box-sizing:border-box}
 html,body{margin:0}
+html{scrollbar-gutter:stable}  /* sayfa uzunluğu değişince kaydırma çubuğu çıkıp kaybolup içeriği kaydırmasın */
 body{background:var(--paper);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5;font-variant-numeric:tabular-nums}
 a{color:var(--link);text-decoration:none}
 a:hover{text-decoration:underline}
