@@ -852,3 +852,9 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
   .gs-i{flex-direction:column;gap:0}.gs-k{min-width:0;font-size:10px}
 }
 @media print{.sbar{display:none!important}}
+
+/* risk kaydı: geniş tablo yatay kayar; hedef tarihi geçmiş açık satırın tarih hücresi uyarı renginde */
+.kys .rk-wrap{overflow-x:auto}
+.kys .rkt td,.kys .rkt th{vertical-align:top;font-size:12.5px}
+.kys .rkt tr.rk-late td:nth-child(11){color:var(--red);font-weight:700}
+@media print{.kys .rk-wrap{overflow:visible}}

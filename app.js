@@ -1099,11 +1099,13 @@ function viewDetail(id){
   ${stagePanel(d)}
   ${clBox(d)}
   <div id="dpur"></div>
+  <div id="drisk"></div>
   ${rmaBox({ deal_id:d.id }, (S.rmas||[]).filter(x => x.deal_id === d.id), 'mt')}
   ${(S.tickets||[]).some(x => x.deal_id === d.id) ? `<section class="panel mt"><h2>Support konuları</h2><ul class="sugg">${S.tickets.filter(x => x.deal_id === d.id).map(x => `<li><a href="#/support/${x.id}"><span class="mono">#${x.id}</span> ${esc(x.subject)}</a> ${supPill(x.status)} <span class="sub">${fmtD(x.opened_at.slice(0,10))}</span></li>`).join('')}</ul></section>` : ''}
   <section class="panel mt"><h2>Açıklama ve notlar</h2><dl class="kv">${kv('Detay', esc(d.details))}${kv('Not', esc(d.notes))}${kv('Kaynak', esc(d.source))}${kv('Son güncelleme', new Date(d.updated_at).toLocaleString('tr-TR'))}</dl></section>`);
   bindStagePanel(d);
   loadClBox(d);
+  loadRiskBox(d);
   sb.from('purchase_deals').select('note,purchases(id,item_name,status,qty,total,currency,supplier_id,supplier_text,requested_at)').eq('deal_id', id).then(({ data }) => {
     const rs = (data || []).filter(x => x.purchases).sort((a, b) => (b.purchases.requested_at || '').localeCompare(a.purchases.requested_at || '')), box = q('#dpur');
     if (!rs.length || !box) return;
@@ -1126,6 +1128,23 @@ function viewDetail(id){
     if (error) return toast(dbErr(error), true);
     S.deals = S.deals.filter(x => x.id !== id); toast('Silinenler\'e taşındı; oradan geri alınabilir'); location.hash = '#/kayitlar/' + d.status;
   };
+}
+
+// siparişe bağlı riskler (kurumsal risk kaydı): yalnız Kalite / Yönetici / Satış / Sipariş görür ve bağlar
+async function loadRiskBox(d){
+  const box = q('#drisk'); if (!box || !can('kalite', 'admin', 'sales', 'orders')) return; const lk = can('kalite', 'admin', 'sales', 'orders');
+  const draw = async () => {
+    const [a, b] = await Promise.all([sb.from('kys_row_deals').select('row_id,kys_records(id,data)').eq('deal_id', d.id), lk ? sb.from('kys_records').select('id,data').eq('code', 'ACR-LS-RK-01').eq('kind', 'row').is('project_id', null).order('id') : { data:[] }]);
+    if (a.error || !box.isConnected) return;       // tablo yoksa ya da sayfa değiştiyse panel çizilmez
+    const L = (a.data || []).map(x => x.kys_records).filter(Boolean), ids = L.map(x => x.id), O = (b.data || []).filter(r => !ids.includes(r.id) && RK_OPEN.includes(rkG(r).st));
+    if (!L.length && !lk) return (box.innerHTML = '');
+    box.innerHTML = `<section class="panel mt"><h2>Riskler <span class="sub">${L.length}</span></h2>${L.length ? `<ul class="sugg">${L.map(r => { const w = rkG(r).w; return `<li>${canQ() ? `<a href="#/kalite/i/ACR-LS-RK-01"><span class="mono">${esc(w[0])}</span></a>` : `<span class="mono">${esc(w[0])}</span>`} ${esc(w[2])}${lk ? ` <a href="#" data-un="${r.id}" aria-label="Bağı kaldır">×</a>` : ''}</li>`; }).join('')}</ul>` : '<p class="sub">Bu siparişe bağlı risk yok.</p>'}
+      ${lk ? `<p><select id="drsel" aria-label="Risk"><option value="">Risk seç…</option>${O.map(r => `<option value="${r.id}">${esc(rkG(r).w[0])} · ${esc(rkG(r).w[2].slice(0, 70))}</option>`).join('')}</select> <button type="button" class="btn sm" id="drbtn">Risk bağla</button></p>` : ''}</section>`;
+    q('#drbtn') && (q('#drbtn').onclick = e => busy(e.currentTarget, async () => { const v = +q('#drsel').value; if (!v) return;
+      const x = await sb.from('kys_row_deals').insert({ row_id:v, deal_id:d.id }).select('row_id'); if (x.error || !x.data || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Bağlanamadı', true); toast('Risk bağlandı'); draw(); }));
+    qa('[data-un]', box).forEach(l => l.onclick = async e => { e.preventDefault(); const x = await sb.from('kys_row_deals').delete().eq('row_id', +l.dataset.un).eq('deal_id', d.id).select('row_id');
+      if (x.error || !x.data || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Kaldırılamadı', true); draw(); }); };
+  draw();
 }
 
 // ---------------------------------------------------------------- SİLİNENLER (satış + yönetici; RLS diğerlerine göstermez)
@@ -4887,6 +4906,7 @@ const KYS_GRP = { doc:'Prosedürler, planlar ve talimatlar', form:'Formlar', reg
 const KYS_LIVE = { 'ACR-FR-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-90':['#/rma', 'RMA kayıtları'], 'ACR-RP-UY-90':['#/support-rapor', 'Support raporu'],
   'ACR-LS-KF-90':['#/pcb/versiyon', 'PCB versiyonları'], 'ACR-LS-UR-91':['#/pcb/takip', 'PCB takip kayıtları'], 'ACR-LS-UR-90':['#/checklist-sablon', 'Checklist şablonları'], 'ACR-LS-KD-90':['#/motor-test', 'Motor testleri'],
   'ACR-LS-TD-90':['#/tedarikciler', 'Tedarikçiler'], 'ACR-LS-TD-01':['#/tedarikciler', 'Tedarikçiler (onay durumu ve puan)'], 'ACR-LS-KL-01':['#/kalibrasyon', 'Kalibrasyon'] };
+const KYS_ROWS_LIVE = { 'ACR-LS-RK-01':1 };      // satırları veritabanında tutulan listeler (kysRisk)
 const KYS_HDR = [{ l:'Kayıt no', t:'text', ro:1 }, { l:'Tarih', t:'date' }, { l:'Proje / kapsam', t:'text', proj:1 }, { l:'Kayıt sahibi', t:'text' }, { l:'Durum', t:'select', o:['Açık', 'İncelemede', 'Kapandı'] }, { l:'Kanıt / ERP bağlantısı', t:'text' }];
 const KYS_PST = { aktif:'Aktif', tamamlandi:'Tamamlandı', askida:'Askıda', iptal:'İptal' };
 const KYS_PKIND = { musteri:'Müşteri projesi', arge:'Ar-Ge projesi', ic:'İç proje' };
@@ -5066,17 +5086,17 @@ const kCrumb = (it, P) => P ? `<a href="#/kalite">Kalite Yönetim Sistemi</a> / 
   : `<a href="#/kalite">Kalite Yönetim Sistemi</a> / <a href="#/kalite/m/${esc(it._m.id)}">${esc(it._m.title)}</a> / ${esc(it.code)}`;
 function kysItem(K, code, P){
   const it = K.BY[code]; if (!it) return '<h1>Belge bulunamadı</h1><p><a href="#/kalite/belgeler">Doküman listesine dön</a></p>';
-  const live = !!KYS_LIVE[it.code], own = !P || it.pk === P.code, pp = P || kPjCode(K, it.pk);
+  const live = !!KYS_LIVE[it.code], own = !P || it.pk === P.code, pp = P || kPjCode(K, it.pk), rows = it.kind === 'register' && !!KYS_ROWS_LIVE[it.code] && !P;
   const head = kHead(K, it, { title:it.title, proj:it.pk ? kPName(pp) : '', no:it.no || it.code, rev:it.rev || '00', date:kDate(K, it) });
   const src = it.source ? `<p class="small"><b>Kaynak:</b> ${kSafe(it.source)}</p>` : '';
   // başka projenin bağlamında içerikteki proje satırları gösterilmez; yalnız o projeye eklenen kayıtlar
   const body = it.kind === 'doc' ? kSecs(it.sections) + kTables(K, it) + kHist(K, it) : it.kind === 'form' ? kysForm(K, it, P)
-    : it.kind === 'register' ? (own ? `${src}${it.note ? `<p class="small" style="color:var(--ink)">${kSafe(it.note)}</p>` : ''}${kTbl(K, it.columns, it.rows, true)}` : '') : src + kysReport(K, it) + kHist(K, it);
+    : it.kind === 'register' ? (own ? `${src}${it.note ? `<p class="small" style="color:var(--ink)">${kSafe(it.note)}</p>` : ''}${rows ? '<div id="krisk"></div>' : kTbl(K, it.columns, it.rows, true)}` : '') : src + kysReport(K, it) + kHist(K, it);
   const frm = it.kind === 'form' && !live;
   return `<div class="crumbs noprint">${kCrumb(it, P)}</div>${kLive(it)}
   <div class="toolbar noprint"><button class="btn primary" data-print="1">Yazdır / PDF</button>${it.kind === 'form' && it.pk && own ? `<div class="seg" id="kfm"><button data-v="proj" class="${kysMode === 'proj' ? 'on' : ''}">Proje bilgileriyle</button><button data-v="bos" class="${kysMode === 'bos' ? 'on' : ''}">Boş form</button></div>` : ''}
   ${frm ? `<button class="btn" id="ksave">Kaydet</button><button class="btn" id="kclear">Yeni kayıt</button><span class="sub" id="kcur"></span>` : ''}<span style="flex:1"></span>${kSib(it, P)}</div>
-  <div class="sheet" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>${frm || (it.kind === 'register' && !live) ? '<div class="noprint" id="krecs"></div>' : ''}`;
+  <div class="sheet" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>${frm || (it.kind === 'register' && !live && !rows) ? '<div class="noprint" id="krecs"></div>' : ''}`;
 }
 // projenin kendi belgesi (kys_records 'doc'): taslakta düzenlenir, yürürlüğe alınınca değişmez; değişiklik yeni revizyonla
 function kysInst(K, P, code, d){
@@ -5113,6 +5133,78 @@ function kysRows(K, code, cols, P){
     q('#kraf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const row = qa('[data-j]', e.target).map(x => x.value.trim()); if (!row.some(Boolean)) return toast('En az bir alan doldurun', true);
       const { error } = await sb.from('kys_records').insert({ code, kind:'row', project_id:P ? P.id : null, label:row.filter(Boolean).slice(0, 2).join(' · ').slice(0, 200), data:{ row } }); if (error) return toast(dbErr(error), true); toast('Eklendi'); list(); }); }; };
   list();
+}
+// Kurumsal risk kaydı canlı tutulur: satırlar kys_records 'row' (data = { row:[13 sütun], opened, closed }); siparişlerle bağ kys_row_deals (çoka-çok)
+const RK_ST = ['Açık', 'İzlemede', 'Kapandı', 'İptal', 'Gerçekleşti'], RK_OPEN = ['Açık', 'İzlemede'], RK_LV = ['Düşük', 'Orta', 'Yüksek', 'Kritik'];
+const rkLv = p => p >= 16 ? 'Kritik' : p >= 10 ? 'Yüksek' : p >= 5 ? 'Orta' : 'Düşük';           // ACR-PR-RK-01 Tablo 3
+const rkAge = (a, b) => { if (!a) return '—'; b = b || today(); const x = new Date(a + 'T00:00:00'), y = new Date(b + 'T00:00:00'), m = (y.getFullYear() - x.getFullYear()) * 12 + y.getMonth() - x.getMonth() - (y.getDate() < x.getDate() ? 1 : 0);
+  if (m < 1) { const n = days(a, b); return n < 1 ? 'bugün' : n + ' gün'; } const yr = Math.floor(m / 12), mo = m % 12; return [yr && yr + ' yıl', mo && mo + ' ay'].filter(Boolean).join(' '); };
+const rkNext = (R, tur) => { const pre = tur === 'Fırsat' ? 'FR-K-' : 'RK-K-'; return pre + String(1 + Math.max(0, ...R.map(r => (r.data.row || [])[0] || '').filter(n => n.startsWith(pre)).map(n => parseInt(n.slice(5), 10) || 0))).padStart(2, '0'); };
+const rkG = r => { const w = r.data.row || [], o = +w[3], e = +w[4], p = o && e ? o * e : +w[5] || 0; return { w, p, lv:p ? rkLv(p) : w[6] || '', st:w[11] || 'Açık' }; };
+async function kysRisk(K, it){
+  const box = q('#krisk'), code = it.code, ed = canQ(), lk = can('kalite', 'admin', 'sales', 'orders'), F = { st:'act', t:'', lv:'', s:'' }; let R = [], D = {}, mode = null, err = '', legacy = false;
+  const dl = id => (D[id] || []).map(i => S.deals.find(d => d.id === i)).filter(Boolean), tr = s => String(s).toLocaleLowerCase('tr');
+  const vis = () => R.filter(r => { const { w, lv, st } = rkG(r); return (F.st === 'all' || (F.st === 'act' ? RK_OPEN.includes(st) : st === F.st)) && (!F.t || w[1] === F.t) && (!F.lv || lv === F.lv) && (!F.s || tr(w.join(' ') + ' ' + dl(r.id).map(refNo).join(' ')).includes(tr(F.s))); });
+  const ld = async () => {
+    const [a, b] = await Promise.all([sb.from('kys_records').select('*').eq('code', code).eq('kind', 'row').is('project_id', null).order('id'), sb.from('kys_row_deals').select('row_id,deal_id')]);
+    err = a.error ? dbErr(a.error) : ''; R = a.data || []; D = {}; (b.data || []).forEach(x => (D[x.row_id] = D[x.row_id] || []).push(x.deal_id));
+    legacy = !R.length && !a.error; if (legacy) R = (it.rows || []).map(row => ({ id:null, data:{ row, opened:null, closed:null } }));   // henüz aktarılmadıysa yayınlanan satırlar
+    draw(); };
+  const drawT = () => { const V = vis(); q('#rkn').textContent = V.length + ' / ' + R.length;
+    q('#rkt').innerHTML = `<table class="rkt"><thead><tr>${['No', 'Tür', 'Tanım', 'O', 'E/F', 'Puan', 'Seviye', 'Önlem', 'Gerçekleşirse aksiyon', 'Sahip', 'Hedef tarih', 'Durum', 'Açık süre', 'Siparişler'].map(c => `<th class="nosort">${c}</th>`).join('')}<th class="nosort noprint"></th></tr></thead><tbody>${V.map(r => {
+      const { w, p, lv, st } = rkG(r), od = RK_OPEN.includes(st) && /^\d{4}-\d\d-\d\d$/.test(w[10] || '') && w[10] < today(), d = r.data;
+      return `<tr style="cursor:default" data-r="${r.id}"${od ? ' class="rk-late"' : ''}><td class="nw">${esc(w[0])}</td><td>${esc(w[1])}</td><td>${esc(w[2])}${w[12] ? `<div class="sub">${esc(w[12])}</div>` : ''}</td><td>${esc(w[3])}</td><td>${esc(w[4])}</td><td>${p || ''}</td><td>${esc(lv)}</td><td>${esc(w[7])}</td><td>${esc(w[8])}</td><td>${esc(w[9])}</td>
+        <td>${/^\d{4}-/.test(w[10] || '') ? fmtD(w[10]) : esc(w[10])}${od ? '<div class="sub">gecikti</div>' : ''}</td><td>${esc(st)}</td><td class="nw">${rkAge(d.opened, d.closed)}</td><td>${dl(r.id).map(x => `<a class="mono" href="#/kayit/${x.id}">${esc(refNo(x))}</a>`).join(', ')}</td>
+        <td class="noprint nw">${r.id ? `${ed ? '<button type="button" class="btn sm" data-a="e">Düzenle</button> ' : ''}${lk ? '<button type="button" class="btn sm" data-a="l">Sipariş bağla</button> ' : ''}${ed ? '<button type="button" class="btn sm" data-a="d">Sil</button>' : ''}` : ''}</td></tr>`; }).join('') || `<tr><td colspan="15" class="sub">Bu süzgeçle kayıt yok.</td></tr>`}</tbody></table>`; };
+  const drawP = () => { const p = q('#rkp'); if (!mode) return (p.innerHTML = '');
+    if (mode.k === 'l') { const r = mode.r, w = r.data.row, L = dl(r.id);
+      p.innerHTML = `<section class="panel mt"><h2>${esc(w[0])} · bağlı siparişler</h2><p>${L.map(x => `<span class="pill p-brand">${esc(refNo(x))} · ${esc(custName(x))} <a href="#" data-un="${x.id}" aria-label="Bağı kaldır">×</a></span> `).join('') || '<span class="sub">Bağlı sipariş yok.</span>'}</p>
+        <label class="f">Sipariş ara (no veya müşteri)<input type="text" id="rkls" maxlength="60" autocomplete="off"></label><div id="rklr"></div><p><button type="button" class="btn" data-a="x">Kapat</button></p></section>`;
+      q('#rkls').oninput = e => { const s = tr(e.target.value.trim()), got = s ? S.deals.filter(d => !(D[r.id] || []).includes(d.id) && tr([d.order_no, d.opp_no, d.customer_name, d.description].join(' ')).includes(s)).slice(0, 8) : [];
+        q('#rklr').innerHTML = got.map(d => `<div><button type="button" class="btn sm" data-add="${d.id}">Bağla</button> <span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))} <span class="sub">${esc(d.description || '')}</span></div>`).join(''); };
+      return; }
+    const r = mode.r, w = r ? r.data.row : [], v = i => esc(w[i] ?? ''), sel = (id, o, cur) => `<select id="${id}">${o.map(x => `<option${String(cur) === String(x) ? ' selected' : ''}>${x}</option>`).join('')}</select>`;
+    p.innerHTML = `<section class="panel mt"><h2>${r ? esc(w[0]) + ' düzenle' : 'Yeni risk / fırsat'}</h2><form id="rkf" class="kys" novalidate><div class="fgrid">
+      <label>Tür${sel('rf1', ['Risk', 'Fırsat'], w[1] || 'Risk')}</label><label>No<input type="text" id="rf0" maxlength="20" value="${r ? v(0) : rkNext(R, 'Risk')}"></label><label>Sahip<input type="text" id="rf9" maxlength="80" value="${v(9)}"></label>
+      <label class="w3">Tanım<textarea id="rf2" rows="2" maxlength="500">${v(2)}</textarea></label>
+      <label>O (olasılık 1-5)${sel('rf3', [1, 2, 3, 4, 5], w[3] || 3)}</label><label>E/F (etki / fayda 1-5)${sel('rf4', [1, 2, 3, 4, 5], w[4] || 3)}</label><label>Puan · Seviye<input type="text" id="rfp" readonly></label>
+      <label class="w3">Önlem<textarea id="rf7" rows="2" maxlength="1000">${v(7)}</textarea></label><label class="w3">Gerçekleşirse aksiyon<textarea id="rf8" rows="2" maxlength="1000">${v(8)}</textarea></label>
+      <label>Hedef tarih<input type="date" id="rf10" value="${/^\d{4}-/.test(w[10] || '') ? v(10) : ''}"></label><label>Durum${sel('rf11', RK_ST, w[11] || 'Açık')}</label><label>Açılış tarihi<input type="date" id="rfo" value="${esc((r && r.data.opened) || today())}"></label>
+      <label class="w2">Dayanak<input type="text" id="rf12" maxlength="500" value="${v(12)}"></label></div><p><button class="btn primary">Kaydet</button> <button type="button" class="btn" data-a="x">Vazgeç</button></p></form></section>`;
+    const pt = () => { const x = (+q('#rf3').value) * (+q('#rf4').value); q('#rfp').value = x + ' · ' + rkLv(x); }; pt(); q('#rf3').onchange = q('#rf4').onchange = pt;
+    q('#rf1').onchange = e => { if (!r) q('#rf0').value = rkNext(R, e.target.value); };
+    q('#rkf').onsubmit = e => { e.preventDefault(); return busy(e, async () => {
+      const v = i => q('#rf' + i).value.trim(), o = +v(3), f = +v(4), p = o * f, no = v(0), od = r ? r.data : {}, st = v(11);
+      if (!no || !v(2)) return toast('No ve tanım gerekli', true);
+      if (R.some(x => x !== r && (x.data.row || [])[0] === no)) return toast('Bu No zaten var', true);
+      const row = [no, v(1), v(2), String(o), String(f), String(p), rkLv(p), v(7), v(8), v(9), v(10), st, v(12)], label = (no + ' · ' + row[2]).slice(0, 200);
+      const data = { ...od, row, opened:q('#rfo').value || od.opened || today(), closed:RK_OPEN.includes(st) ? null : od.closed || today() };   // kapanış tarihi durum kapanışa geçince bugün yazılır
+      const x = r ? await sb.from('kys_records').update({ label, data }).eq('id', r.id).select('id') : await sb.from('kys_records').insert({ code, kind:'row', label, data }).select('id');
+      if (x.error || !x.data || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Kaydedilemedi', true);
+      mode = null; toast('Kaydedildi'); ld(); }); }; };
+  const draw = () => {
+    box.innerHTML = `${err ? `<div class="empty">${esc(err)}</div>` : ''}${legacy ? '<p class="banner noprint">Satırlar henüz Acrome ERP yazılımına aktarılmadı; yayınlanan döküm gösteriliyor, düzenlenemez.</p>' : ''}
+    <div class="toolbar noprint"><select id="rkst" aria-label="Durum"><option value="all">Durum: tümü</option><option value="act">Açık + İzlemede</option>${RK_ST.map(s => `<option value="${s}">${s}</option>`).join('')}</select>
+      <select id="rkt1" aria-label="Tür"><option value="">Tür: tümü</option><option>Risk</option><option>Fırsat</option></select><select id="rklv" aria-label="Seviye"><option value="">Seviye: tümü</option>${RK_LV.map(s => `<option>${s}</option>`).join('')}</select>
+      <input type="search" id="rks" placeholder="Ara…" maxlength="60" aria-label="Ara"><span class="sub" id="rkn"></span><span style="flex:1"></span><button type="button" class="btn" id="rkcsv">CSV indir</button>${ed && !legacy ? '<button type="button" class="btn primary" data-a="n">Yeni risk / fırsat</button>' : ''}</div>
+    <div id="rkp" class="noprint"></div><div class="rk-wrap" id="rkt"></div>`;
+    q('#rkst').value = F.st; q('#rkt1').value = F.t; q('#rklv').value = F.lv; q('#rks').value = F.s;
+    q('#rkst').onchange = e => { F.st = e.target.value; drawT(); }; q('#rkt1').onchange = e => { F.t = e.target.value; drawT(); }; q('#rklv').onchange = e => { F.lv = e.target.value; drawT(); }; q('#rks').oninput = e => { F.s = e.target.value.trim(); drawT(); };
+    q('#rkcsv').onclick = () => { const lines = [[...it.columns, 'Açılış', 'Kapanış', 'Açık süre', 'Siparişler'], ...vis().map(r => [...it.columns.map((c, j) => rkG(r).w[j] ?? ''), r.data.opened || '', r.data.closed || '', rkAge(r.data.opened, r.data.closed), dl(r.id).map(refNo).join(' ')])]
+        .map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `risk-kaydi-${today()}.csv`; a.click(); };
+    drawT(); drawP(); };
+  box.onclick = async e => { const b = e.target.closest('[data-a],[data-add],[data-un]'); if (!b) return; const tr0 = b.closest('tr'), id = tr0 ? +tr0.dataset.r : 0, r = R.find(x => x.id === id) || (mode && mode.r);
+    if (b.dataset.a === 'n') { mode = { k:'n' }; drawP(); q('#rkp').scrollIntoView({ block:'nearest' }); }
+    else if (b.dataset.a === 'e') { mode = { k:'e', r }; drawP(); q('#rkp').scrollIntoView({ block:'nearest' }); }
+    else if (b.dataset.a === 'l') { mode = { k:'l', r }; drawP(); q('#rkls').focus(); }
+    else if (b.dataset.a === 'x') { mode = null; drawP(); }
+    else if (b.dataset.a === 'd') { if (!confirmTwice(b, 'Emin misin?')) return; const x = await sb.from('kys_records').delete().eq('id', r.id).select('id'); if (x.error || !x.data || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Silinemedi', true); toast('Silindi'); ld(); }
+    else if (b.dataset.add) { const did = +b.dataset.add, x = await sb.from('kys_row_deals').insert({ row_id:r.id, deal_id:did }).select('deal_id'); if (x.error || !x.data || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Bağlanamadı', true);
+      (D[r.id] = D[r.id] || []).push(did); drawT(); drawP(); q('#rkls').focus(); }
+    else if (b.dataset.un) { e.preventDefault(); const did = +b.dataset.un, x = await sb.from('kys_row_deals').delete().eq('row_id', r.id).eq('deal_id', did).select('deal_id'); if (x.error || !x.data || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Kaldırılamadı', true);
+      D[r.id] = D[r.id].filter(i => i !== did); drawT(); drawP(); } };
+  ld();
 }
 // uzun metin kutuları içerik kadar uzar (ekranda ve yazdırmada kesilmesin)
 const kGrow = el => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; };
@@ -5174,6 +5266,7 @@ async function viewKys(){
   if (pc && kInst(K, P, pc)) return kysInstBind(K, P, pc, inst);
   const sheet = q('#ksheet'), it = sub === 'i' ? K.BY[code] : pc ? K.BY[pc] : null;
   if (sheet) { sheet.addEventListener('input', kysRecalc); kysRecalc(); }
+  if (it && q('#krisk')) return kysRisk(K, it);
   if (!it || !q('#krecs')) return;
   if (it.kind === 'form') { kysFormBind(K, it, P); kGrowAll(); } else kysRows(K, it.code, it.columns || [], P);
 }
