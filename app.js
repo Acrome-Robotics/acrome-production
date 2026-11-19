@@ -227,6 +227,10 @@ const navClosed = () => { try { return JSON.parse(localStorage.getItem('navClose
 let NAV_DEPTH = 0, NAV_BACK = false;
 function navRoute(){ if (NAV_BACK) NAV_BACK = false; else NAV_DEPTH++; return route(); }
 function goBack(){ if (NAV_DEPTH > 0) { NAV_DEPTH--; NAV_BACK = true; history.back(); } else location.hash = '#/bugun'; }
+// liste satırı: ilk dolu hücre gerçek bağlantı (Ctrl/orta tık yeni sekme, klavye); satır tıklaması da çalışır
+function rowNav(sel, key, base){ qa(sel).forEach(tr => { const h = '#/' + base + '/' + tr.dataset[key], td = [...tr.cells].find(c => c.textContent.trim() && !c.querySelector('a,button,input,select'));
+  if (td) td.innerHTML = `<a class="rowlink" href="${h}">${td.innerHTML}</a>`;
+  tr.onclick = e => { if (!e.target.closest('a,button,input,select,textarea,label') && !getSelection().toString()) location.hash = h; }; }); }
 function shell(active, html){
   const cnt = st => S.deals.filter(d => d.status === st).length;
   const openIssues = S.issues.filter(i => !i.resolved).length;
@@ -311,7 +315,7 @@ function shell(active, html){
   const todayHot = staffOnly() ? 0 : todayCount();
   const home = staffOnly() ? '#/calisma-plani' : '#/bugun';
   S._navAll = nav.flatMap(([g, , items]) => items.filter(n => n[0]).map(n => ({ k:n[0], t:String(n[1]).replace(/<[^>]+>/g, ''), g })));
-  $app.innerHTML = `<div class="topbar"><a class="brand homelink" href="${home}" style="padding:0" title="Ana sayfa">${logo()} Acrome</a><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
+  $app.innerHTML = `<a class="skip" href="#main">İçeriğe geç</a><div class="topbar"><a class="brand homelink" href="${home}" style="padding:0" title="Ana sayfa">${logo()} Acrome</a><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell"><aside class="side" id="side"><button class="btn sm side-close" id="sideclose" type="button">Kapat ✕</button>
     <a class="brand homelink" href="${home}" title="Ana sayfa">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></a>
     <nav class="nav">${staffOnly() ? '' : `<a href="#/bugun" class="ntop ${active==='bugun'?'on':''}">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>`}${nav.map(([g, ic, items]) => { const cur = items.some(n => (n[5] || n[0]) === active), closed = !cur && (navClosed().includes(g) || matchMedia('(max-width:820px)').matches), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
@@ -324,9 +328,11 @@ function shell(active, html){
   qa('.nhead').forEach(h => h.onclick = () => { const g = h.parentNode, k = g.dataset.g, set = new Set(navClosed());
     g.classList.toggle('closed'); const c = g.classList.contains('closed'); h.setAttribute('aria-expanded', !c); c ? set.add(k) : set.delete(k);
     try { localStorage.setItem('navClosed', JSON.stringify([...set])); } catch {} });
-  q('#menu').onclick = e => { const s = q('#side'); s.classList.toggle('open'); e.target.setAttribute('aria-expanded', s.classList.contains('open')); };
-  qa('#side a').forEach(a => a.onclick = () => q('#side').classList.remove('open'));
-  q('#sideclose').onclick = () => { q('#side').classList.remove('open'); q('#menu').setAttribute('aria-expanded', 'false'); };
+  q('#menu').setAttribute('aria-controls', 'side');
+  q('#menu').onclick = e => { const s = q('#side'); s.classList.toggle('open'); const o = s.classList.contains('open'); e.target.setAttribute('aria-expanded', o); o && q('#sideclose').focus(); };
+  q('.skip').onclick = e => { e.preventDefault(); const m = q('#main'); m.tabIndex = -1; m.focus(); };
+  qa('#side a').forEach(a => a.onclick = () => { q('#side').classList.remove('open'); q('#menu').setAttribute('aria-expanded', 'false'); });
+  q('#sideclose').onclick = () => { q('#side').classList.remove('open'); q('#menu').setAttribute('aria-expanded', 'false'); q('#menu').focus(); };
   sbarBind();
   fillFeed();
 }
@@ -408,6 +414,7 @@ function gsSearch(qs, max){
 const gsRow = (x, i, sel) => `<a href="${esc(x.h)}" class="gs-i${i === sel ? ' on' : ''}" role="option" aria-selected="${i === sel}" data-i="${i}"><span class="gs-k">${esc(x.kind)}</span><span class="gs-t">${esc(x.t)}${x.s ? `<small>${esc(x.s)}</small>` : ''}</span></a>`;
 function sbarBind(){
   const inp = q('#gq'), pop = q('#gspop'); if (!inp) return;
+  if (matchMedia('(max-width:600px)').matches) inp.placeholder = 'Ara: sipariş, müşteri…'; // uzun yer tutucu telefonda kırpılıyordu
   let res = [], sel = -1, total = 0;
   const open = on => { pop.hidden = !on; inp.setAttribute('aria-expanded', on); };
   const toPage = () => { const v = inp.value.trim(); if (v) { open(false); location.hash = '#/ara?q=' + encodeURIComponent(v); } };
@@ -712,14 +719,15 @@ function viewToday(){
   const hotOf = x => x.alert ? (x.count ?? x.rows.filter(r => r.hot).length) : 0;
   const hotN = secs.reduce((n, x) => n + hotOf(x), 0) + (S.unread || 0); // okunmamış bildirimler zilde; sayaçta da kalsın
   const L = todayLayout(), minSet = new Set(L.min);
-  const show = secs.filter(x => x.rows.length && !x.bottom && x.id);
+  // en çok 8 kutu (kırmızı/gecikmiş olanlar önce), kutu başına en çok 5 satır; sığmayanlar altta bağlantı olarak kalır
+  const ord = secs.filter(x => x.rows.length && !x.bottom && x.id).sort((a, b) => (hotOf(b) > 0) - (hotOf(a) > 0)), show = ord.slice(0, 8), more = ord.slice(8);
   // sütunlar: kayıtlı düzen + yeni çıkan kutular daha kısa sütuna; kayıt yoksa yüksekliğe göre dengeli dağıtım
-  const est = x => minSet.has(x.id) ? 1 : 2 + Math.min(x.rows.length, x.max || 6);
+  const est = x => minSet.has(x.id) ? 1 : 2 + Math.min(x.rows.length, Math.min(x.max || 5, 5));
   const byId = Object.fromEntries(show.map(x => [x.id, x])), cols = [[], []], used = new Set();
   if (L.cols) L.cols.slice(0, 2).forEach((c, i) => (c || []).forEach(id => { if (byId[id] && !used.has(id)) { cols[i].push(byId[id]); used.add(id); } }));
   const hgt = c => c.reduce((n, x) => n + est(x), 0);
   show.filter(x => !used.has(x.id)).forEach(x => (hgt(cols[0]) <= hgt(cols[1]) ? cols[0] : cols[1]).push(x));
-  const panel = x => { const hot = hotOf(x), MAX = x.max || 6, n = x.count ?? x.rows.length, mini = minSet.has(x.id);
+  const panel = x => { const hot = hotOf(x), MAX = Math.min(x.max || 5, 5), n = x.count ?? x.rows.length, mini = minSet.has(x.id);
     return `<section class="panel tday${hot ? ' is-hot' : ''}${mini ? ' is-min' : ''}" data-sec="${x.id}" ${todayEdit ? 'draggable="true"' : ''}><header>
       ${todayEdit ? '<span class="tgrip" aria-hidden="true" title="Sürükleyip bırakın">⠿</span>' : ''}<h2>${x.title}</h2><span class="tcount${hot ? ' hot' : ''}">${n}</span>
       ${todayEdit ? `<span class="tmove"><button type="button" class="iconbtn" data-mv="up" aria-label="Yukarı taşı" title="Yukarı">↑</button><button type="button" class="iconbtn" data-mv="down" aria-label="Aşağı taşı" title="Aşağı">↓</button><button type="button" class="iconbtn" data-mv="side" aria-label="Diğer sütuna taşı" title="Diğer sütuna">⇄</button></span>`
@@ -732,6 +740,7 @@ function viewToday(){
     ${countBanner()}
     ${todayEdit ? '<p class="note tedit-note">Kutuları tutup sürükleyin ya da ↑ ↓ ⇄ ile taşıyın. ▾ ile kutuyu küçültün. Düzen hesabınıza kaydedilir, her cihazda aynı görünür.</p>' : ''}
     <div class="tcols${todayEdit ? ' editing' : ''}">${cols.map((c, i) => `<div class="tcol" data-col="${i}">${c.map(panel).join('')}${todayEdit ? '<div class="tdrop" aria-hidden="true">Buraya bırakın</div>' : ''}</div>`).join('')}</div>
+    ${more.length ? `<div class="tclear"><span>Diğer kutular: ${more.map(x => `<a href="${x.link}">${x.title} (${x.count ?? x.rows.length})</a>`).join(' · ')}</span></div>` : ''}
     ${secs.some(x => !x.rows.length) ? `<div class="tclear">${secs.filter(x => !x.rows.length).map(x => `<span>✓ ${x.empty}</span>`).join('')}</div>` : ''}`);
   bindBell();
   // mevcut ekrandaki düzeni oku ve kaydet
@@ -944,8 +953,10 @@ function viewList(tab){
       <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'||tab==='production'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
       </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${s.month?' <a href="#" id="allyear">Tüm yılı göster</a>':''}${can('sales','orders','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
     const ay = q('#allyear'); if (ay) ay.onclick = e => { e.preventDefault(); s.month = ''; q('#fm').value = ''; draw(); };
-    qa('#tbl th[data-s]').forEach(th => th.onclick = () => { const k = th.dataset.s; if (s.sort===k) s.dir*=-1; else { s.sort=k; s.dir = k==='cust'||k==='ref'||k==='due' ? 1 : -1; } draw(); });
-    qa('#tbl tr[data-id]').forEach(tr => tr.onclick = () => location.hash = '#/kayit/' + tr.dataset.id);
+    qa('#tbl th[data-s]').forEach(th => { const k = th.dataset.s; th.tabIndex = 0; th.setAttribute('aria-sort', s.sort===k ? (s.dir>0 ? 'ascending' : 'descending') : 'none');
+      th.onclick = () => { if (s.sort===k) s.dir*=-1; else { s.sort=k; s.dir = k==='cust'||k==='ref'||k==='due' ? 1 : -1; } draw(); const n = q(`#tbl th[data-s="${k}"]`); n && n.focus(); };
+      th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); th.onclick(); } }; });
+    rowNav('#tbl tr[data-id]', 'id', 'kayit');
     q('#csv').onclick = () => csv(rows, `acrome-${tab}-${T}.csv`);
   };
   if (tab === 'production' && listState.sort === 'date') { listState.sort = 'due'; listState.dir = 1; }
@@ -1046,7 +1057,7 @@ function viewShipments(){
   q('#sc').onchange = e => { st.cat = e.target.value; viewShipments(); };
   q('#sx').onchange = e => { st.exactOnly = e.target.checked; viewShipments(); };
   qa('.bars [data-m]').forEach(b => b.onclick = () => { st.month = String(+st.month === +b.dataset.m ? '' : b.dataset.m); viewShipments(); });
-  qa('tr[data-id]').forEach(tr => tr.onclick = e => { if (!e.target.classList.contains('shipin')) location.hash = '#/kayit/' + tr.dataset.id; });
+  rowNav('tr[data-id]', 'id', 'kayit');
   qa('.shipin').forEach(inp => inp.onchange = async () => {
     const d = S.deals.find(x => x.id === +inp.dataset.sid); const v = inp.value; if (!v) return;
     if (v > today()) return toast('Sevk tarihi gelecekte olamaz', true);
@@ -1627,7 +1638,7 @@ async function viewExpenseList(){
 // ---------------------------------------------------------------- ROL ÖNİZLEME (yalnız yönetici)
 function viewRolePreview(){
   const pv = getPreview() || { roles:[], departments:[] }, R = Object.keys(ROLE_INFO).filter(k => k !== 'pending');
-  shell('rol-onizleme', `<div class="pagehead"><div><h1>Rol önizleme</h1><p class="lede">Rolleri seç, siteyi o rollerdeki bir kişi nasıl görüyorsa öyle gör: menü, Bugün sayfası, butonlar ve düzenleme alanları seçilen rollere göre değişir. Yalnız arayüz değişir; veriler yönetici yetkinle okunur ve yaptığın kayıtlar gerçek olarak kaydedilir. Bu sayfa geliştirme sırasında kontrol içindir.</p></div></div>
+  shell('rol-onizleme', `<div class="pagehead"><div><h1>Rol önizleme</h1><p class="lede">Rolleri seç, Acrome ERP yazılımını o rollerdeki bir kişi nasıl görüyorsa öyle gör: menü, Bugün sayfası, butonlar ve düzenleme alanları seçilen rollere göre değişir. Yalnız arayüz değişir; veriler yönetici yetkinle okunur ve yaptığın kayıtlar gerçek olarak kaydedilir. Bu sayfa geliştirme sırasında kontrol içindir.</p></div></div>
     <section class="panel"><h2>Roller</h2><div class="rolechk">${R.map(k => `<label class="chk"><input type="checkbox" data-pr="${k}" ${pv.roles.includes(k) ? 'checked' : ''}> ${ROLES[k]}</label>`).join('')}</div>
       <h2 class="mt">Üretim bölümü <span class="sub" style="font-weight:400">· yalnız Üretim rolünde geçerli, boş = tüm aşamalar</span></h2>
       <div class="rolechk">${STG.map(([k, n]) => `<label class="chk"><input type="checkbox" data-pd="${k}" ${(pv.departments || []).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
@@ -2375,7 +2386,7 @@ async function viewSupport(){
         <td style="white-space:nowrap">${ago(t.last_activity_at)}${w?`<div class="sub ${w.cls}">${w.txt}</div>`:''}</td></tr>`; }).join('')}
       <tr class="tfoot"><td colspan="8">${rows.length} konu${ql?` · "${esc(s.q)}" araması${s.hits?' (mesaj içerikleri dahil)':''}`:''}</td></tr></tbody></table>`
       : `<div class="empty">${ql ? 'Aramayla eşleşen konu yok.' : 'Bu filtrelerle konu yok.'}</div>`;
-    qa('#stbl tr[data-tid]').forEach(tr => tr.onclick = () => location.hash = '#/support/' + tr.dataset.tid);
+    rowNav('#stbl tr[data-tid]', 'tid', 'support');
   };
 
   shell('support', `<div class="pagehead"><div><h1>Support</h1><p class="lede">support@acrome.net konuları, cevaplar ve notlar tek yerde. Yeni mailler otomatik eklenir; arama mail içeriklerinde de yapılır.</p>${syncLine()}</div>
@@ -2617,7 +2628,7 @@ function dealPanel(t, sugg){
 const PUSH_FN = APP_CONFIG.supabaseUrl + '/functions/v1/support-push';
 const b64ToU8 = b => { const p = '='.repeat((4 - b.length % 4) % 4); const r = atob((b + p).replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from([...r].map(c => c.charCodeAt(0))); };
 async function enablePush(btn){
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return toast('Bu tarayıcı bildirim desteklemiyor. iPhone\'da önce siteyi Paylaş → Ana Ekrana Ekle ile ekleyip oradan açın.', true);
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return toast('Bu tarayıcı bildirim desteklemiyor. iPhone\'da önce Acrome ERP yazılımını Paylaş → Ana Ekrana Ekle ile ekleyip oradan açın.', true);
   btn.disabled = true;
   try {
     const reg = await navigator.serviceWorker.register('sw.js');
@@ -2741,7 +2752,7 @@ async function viewRma(){
         <td class="num">${fmtTRY(r.cost_try)}${r.missing_fx?'<div class="sub amber-txt">kur eksik</div>':''}</td></tr>`).join('')}
       <tr class="tfoot"><td colspan="8">${rows.length} RMA</td></tr></tbody></table>`
       : `<div class="empty">${R.length ? 'Bu filtrede RMA yok.' : 'Henüz RMA kaydı yok. Support konusundan, sipariş sayfasından veya “Yeni RMA” ile açabilirsiniz.'}</div>`;
-    qa('#rtbl tr[data-rid]').forEach(tr => tr.onclick = () => location.hash = '#/rma/' + tr.dataset.rid);
+    rowNav('#rtbl tr[data-rid]', 'rid', 'rma');
   };
   shell('rma', `<div class="pagehead"><div><h1>RMA</h1><p class="lede">Tamir / iade kayıtları: tarihler, garanti, faturalar, gümrük ve tüm masraflar. Kod: sipariş no + RMA sırası (ör. ACRPO-512-RMA#1).</p></div>
     <div style="display:flex;gap:8px"><a class="btn" href="#/rma-rapor">3 aylık rapor</a>${canRma()?'<a class="btn primary" href="#/rma-yeni">Yeni RMA</a>':''}</div></div>
@@ -3116,7 +3127,7 @@ async function viewStock(g){
         <td><span class="clamp1">${esc(supName(i.supplier_id) || i.supplier_text || '') || '<span class="sub">—</span>'}</span></td>
         <td><span class="sub clamp1">${[...(usedIn[i.id] || [])].map(bomName).filter(Boolean).slice(0, 3).map(esc).join(', ')}${(usedIn[i.id] || new Set()).size > 3 ? '…' : ''}</span></td></tr>`).join('')}</tbody>
       <tfoot><tr class="tfoot"><td colspan="8">${rows.length} kalem${rows.length > 600 ? ' (ilk 600 gösteriliyor; aramayı daraltın)' : ''}</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
-    qa('#stbl tr[data-iid]').forEach(r => r.onclick = () => location.hash = '#/stok/' + r.dataset.iid);
+    rowNav('#stbl tr[data-iid]', 'iid', 'stok');
   };
   draw();
   qa('#scat button').forEach(b => b.onclick = () => { s.cat = b.dataset.c; qa('#scat button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
@@ -3639,7 +3650,7 @@ async function viewPurchases(){
       <tfoot><tr class="tfoot"><td colspan="3">${rows.length} kayıt${rows.length > 800 ? ' (ilk 800)' : ''}</td><td class="num">${sumPur(rows)}</td><td colspan="3"></td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     qa('#ptbl tr.grphead').forEach(r => { const go = () => { const k = r.dataset.g; purCollapsed.has(k) ? purCollapsed.delete(k) : purCollapsed.add(k); draw(); qa('#ptbl tr.grphead').find(x => x.dataset.g === k)?.focus(); };
       r.onclick = go; r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }; });
-    qa('#ptbl tr[data-pid]').forEach(r => r.onclick = () => location.hash = '#/alimlar/' + r.dataset.pid);
+    rowNav('#ptbl tr[data-pid]', 'pid', 'alimlar');
     qa('#ptbl .urgbtn').forEach(bt => bt.onclick = async e => { e.stopPropagation(); const pr = P.find(x => x.id === +bt.closest('tr').dataset.pid), nu = pr.urgency === 'acil' ? 'normal' : 'acil';
       const { error } = await sb.from('purchases').update({ urgency:nu }).eq('id', pr.id); if (error) return toast(dbErr(error), true); pr.urgency = nu; toast(nu === 'acil' ? 'Acil olarak işaretlendi' : 'Aciliyet kaldırıldı'); loadPurCount(); draw(); });
   };
@@ -3688,7 +3699,7 @@ async function viewPurchase(id, preset){
     <div id="pstconf" class="pstconf" hidden></div></div>` : ''}
   <div class="grid sup-grid"><div><form id="puf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
     <div class="row">${'<label class="f">Tür' + stkSel('kind', { alim:'Alım', kontrol:'Kontrol / takip' }, p.kind) + '</label>'}<label class="f">Birim${arrSel('unit', PUR_UNIT, p.unit, '—')}</label><label class="f">Kullanım alanı${arrSel('area', PUR_AREA, p.area, '—')}</label></div>
-    <div class="row r2">${tx('item_name', 'Ürün / iş adı')}<label class="f">Stoktaki parça <span class="hint">bağlarsanız "Teslim alındı"da stoğa girer</span><input type="text" name="item_link" list="itemlist2" value="${esc(it ? it.name : '')}" autocomplete="off"></label></div>
+    <div class="row r2"><label class="f">Ürün / iş adı<input type="text" name="item_name" value="${v('item_name')}" required></label><label class="f">Stoktaki parça <span class="hint">bağlarsanız "Teslim alındı"da stoğa girer</span><input type="text" name="item_link" list="itemlist2" value="${esc(it ? it.name : '')}" autocomplete="off"></label></div>
     <div class="row">${tx('qty', 'Adet', '', 'number')}${tx('unit_price', 'Birim fiyat (KDV dahil)', '', 'number')}<label class="f">Para birimi${stkSel('currency', { TRY:'TRY', USD:'USD', EUR:'EUR' }, p.currency || 'TRY')}</label></div>
     <div class="row r2"><label class="f">İlgili ürün / proje <span class="hint">raporda bu başlıkta görünür</span><select name="bom_id"><option value="">—</option>${bomOpts(p.bom_id)}</select></label>${tx('project', 'Proje / sipariş notu', 'ör. ACRPO-540, ARGE denemesi')}</div>
     <div class="row r2"><label class="f">Aciliyet${stkSel('urgency', { acil:'Acil', normal:'Acil değil' }, p.urgency || 'normal', '—')}</label>${tx('priority', 'Ne zamana', 'ör. 1 hafta içinde')}</div>
@@ -3829,7 +3840,7 @@ async function viewPlans(){
         <td>${Object.entries(p.products || {}).filter(([, n]) => +n > 0).map(([c, n]) => `<span class="chip">${fmtN(n)}× ${esc(prodName(c))}</span>`).join(' ')}</td>
         <td class="num">${fmtUSD2(p.total_usd)}</td><td>${planPill(p.status)}</td><td>${esc(p.created_by_name || '')}</td></tr>`).join('')}</tbody></table>`
       : `<div class="empty">Henüz plan yok.${canPlan() ? ' <a href="#/tedarik/yeni">İlk planı hazırla</a>' : ''}</div>`}</div>`);
-  qa('tr[data-pl]').forEach(tr => tr.onclick = () => location.hash = '#/tedarik/' + tr.dataset.pl);
+  rowNav('tr[data-pl]', 'pl', 'tedarik');
 }
 
 // plan düzenleme durumu (sayfa yenilenene kadar korunur)
@@ -3839,7 +3850,7 @@ async function viewPlanEdit(id){
   await loadStock();
   if (!PS || PS.id !== (id || null)) {
     if (id) { const [{ data: p }, { data: ls }] = await Promise.all([sb.from('supply_plans').select('*').eq('id', id).maybeSingle(), sb.from('supply_plan_lines').select('*').eq('plan_id', id).order('package').order('name')]);
-      if (!p) return shell('tedarik', '<h1>Plan bulunamadı</h1>'); if (p.status !== 'taslak') { toast('Yalnız taslak plan düzenlenir', true); location.hash = '#/tedarik/' + id; return; }
+      if (!p) return shell('tedarik', '<h1>Plan bulunamadı</h1><p><a href="#/tedarik">Tedarik planlarına dön</a></p>'); if (p.status !== 'taslak') { toast('Yalnız taslak plan düzenlenir', true); location.hash = '#/tedarik/' + id; return; }
       PS = { id, name:p.name, products:{ ...p.products }, alt_pick:{ ...p.alt_pick }, fill_min:p.fill_min, fx_usd:p.fx_usd, fx_eur:p.fx_eur, note:p.note || '', lines:ls || [], showAll:false, calcd:true };
     } else {
       const mo = new Date().toLocaleDateString('tr-TR', { month:'long', year:'numeric' });
@@ -4005,7 +4016,7 @@ async function viewSuppliers(id){
   if (id === 'hesaplar') return viewAccounts(all, ACC);
   if (id) {
     const s = id === 'yeni' ? { name:'', kind:'tedarikci' } : all.find(x => x.id === +id);
-    if (!s) return shell('tedarikciler', '<h1>Tedarikçi bulunamadı</h1>');
+    if (!s) return shell('tedarikciler', '<h1>Tedarikçi bulunamadı</h1><p><a href="#/tedarikciler">Tedarikçilere dön</a></p>');
     const pu = s.id ? ((await sb.from('purchases').select('id,requested_at,item_name,qty,total,currency,status').or(`supplier_id.eq.${s.id},supplier_text.ilike.%${s.name.split(' ')[0].replace(/[,%()]/g, '')}%`).order('requested_at', { ascending:false }).limit(50)).data || []) : [];
     const acc = ACC.filter(a => a.supplier_id === s.id);
     const ta = (k, l, r) => `<label class="f">${l}<textarea name="${k}" rows="${r || 2}">${esc(s[k] || '')}</textarea></label>`;
@@ -4050,7 +4061,7 @@ async function viewSuppliers(id){
     const ap = q('#tap').value;
     const r = all.filter(s => (!st.grp || (s.grp || '_') === st.grp) && (!ap || (s.approval || '_') === ap) && (!ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.websites, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql)));
     q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${[...Object.keys(SUP_GRP), '_'].map(gk => { const rs = r.filter(s => (s.grp || '_') === gk); return rs.length ? `<tr class="secrow"><td colspan="${ed ? 5 : 4}">${gk === '_' ? 'Grupsuz' : SUP_GRP[gk]} <span class="sub">${rs.length}</span></td></tr>` + rs.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''} ${supAppPill(s.approval)}${s.score != null ? ` <span class="sub">${fmtQ(s.score)} puan</span>` : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('') : ''; }).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
-    qa('#ttbl tr[data-sid]').forEach(t => t.onclick = () => location.hash = '#/tedarikciler/' + t.dataset.sid); };
+    rowNav('#ttbl tr[data-sid]', 'sid', 'tedarikciler'); };
   draw(); q('#tq').oninput = draw; q('#tap').onchange = draw;
   qa('#tgrp button').forEach(b => b.onclick = () => { st.grp = b.dataset.g; qa('#tgrp button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
 }
@@ -4220,7 +4231,7 @@ async function viewInvoiceReport(){
   q('#iry').onchange = e => { st.year = e.target.value; st.month = ''; viewPurchaseReport(); };
   qa('.bars [data-m]').forEach(b => b.onclick = e => { e.preventDefault(); st.month = b.dataset.m; viewPurchaseReport(); setTimeout(() => q('#imon') && q('#imon').scrollIntoView({ block:'start' }), 50); });
   qa('[data-ym]').forEach(a => a.onclick = e => { e.preventDefault(); const [y, m] = a.dataset.ym.split('|'); st.year = y; st.month = m; viewPurchaseReport(); setTimeout(() => q('#imon') && q('#imon').scrollIntoView({ block:'start' }), 50); });
-  qa('tr[data-inv]').forEach(r => r.onclick = () => location.hash = '#/fatura/' + r.dataset.inv);
+  rowNav('tr[data-inv]', 'inv', 'fatura');
   q('#icsv') && (q('#icsv').onclick = () => {
     const rows = [['Tarih', 'Tedarikçi', 'Genel Toplam (TL)', 'Fiş/Fatura No', 'Açıklama'], ...M.filter(i => !i.is_return).map(i => [fmtD(i.inv_date), i.supplier_name || supName(i.supplier_id) || '', String(i.total_try).replace('.', ','), i.invoice_no || '', i.description || '']),
       ['', 'Toplam', String(Math.round(mTot * 100) / 100).replace('.', ','), '', ''], ...M.filter(i => i.is_return).map(i => ['', 'İade', String(i.total_try).replace('.', ','), i.description || '', '']),
@@ -4775,7 +4786,7 @@ async function viewNcrList(){
   const draw = () => { const ql = st.q.trim().toLocaleLowerCase('tr');
     const r = R.filter(n => (st.st === 'all' || (st.st === 'open' ? NCR_OPEN.includes(n.status) : n.status === 'kapali')) && (!st.p || n.project_id === +st.p) && (!ql || [n.no, n.title, n.product, n.item_ident, n.source_ref, supName(n.supplier_id), n.responsible].join(' ').toLocaleLowerCase('tr').includes(ql)));
     q('#ntbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">No</th><th class="nosort">Tarih</th><th class="nosort">Konu</th><th class="nosort">Kaynak</th><th class="nosort">Tedarikçi</th><th class="nosort">Sorumlu</th><th class="nosort">Faaliyet termini</th><th class="nosort">Durum</th></tr></thead><tbody>${r.map(n => `<tr data-n="${n.id}"><td class="mono" style="white-space:nowrap">${esc(n.no)}</td><td style="white-space:nowrap">${fmtD(n.opened_at)}</td><td><b style="font-weight:600">${esc(n.title)}</b>${n.severity === 'kritik' ? ' <span class="pill qp-onaysiz">Kritik</span>' : ''}${n.project_id || n.product || n.item_ident ? `<div class="sub">${esc([(kysPN(n.project_id) || {}).code, n.product, n.item_ident].filter(Boolean).join(' · '))}</div>` : ''}</td><td class="sub">${ncrSrcLink(n)}</td><td>${esc(supName(n.supplier_id))}</td><td>${esc(n.responsible || '')}</td><td style="white-space:nowrap">${n.action_due ? `<span class="${late(n) ? 'late-txt' : ''}">${fmtD(n.action_due)}</span>` : ''}</td><td>${ncrPill(n.status)}</td></tr>`).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="8">${r.length} kayıt</td></tr></tfoot></table>` : `<div class="empty">${R.length ? 'Bu süzgeçte kayıt yok.' : 'Henüz uygunsuzluk kaydı açılmadı.'}</div>`;
-    qa('#ntbl tr[data-n]').forEach(t => t.onclick = () => location.hash = '#/uygunsuzluk/' + t.dataset.n); };
+    rowNav('#ntbl tr[data-n]', 'n', 'uygunsuzluk'); };
   draw();
   qa('#nst button').forEach(b => b.onclick = () => { st.st = b.dataset.s; qa('#nst button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
   q('#nq').oninput = e => { st.q = e.target.value; draw(); };
@@ -4806,7 +4817,7 @@ async function viewNcr(id, arg){
   ${id && !ed ? '<p class="note" style="margin-top:0">İnceleme, düzeltici faaliyet ve doğrulama alanlarını Kalite rolü doldurur.</p>' : ''}
   <form id="nf" class="fs" novalidate>
     <fieldset ${basic ? '' : 'disabled'} class="plainfs"><h2>Uygunsuzluğun tanımı</h2>
-      <div class="row r4"><label class="f" style="grid-column:span 2">Konu<input type="text" name="title" maxlength="200" value="${v('title')}"></label>${tx('opened_at', 'Tespit tarihi', '', 'date')}<label class="f">Kaynak<select name="source_kind" ${n.source_id ? 'disabled' : ''}>${opt(NCR_SRC, n.source_kind)}</select></label></div>
+      <div class="row r4"><label class="f" style="grid-column:span 2">Konu<input type="text" name="title" maxlength="200" value="${v('title')}" required></label>${tx('opened_at', 'Tespit tarihi', '', 'date')}<label class="f">Kaynak<select name="source_kind" ${n.source_id ? 'disabled' : ''}>${opt(NCR_SRC, n.source_kind)}</select></label></div>
       <div class="row r4"><label class="f">Proje<select name="project_id">${opt(S.kysPN.filter(p => p.status === 'aktif' || p.id === n.project_id).map(p => [p.id, p.code + ' · ' + p.tag]), n.project_id, '—')}</select></label>${tx('product', 'Ürün')}<label class="f">Uygunsuz ürünün kimliği <span class="hint">parça, kart, seri ya da parti no</span><input type="text" name="item_ident" maxlength="200" value="${v('item_ident')}"></label>${tx('qty', 'Adet', '', 'number')}</div>
       <div class="row r4"><label class="f" style="grid-column:span 2">Ayrıştırma <span class="hint">nerede bekletiliyor, etiket</span><input type="text" name="hold_location" maxlength="200" value="${v('hold_location')}"></label>
         <label class="f">Tedarikçi<select name="supplier_id">${opt(sups.map(s => [s.id, s.name]), n.supplier_id, '—')}</select></label>
@@ -4869,7 +4880,7 @@ async function viewDevices(){
     <div class="kpi ${R.some(bad) ? 'alert' : ''}"><div class="v">${R.filter(bad).length}</div><div class="l">Kaydı yok, süresi geçmiş ya da dolmak üzere</div></div></div>
   <div class="tablewrap">${R.length ? `<table><thead><tr><th class="nosort">Kod</th><th class="nosort">Cihaz</th><th class="nosort">Seri no</th><th class="nosort">Kullanıldığı yer</th><th class="nosort">Son kalibrasyon</th><th class="nosort">Sonraki</th><th class="nosort">Hizmet sağlayıcı</th><th class="nosort">Durum</th></tr></thead><tbody>${R.map(d => { const c = devCal(d);
     return `<tr data-d="${d.id}"><td class="mono">${esc(d.code || '')}</td><td><b style="font-weight:600">${esc(d.name)}</b><div class="sub">${esc([d.brand, d.model].filter(Boolean).join(' '))}</div></td><td class="mono">${esc(d.serial_no || '')}</td><td class="sub">${esc([d.used_in, d.location].filter(Boolean).join(' · '))}</td><td style="white-space:nowrap">${d.last_cal_date ? fmtD(d.last_cal_date) : ''}${d.cert_no ? `<div class="sub">${esc(d.cert_no)}</div>` : ''}</td><td style="white-space:nowrap">${d.next_cal_date ? fmtD(d.next_cal_date) : ''}</td><td>${esc(d.cal_provider || '')}${d.accredited != null ? `<div class="sub">${d.accredited ? 'akredite / üretici' : 'akredite değil'}</div>` : ''}</td><td><b class="${c[1]}" style="font-weight:600">${c[0]}</b>${d.status !== 'kullanimda' ? `<div class="sub">${DEV_ST[d.status]}</div>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Henüz cihaz kaydı yok.</div>'}</div>`}`);
-  qa('tr[data-d]').forEach(t => t.onclick = () => location.hash = '#/kalibrasyon/' + t.dataset.d);
+  rowNav('tr[data-d]', 'd', 'kalibrasyon');
 }
 async function viewDevice(id){
   const ppl = await people().catch(() => []);
@@ -5091,7 +5102,7 @@ function kysHome(K){
   <p class="small noprint" style="margin-top:18px">${esc(K.META.docNo || '')} · Rev ${esc(K.META.rev || '')} · ${esc(K.META.date || '')}${K.at ? ` · içerik yüklendi ${fmtDT(K.at)}${K.by ? ', ' + esc(K.by) : ''}` : ''}</p>`;
 }
 function kysModule(K, id){
-  const m = K.M.find(x => x.id === id); if (!m) return '<h1>Süreç bulunamadı</h1>';
+  const m = K.M.find(x => x.id === id); if (!m) return '<h1>Süreç bulunamadı</h1><p><a href="#/kalite">Kalite belgelerine dön</a></p>';
   return `<div class="crumbs"><a href="#/kalite">Kalite Yönetim Sistemi</a> / Süreç ${m._no}</div><h1>${esc(m.title)}</h1>
   <p class="lede">${kSafe(m.summary)}</p><p class="small">Süreç sorumlusu: <b style="color:var(--ink)">${esc(m.owner)}</b></p>
   ${m.flow ? `<div class="flow">${m.flow.map(s => `<span>${esc(s)}</span>`).join('<i>→</i>')}</div>` : ''}
@@ -5207,8 +5218,9 @@ function kysItem(K, code, P){
   const frm = it.kind === 'form' && !live;
   return `<div class="crumbs noprint">${kCrumb(it, P)}</div>${kLive(it)}
   <div class="toolbar noprint"><button class="btn primary" data-print="1">Yazdır / PDF</button>${it.kind === 'form' && it.pk && own ? `<div class="seg" id="kfm"><button data-v="proj" class="${kysMode === 'proj' ? 'on' : ''}">Proje bilgileriyle</button><button data-v="bos" class="${kysMode === 'bos' ? 'on' : ''}">Boş form</button></div>` : ''}
-  ${frm ? `<button class="btn" id="ksave">Kaydet</button><button class="btn" id="kclear">Yeni kayıt</button><span class="sub" id="kcur"></span>` : ''}<span style="flex:1"></span>${kSib(it, P)}</div>
-  <div class="sheet" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>${frm || (it.kind === 'register' && !live && !rows) ? '<div class="noprint" id="krecs"></div>' : ''}`;
+  <span style="flex:1"></span>${kSib(it, P)}</div>
+  <div class="sheet" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>
+  ${frm ? '<div class="savebar noprint"><span class="sub" id="kcur"></span><button class="btn" id="kclear">Yeni kayıt</button><button class="btn primary" id="ksave">Kaydet</button></div>' : ''}${frm || (it.kind === 'register' && !live && !rows) ? '<div class="noprint" id="krecs"></div>' : ''}`;
 }
 // projenin kendi belgesi (kys_records 'doc'): taslakta düzenlenir, yürürlüğe alınınca değişmez; değişiklik yeni revizyonla
 function kysInst(K, P, code, d){
@@ -5368,7 +5380,7 @@ async function viewKys(){
   let inst = null;
   if (pc && kInst(K, P, pc)) inst = (await sb.from('kys_records').select('*').eq('project_id', P.id).eq('code', pc).eq('kind', 'doc').maybeSingle()).data || null;
   const html = sub === 'belgeler' ? kysDocs(K) : sub === 'm' ? kysModule(K, code) : sub === 'i' ? kysItem(K, code)
-    : sub === 'proje' ? (arg === 'yeni' ? kysProjectForm(K) : !P ? kysProjects(K) : arg2 === 'duzenle' ? kysProjectForm(K, P) : pc ? (!K.BY[pc] ? '<h1>Belge bulunamadı</h1>' : kInst(K, P, pc) ? kysInst(K, P, pc, inst) : kysItem(K, pc, P)) : await kysProject(K, P))
+    : sub === 'proje' ? (arg === 'yeni' ? kysProjectForm(K) : !P ? kysProjects(K) : arg2 === 'duzenle' ? kysProjectForm(K, P) : pc ? (!K.BY[pc] ? '<h1>Belge bulunamadı</h1><p><a href="#/kalite/belgeler">Doküman listesine dön</a></p>' : kInst(K, P, pc) ? kysInst(K, P, pc, inst) : kysItem(K, pc, P)) : await kysProject(K, P))
     : kysHome(K);
   shell('kalite', `<div class="kys">${kysNav(K, sub, code)}${html}</div>`);
   q('#kmsel').onchange = e => { if (e.target.value) location.hash = '#/kalite/m/' + e.target.value; };
@@ -5396,6 +5408,26 @@ function viewKysUpload(){
   f.onsubmit = e => { e.preventDefault(); if (!P) return; return busy(e, async () => { const { data, error } = await sb.rpc('kys_import', { p:P }); if (error) return toast(dbErr(error), true);
     S.kys = null; toast(`${data} belge yüklendi`); location.hash = '#/kalite'; }); };
 }
+
+// erişilebilirlik ve form ortak davranışı
+// çekmece Esc ile kapanır, odak düğmeye döner
+document.addEventListener('keydown', e => { const sd = q('#side.open'); if (e.key === 'Escape' && sd) { sd.classList.remove('open'); const m = q('#menu'); m.setAttribute('aria-expanded', 'false'); m.focus(); } });
+// zorunlu alanlar etikette * ile işaretlenir; form başına tek açıklama satırı
+const reqLabel = x => [...(x.closest('label') || { childNodes: [] }).childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ').trim() || x.name || '';
+let reqT = 0;
+// uzun listeler ekranı doldurur, başlık kutu içinde yapışkan kalır (geniş ekran); telefonda sayfa kayar
+const fitLists = () => qa('#tbl,#stbl,#rtbl,#ptbl,#coltbl').forEach(el => { el.style.maxHeight = innerWidth > 820 ? Math.max(320, innerHeight - el.getBoundingClientRect().top - scrollY - 16) + 'px' : ''; });
+addEventListener('resize', fitLists);
+new MutationObserver(() => { if (reqT) return; reqT = setTimeout(() => { reqT = 0; fitLists();
+  qa('label.f:not([data-rq])').forEach(l => { const c = l.querySelector('[required]'); if (!c) return; l.dataset.rq = '1'; const t = [...l.childNodes].find(n => n.nodeType === 3 && n.textContent.trim()), m = document.createElement('span'); m.className = 'req'; m.setAttribute('aria-hidden', 'true'); m.title = 'Zorunlu alan'; m.textContent = ' *'; t ? t.after(m) : l.prepend(m);
+    const f = l.closest('form'); if (f) { f.noValidate = true; if (!f.querySelector('.reqnote')) f.insertAdjacentHTML('afterbegin', '<p class="reqnote noprint"><span class="req">*</span> Zorunlu alan</p>'); } }); }, 30); }).observe(document.body, { childList: true, subtree: true });
+// zorunlu alan boşsa gönderim durur; alanlar işaretlenir, üstte hata özeti çıkar (kendi doğrulaması olan [data-e] formlar hariç)
+document.addEventListener('submit', e => { const f = e.target; if (!f.querySelector || f.querySelector('[data-e]')) return;
+  qa('.errsum', f).forEach(x => x.remove()); qa('[aria-invalid=true]', f).forEach(x => x.removeAttribute('aria-invalid'));
+  const bad = qa('[required]', f).filter(x => !x.matches(':disabled') && x.offsetParent && x.type !== 'checkbox' && x.type !== 'radio' && !String(x.value).trim()); if (!bad.length) return;
+  e.preventDefault(); e.stopImmediatePropagation(); bad.forEach(x => x.setAttribute('aria-invalid', 'true'));
+  f.insertAdjacentHTML('afterbegin', `<div class="errsum" role="alert">${bad.length} zorunlu alan boş: ${esc(bad.map(reqLabel).join(', '))}</div>`); bad[0].focus(); }, true);
+document.addEventListener('input', e => { if (e.target.getAttribute && e.target.getAttribute('aria-invalid') === 'true' && String(e.target.value).trim() && !e.target.closest('[data-e]')) e.target.removeAttribute('aria-invalid'); });
 
 boot();
 })();
