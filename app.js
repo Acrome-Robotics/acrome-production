@@ -1268,9 +1268,10 @@ async function viewUnit(raw){
   const T = today(), last = cl.slice().sort((a, b) => (b.check_date || '').localeCompare(a.check_date || ''))[0];
   const name = (cl[0] || rm.find(r => r.serial_no) || {}).serial_no || sn;
   shell('ara', `<div class="pagehead"><div><h1>Cihaz <span class="mono">${esc(name)}</span></h1>
-    <p class="lede">${D.length ? D.map(d => `<a href="#/kayit/${d.id}">${esc(refNo(d))} · ${esc(custName(d))}</a>`).join(', ') : 'Bağlı sipariş bulunamadı'}${last ? ` · ${esc(last.title)}` : ''}. "sipariş" işaretli satırlar cihaza değil siparişin tamamına ait.</p></div></div>
+    <p class="lede">${D.length ? D.map(d => `<a href="#/kayit/${d.id}">${esc(refNo(d))} · ${esc(custName(d))}</a>`).join(', ') : 'Bağlı sipariş bulunamadı'}${last ? ` · ${esc(last.title)}` : ''}. "sipariş" işaretli satırlar cihaza değil siparişin tamamına ait.</p></div><button class="btn noprint" id="uqr" type="button">QR etiketi</button></div>
     ${ev.length ? `<section class="panel"><h2>Geçmiş <span class="sub">${ev.length} · en yeni üstte</span></h2><ol class="chain">${ev.map(e => `<li class="${e.t > T ? 'fut' : ''}"><span class="cdate">${fmtD(e.t)}</span><span class="ctag ct-${esc(e.tag.split(' ')[0].toLowerCase())}">${esc(e.tag)}</span>${e.href ? `<a href="${e.href}">${esc(e.txt)}</a>` : `<span>${esc(e.txt)}</span>`}${e.lvl ? ' <span class="chip">' + e.lvl + '</span>' : ''}</li>`).join('')}</ol></section>`
       : `<div class="empty">"${esc(sn)}" seri numaralı kayıt bulunamadı. Seri no checklist'te veya RMA'da yazılı olmalı.</div>`}`);
+  q('#uqr').onclick = () => qrLabel(unitHref(name), name, last ? last.title : '');
 }
 
 // siparişe bağlı riskler: şirket geneli risk kaydı (ACR-LS-RK-01) ve sipariş bir kalite projesine bağlıysa o projenin risk satırları (ACR-LS-RK-02); yalnız Kalite / Yönetici / Satış / Sipariş görür ve bağlar
@@ -3352,6 +3353,18 @@ async function viewStock(g){
 
 
 const CODE_GRP = { BB:'Ball Balancing', BBT:'Ball Balancing Table', PEN:'Pendulum', STW:'Stewart', STP:'Stewart PRO', DLT:'Delta', C1D:'1-DOF', C2D:'2-DOF', ARM:'Robot kol', SMD:'SMD', SPR:'Sparkle', ORT:'Ortak (birden fazla ürün)', PCB:'PCB komponenti', GEN:'Genel / diğer' };
+// ==== Atölye QR etiketi ====
+// QR yalnız sayfanın linki: telefon kamerasıyla okutulur, girişli kullanıcıda kayıt açılır. Kütüphane yalnız etiket basılırken yüklenir.
+let qrLib;
+const qrLoad = () => qrLib = qrLib || new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; sc.onload = ok; sc.onerror = () => { qrLib = null; no(new Error('QR kütüphanesi yüklenemedi')); }; document.head.appendChild(sc); });
+async function qrLabel(hash, title, sub){
+  const w = window.open('', '_blank'); if (!w) return toast('Açılır pencereye izin verin', true);
+  try { await qrLoad(); } catch (e) { w.close(); return toast(e.message, true); }
+  const url = location.origin + location.pathname + hash, qr = qrcode(0, 'M'); qr.addData(url); qr.make();
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>@page{size:auto;margin:6mm}body{font:12px Arial,sans-serif;margin:0}.l{display:flex;gap:3mm;align-items:center;width:62mm;border:1px dashed #bbb;padding:2mm}.l svg{width:24mm;height:24mm;flex:none}b{display:block;font-size:13px;word-break:break-word}small{color:#444}@media print{.l{border:0}}</style>
+    <div class="l">${qr.createSvgTag({ cellSize:4, margin:0, scalable:true })}<div><b>${esc(title)}</b><small>${esc(sub || '')}</small></div></div><script>onload=()=>{print()}<\/script>`);
+  w.document.close();
+}
 async function viewStockItem(id, g){
   await loadStock();
   let i = id ? (await sb.from('stock_items').select('*').eq('id', id).maybeSingle()).data : { category:g === 'e' ? 'elektronik' : 'mekanik', unit:'adet', currency:'TRY' };
@@ -3369,7 +3382,7 @@ async function viewStockItem(id, g){
   shell(G.key, `<p><a href="#/${G.key}">← ${G.title}</a></p>
   <div class="pagehead"><div><h1>${id ? esc(i.name) : 'Yeni parça'} ${(ci.data || []).length ? insPill('sartli') : ''}</h1>${id ? `<p class="lede">${STK_CAT[i.category] || ''}${i.source ? ' · kaynak: ' + esc(i.source) : ''}</p>` : ''}</div>
     ${id ? `<div style="display:flex;gap:8px;align-items:center"><span class="stkbig ${lowStock(i) ? 'late-txt' : ''}">${i.qty == null ? '—' : fmtQ(i.qty)} <small>${esc(i.unit || '')}</small></span>
-      <a class="btn" href="#/alim-yeni/i${i.id}">Alım talebi</a>${can('admin') ? '<button class="btn danger" id="idel">Sil</button>' : ''}</div>` : ''}</div>
+      <a class="btn" href="#/alim-yeni/i${i.id}">Alım talebi</a><button class="btn" id="iqr" type="button">QR etiketi</button>${can('admin') ? '<button class="btn danger" id="idel">Sil</button>' : ''}</div>` : ''}</div>
   <div class="grid sup-grid"><div>
     <form id="itf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
       <div class="row ${i.code ? 'r2' : ''}">${tx('name', 'Parça adı')}${tx('code', 'Parça kodu', i.code ? 'TÜR-ÜRÜN-SIRA' : 'boş bırakılırsa otomatik verilir')}${i.code ? '' : `<label class="f">Kod grubu <span class="hint">hangi ürünün parçası</span><select name="grp">${Object.entries(CODE_GRP).map(([k, l]) => `<option value="${k}" ${k === (i.category === 'komponent' ? 'PCB' : 'ORT') ? 'selected' : ''}>${k} · ${esc(l)}</option>`).join('')}</select></label>`}</div>
@@ -3432,6 +3445,7 @@ async function viewStockItem(id, g){
     if (error) return toast(dbErr(error), true);
     toast('Stok güncellendi'); S.stockLoaded = false; await viewStockItem(id); });
   });
+  q('#iqr') && (q('#iqr').onclick = () => qrLabel('#/stok/' + i.id, i.name, [i.code, i.location].filter(Boolean).join(' · ')));
   q('#idel') && (q('#idel').onclick = async () => { const b = q('#idel'); if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = 'Emin misin? Tekrar bas'; return; }
     const { error } = await sb.from('stock_items').delete().eq('id', id); if (error) return toast(dbErr(error), true); toast('Silindi'); S.stockLoaded = false; location.hash = '#/' + G.key; });
 }
