@@ -4,4 +4,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 
 | Sürüm | Tarih | Commit mesajı |
 |---|---|---|
-| 202611192354 | 19.11.2026 23:54 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611192354 | 19.11.2026 23:54 | İnceleme düzeltmeleri: şartlı kabul kaydı geri almada korunur (voided), plan okunamazsa salt okunur, seçici listesi kırpılmaz, INSERT ile alındı da kontrol bekler, tarayıcı doğrulaması açık; kancalar LF + çalıştırılabilir, bayat sürüm satırı ve aynı dakika sorunu, push sürüm denetimi |
+| 202611200036 | 20.11.2026 00:36 | (bu commit; mesajı bir sonraki commit'te yazılır) |

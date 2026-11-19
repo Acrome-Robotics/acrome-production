@@ -1112,10 +1112,11 @@ function viewDetail(id){
   <p><a href="#/kayitlar/${d.status}">← ${STATUSES[d.status]} listesi</a></p>
   <div class="pagehead"><div><h1>${esc(custName(d))}</h1><p class="lede"><span class="mono">${esc(refNo(d))}</span>${d.order_no&&d.opp_no?` · ${esc(d.opp_no)}`:''} · ${esc(d.description)}</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">${pill(d.status)}
+    ${can('sales','orders','admin') && d.status==='pipeline' && ['qualify','advance','closing'].includes(d.stage) ? `<select id="stsel" aria-label="Fırsat aşaması">${['qualify','advance','closing'].map(k => `<option value="${k}" ${d.stage === k ? 'selected' : ''}>${STAGES[k]}</option>`).join('')}</select>` : ''}
     ${can('sales','orders','admin') && d.status==='pipeline' ? `<a class="btn primary" href="#/duzenle/${d.id}?siparis">Siparişe çevir</a>`:''}
     ${can('sales','orders','admin') && d.status==='waiting' ? `<button class="btn primary" id="toprod">Üretime al</button>`:''}
     ${can('sales','orders','admin') && d.status==='production' ? `<button class="btn" id="towait">Beklemeye al</button>`:''}
-    ${can('production') && !can('sales','orders','admin') && ['production','shipped'].includes(d.status) ? `<a class="btn primary" href="#/duzenle/${d.id}">Sevk bilgisi gir</a>`:''}
+    ${can('production') && !can('sales','orders','admin') && ['production','shipped'].includes(d.status) ? (d.status === 'production' && canStg('gonderim') ? '<button class="btn primary" id="shipbtn" type="button">Sevk bilgisi gir</button>' : `<a class="btn primary" href="#/duzenle/${d.id}">Sevk bilgisi gir</a>`) : ''}
     ${can('sales','orders','admin') ? `<a class="btn" href="#/duzenle/${d.id}">Düzenle</a>`:''}
     ${can('sales','admin') ? `<button class="btn danger" id="del">Sil</button>`:''}</div></div>
   ${d.status === 'waiting' ? (() => { const np = !canPay() ? null : (S.payments||[]).filter(p => p.deal_id === d.id && !p.received_at).sort((a,b) => (a.due_date||'').localeCompare(b.due_date||''))[0];
@@ -1152,6 +1153,9 @@ function viewDetail(id){
       ${rs.map(({ note, purchases:p }) => `<tr data-pid="${p.id}"><td><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a>${note ? `<div class="sub">${esc(note)}</div>` : ''}</td><td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(supName(p.supplier_id) || p.supplier_text || '') || '<span class="sub">—</span>'}</td><td>${purPill(p.status)}</td></tr>`).join('')}
       </tbody></table></div><p style="margin:8px 0 0"><a href="#/alimlar?siparis=${id}">Alımlar listesinde göster</a></p></section>`;
     qa('#dpur tr[data-pid]').forEach(r => r.onclick = () => location.hash = '#/alimlar/' + r.dataset.pid); });
+  q('#stsel') && (q('#stsel').onchange = async e => { const v = e.target.value, { error } = await sb.from('deals').update({ stage:v }).eq('id', id); if (error) { e.target.value = d.stage; return toast(dbErr(error), true); }
+    d.stage = v; toast('Aşama: ' + STAGES[v]); });
+  q('#shipbtn') && (q('#shipbtn').onclick = () => shipDialog(d, () => viewDetail(id)));
   q('#toprod') && (q('#toprod').onclick = async e => {
     // üretime alırken planlanan sevk tarihi istenir; tarih seçilince ikinci düğmeyle onaylanır
     if (!q('#tpbox')) { e.target.insertAdjacentHTML('afterend', `<span id="tpbox" class="tpbox"><label class="f" style="display:inline-flex;gap:6px;align-items:center">Planlanan sevk <input type="date" id="tpship" value="${esc(d.planned_ship_date || d.requested_ship_date || '')}" min="${today()}"></label><button class="btn primary" id="tpok" type="button">Onayla, üretime al</button></span>`); e.target.hidden = true; q('#tpship').focus();
@@ -1230,31 +1234,47 @@ const stgWait = d => { const c = curStage(d.id); if (!c) return null; const s = 
 async function loadStages(){ const { data, error } = await sb.from('deal_stages').select('*'); S.stages = error ? [] : data || []; }
 async function setStage(d, k, status, note, ship){
   const { data, error } = await sb.rpc('deal_stage_set', { p_deal:d.id, p_stage:k, p_status:status, p_note:note ?? null, p_ship_date:ship || null });
-  if (error) { toast(dbErr(error), true); return false; }
+  if (error) { toast(/yetkiniz yok/.test(error.message) ? `Bu aşama ${stgName(k)} bölümünün işi` : dbErr(error), true); return false; }
   S.stages = (S.stages || []).filter(s => !(s.deal_id === d.id && s.stage === k)).concat(data ? [data] : []);
   if (k === 'gonderim' && status === 'bitti') { d.status = 'shipped'; d.ship_date = ship; toast(`${refNo(d)} gönderildi olarak kaydedildi`); }
   else toast(`${refNo(d)} · ${stgName(k)}: ${STG_ST[status]}`);
   return true;
 }
 // aşama satırındaki butonlar (detay sayfası ve pano kartı ortak)
+// Gönderildi penceresi (aşama paneli, pano kartı ve "Sevk bilgisi gir" ortak): sevk tarihi, ödeme planı uyarısı (engel değil), Onayla
+async function shipDialog(d, after){
+  let noPlan = false;
+  if (!d.is_internal) {
+    if (canPay()) noPlan = !(S.payments || []).some(p => p.deal_id === d.id);
+    else if (canPayPlan()) { const r = await sb.rpc('deal_payment_plan', { p_deal:d.id }); noPlan = !r.error && !(r.data || []).length; }
+  }
+  const ov = document.createElement('div'); ov.className = 'dlg-ov';
+  ov.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgt"><h2 id="dlgt">${esc(refNo(d))} gönderildi olarak işaretlensin mi?</h2>
+    <label class="f">Sevk tarihi<input type="date" id="dlgd" value="${today()}" max="${today()}" min="${d.order_date || MIN_DATE}"></label>
+    ${noPlan ? '<p class="banner">Bu siparişin ödeme planı girilmemiş. Yine de gönderebilirsiniz.</p>' : ''}
+    <p class="dlgact"><button class="btn" id="dlgx" type="button">Vazgeç</button><button class="btn primary" id="dlgok" type="button">Onayla</button></p></div>`;
+  document.body.appendChild(ov);
+  const di = q('#dlgd', ov), onKey = e => { if (e.key === 'Escape') close(); }, close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+  document.addEventListener('keydown', onKey); di.focus();
+  q('#dlgx', ov).onclick = close; ov.onclick = e => { if (e.target === ov) close(); };
+  q('#dlgok', ov).onclick = async e => { const v = di.value;
+    if (!v) return fErr(di, 'Sevk tarihini girin'); if (v > today()) return fErr(di, 'Sevk tarihi gelecekte olamaz'); if (d.order_date && v < d.order_date) return fErr(di, 'Sevk tarihi sipariş tarihinden önce olamaz');
+    e.target.disabled = true; if (await setStage(d, 'gonderim', 'bitti', null, v)) { close(); after && after(); } else e.target.disabled = false; };
+}
 function stgActions(d, k, compact){
   if (d.status !== 'production' || !canStg(k)) return '';
   const s = stOf(d.id, k), b = (st, t, cls = '') => `<button class="btn sm ${cls}" data-sg="${k}" data-to="${st}" type="button">${t}</button>`;
-  if (k === 'gonderim' && s.status !== 'bitti') return `<span class="sgship"><input type="date" data-sd="${k}" value="${today()}" max="${today()}" min="${d.order_date || MIN_DATE}" aria-label="Sevk tarihi"> ${b('bitti', 'Gönderildi', 'primary')}</span>`;
+  if (k === 'gonderim' && s.status !== 'bitti') return `<button class="btn sm primary" data-ship="1" type="button">Gönderildi</button>`;
   if (s.status === 'bekliyor') return b('devam', 'Başladı') + b('bitti', 'Bitti', 'primary') + (compact ? '' : b('gerekmiyor', 'Gerekmiyor'));
   if (s.status === 'devam') return b('bitti', 'Bitti', 'primary') + (compact ? '' : b('bekliyor', 'Bekliyor\'a al'));
   return compact ? '' : b(s.status === 'bitti' ? 'devam' : 'bekliyor', 'Geri al');
 }
 function bindStgActions(root, d, after){
+  qa('[data-ship]', root).forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); shipDialog(d, after); });
   qa('[data-sg]', root).forEach(btn => btn.onclick = async e => {
     e.preventDefault(); e.stopPropagation();
     const k = btn.dataset.sg, to = btn.dataset.to, wrap = btn.closest('[data-stgrow]') || root;
     const noteEl = q(`[data-sn="${k}"]`, wrap), ship = (q(`[data-sd="${k}"]`, wrap) || {}).value;
-    if (k === 'gonderim' && to === 'bitti') {
-      if (!ship) { const di = q(`[data-sd="${k}"]`, wrap); if (di) di.focus(); return toast('Sevk tarihini seç', true); }
-      // ödeme planı yoksa uyarı (engel değil): yalnız tahsilatı görenlere, ikinci basışta devam eder
-      if (canPay() && !d.is_internal && !(S.payments || []).some(p => p.deal_id === d.id) && btn.dataset.w !== '1') {
-        btn.dataset.w = '1'; btn.textContent = 'Ödeme planı yok · yine de gönder'; return toast('Bu siparişin ödeme planı girilmemiş. Yine de göndermek için tekrar bas', true); } }
     btn.disabled = true;
     if (await setStage(d, k, to, noteEl ? noteEl.value : null, ship)) after(); else btn.disabled = false;
   });
@@ -3483,6 +3503,8 @@ async function viewBom(id){
 }
 // ikinci tık/Enter istek sürerken yutulur; x: düğme ya da submit olayı
 function busy(x, fn){ const b = x instanceof Event ? x.submitter || x.target.querySelector('button:not([type=button])') : x; if (b && b.disabled) return; if (b) b.disabled = true; const h = location.hash; return Promise.resolve().then(fn).finally(() => { if (b && location.hash === h) b.disabled = false; }); } // sayfa değiştiyse düğme zaten gidiyor; açma
+// hata toast'ı yanında hatalı alan kırmızı işaretlenir ve odaklanır (input olayı işareti kaldırır)
+const fErr = (el, msg) => { if (el) { el.setAttribute('aria-invalid', 'true'); el.focus(); } toast(msg, true); };
 function confirmTwice(btn, msg){ if (btn.dataset.ok) { delete btn.dataset.ok; clearTimeout(btn._ct); btn.textContent = btn.dataset.orig; return true; } btn.dataset.ok = 1; btn.dataset.orig = btn.textContent; btn.textContent = msg; btn._ct = setTimeout(() => { if (btn.isConnected) { delete btn.dataset.ok; btn.textContent = btn.dataset.orig; } }, 6000); return false; }
 // Ortak aramalı açılır liste (tedarikçi ve sipariş seçici): gizli input form değerini taşır.
 // Öğeler { v, label, sub, group, hide }: hide = yalnız aramayla görünür; "Diğer" gibi özel seçenekler öğe olarak eklenir.
@@ -3812,7 +3834,7 @@ async function viewPurchase(id, preset){
   ${insBox}${insHist}
   ${id && canPurchase() ? `<div class="pstatbox"><div class="pstatrow"><label class="f pstatf" for="pstsel">Talebin durumu</label>
       <select id="pstsel">${Object.entries(PUR_ST).map(([k, l]) => `<option value="${k}" ${p.status === k ? 'selected' : ''}>${l}${p.status === k ? ' (şu anki)' : ''}</option>`).join('')}</select>
-      <button class="btn primary" id="pstok" type="button" disabled>Durumu kaydet</button><button class="btn" id="pstno" type="button" hidden>Vazgeç</button></div>
+      <button class="btn primary" id="pstok" type="button" disabled>Durumu kaydet</button><span id="pshint" class="late-txt" style="margin-left:8px"></span><button class="btn" id="pstno" type="button" hidden>Vazgeç</button></div>
     <div id="pstconf" class="pstconf" hidden></div></div>` : ''}
   <div class="grid sup-grid"><div><form id="puf" class="fs" novalidate><fieldset ${ed ? '' : 'disabled'} class="plainfs">
     <div class="row">${'<label class="f">Tür' + stkSel('kind', { alim:'Alım', kontrol:'Kontrol / takip' }, p.kind) + '</label>'}<label class="f">Birim${arrSel('unit', PUR_UNIT, p.unit, '—')}</label><label class="f">Kullanım alanı${arrSel('area', PUR_AREA, p.area, '—')}</label></div>
@@ -3897,7 +3919,7 @@ async function viewPurchase(id, preset){
       if (body.rows.length > 1) tr.remove(); else qa('input', tr).forEach(i => { i.value = ''; }); }; }
   // durum tek tıkla değişmez: listeden seç → "Durumu kaydet"
   if (q('#pstsel')) { const sel = q('#pstsel'), box = q('#pstconf'), ok = q('#pstok'), no = q('#pstno');
-    const clear = () => { sel.value = p.status; box.hidden = true; box.innerHTML = ''; ok.disabled = true; no.hidden = true; sel.classList.remove('pend'); };
+    const clear = () => { sel.value = p.status; box.hidden = true; box.innerHTML = ''; ok.disabled = true; ok.removeAttribute('aria-disabled'); ok.classList.remove('is-off'); q('#pshint').textContent = ''; no.hidden = true; sel.classList.remove('pend'); };
     sel.onchange = () => { const ns = sel.value; if (ns === p.status) return clear();
       const back = p.status === 'alindi' && p.received_into_stock && p.item_id && +p.qty > 0 && PUR_PRE.includes(ns);
       const warn = ns === 'alindi' && p.kind === 'alim' ? 'Kaydedince giriş kontrolü beklemeye girer; stoğa kontrol sonucundan sonra girer.' : ns === 'alindi' && p.item_id && !p.received_into_stock && +p.qty > 0 ? `Kaydedince ${fmtQ(p.qty)} adet stoğa girer.`
@@ -3905,11 +3927,13 @@ async function viewPurchase(id, preset){
       const needPf = ns === 'proforma' && !pfN, needEta = ns === 'siparis_verildi';
       box.innerHTML = `<div>${purPill(p.status)} → ${purPill(ns)} <span class="sub">· kaydetmeden değişmez</span></div>${warn ? `<div class="sub">${warn}</div>` : ''}${needPf ? '<div class="late-txt">Önce Belgeler bölümünden proforma yükleyin.</div>' : ''}
         ${needEta ? `<label class="f" style="max-width:220px;margin-top:6px">Tahmini termin <span class="hint">zorunlu; o gün talebi açana "geldi mi?" diye sorulur</span><input type="date" id="pseta" value="${esc(p.expected_at || '')}" min="${today()}"></label>` : ''}`;
-      const eta = q('#pseta'); if (eta) eta.oninput = () => { ok.disabled = !eta.value; };
-      box.hidden = false; ok.disabled = needPf || (needEta && !(eta && eta.value)); no.hidden = false; sel.classList.add('pend'); };
+      const eta = q('#pseta'), sync = () => { const off = needEta && !(eta && eta.value); ok.classList.toggle('is-off', off); ok.setAttribute('aria-disabled', String(off)); q('#pshint').textContent = off ? 'Önce tahmini termini girin' : ''; };
+      if (eta) eta.oninput = sync;
+      box.hidden = false; ok.disabled = needPf; sync(); no.hidden = false; sel.classList.add('pend'); };
     pstRefresh = () => { if (sel.classList.contains('pend')) sel.onchange(); };
     no.onclick = clear;
     ok.onclick = async () => { const ns = sel.value; if (ns === p.status) return;
+      if (ok.getAttribute('aria-disabled') === 'true') return fErr(q('#pseta'), 'Önce tahmini termini girin');
       const up = { status:ns }; if (ns === 'siparis_verildi') { up.expected_at = (q('#pseta') || {}).value; if (!up.expected_at) return toast('Tahmini termin girin', true); }
       ok.disabled = true;
       const { error } = await sb.from('purchases').update(up).eq('id', id);
@@ -3926,10 +3950,10 @@ async function viewPurchase(id, preset){
     res.onchange = () => { const r = res.value; q('#insdevw').hidden = r !== 'sartli'; q('#insncrw').hidden = r !== 'sartli'; q('#insstk') && (q('#insstk').hidden = r !== 'gecti' && r !== 'sartli');
       q('#inshint').textContent = r === 'kaldi' ? 'Stoğa girmez; uygunsuzluk formu açılır.' : r === 'sartli' ? 'Stoğa girer; sorun / sapma kayda geçer.' : r === 'gecti' ? 'Stoğa girer.' : ''; };
     q('#inssave').onclick = e => busy(e.currentTarget, async () => { const r = res.value, dev = (q('#insdev').value || '').trim();
-      if (!r) return toast('Sonucu seçin', true);
-      if (r === 'sartli' && dev.length < 3) return toast('Şartlı kabulde sorun / sapma açıklaması zorunlu', true);
+      if (!r) return fErr(res, 'Sonucu seçin');
+      if (r === 'sartli' && dev.length < 3) return fErr(q('#insdev'), 'Şartlı kabulde sorun / sapma açıklaması zorunlu');
       const item = q('input[name=ins_item]', box), noStk = q('#insnostk') && q('#insnostk').checked;
-      if ((r === 'gecti' || r === 'sartli') && !p.item_id && !(item && item.value) && !noStk) return toast('Stok kalemini seçin ya da "Stoksuz kalem" işaretleyin', true);
+      if ((r === 'gecti' || r === 'sartli') && !p.item_id && !(item && item.value) && !noStk) return fErr(q('.cbx-in', box), 'Stok kalemini seçin ya da "Stoksuz kalem" işaretleyin');
       const { error } = await sb.rpc('purchase_inspect', { p_purchase:id, p_result:r, p_note:q('#insnote').value.trim() || null, p_deviation:r === 'sartli' ? dev : null, p_item:item && item.value ? +item.value : null, p_no_stock:!!noStk });
       if (error) return toast(dbErr(error), true);
       S.stockLoaded = false; loadPurCount(); toast('Giriş kontrolü kaydedildi: ' + INS_ST[r]);
@@ -5292,12 +5316,12 @@ function kysProjectFormBind(K, P){
   const f = q('#kpf'); f.onsubmit = e => { e.preventDefault(); return busy(e, async () => { const g = k => f.elements[k].value.trim();
     const o = { name:g('name'), tag:g('tag') || null, kind:g('kind'), customer:g('customer') || null, status:g('status'), start_date:g('start_date') || null, end_date:g('end_date') || null,
       manager:g('manager') || null, short:g('short') || null, summary:g('summary') || null, facts:kParse(g('facts'), 2), tests:kParse(g('tests'), 3) };
-    if (o.name.length < 3) return toast('Proje adını girin', true);
-    if (o.start_date && o.end_date && o.end_date < o.start_date) return toast('Bitiş başlangıçtan önce olamaz', true);
+    if (o.name.length < 3) return fErr(f.elements.name, 'Proje adını girin');
+    if (o.start_date && o.end_date && o.end_date < o.start_date) return fErr(f.elements.end_date, 'Bitiş başlangıçtan önce olamaz');
     let id = P && P.id;
     if (P) { const r = await sb.from('kys_projects').update(o).eq('id', P.id).select('id'); if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Kaydedilemedi', true); }
-    else { const code = g('code').toLocaleUpperCase('en'); if (!/^[A-Z]{2,4}$/.test(code)) return toast('Proje kodu 2–4 harf olmalı (A–Z)', true);
-      if (K.P.some(p => p.code === code)) return toast('Bu proje kodu kullanılıyor', true);
+    else { const code = g('code').toLocaleUpperCase('en'); if (!/^[A-Z]{2,4}$/.test(code)) return fErr(f.elements.code, 'Proje kodu 2–4 harf olmalı (A–Z)');
+      if (K.P.some(p => p.code === code)) return fErr(f.elements.code, 'Bu proje kodu kullanılıyor');
       const docs = Object.entries(K.PT.docs).filter(([c]) => K.BY[c]).map(([c, d]) => ({ code:c, label:d.title, sections:(d.sections || []).map(h => ({ h, p:'' })) }));
       const r = await sb.rpc('kys_project_open', { p:{ ...o, code }, docs }); if (r.error) return toast(dbErr(r.error), true); id = r.data; }
     S.kysPN = null; await kysLoad(true); toast(P ? 'Kaydedildi' : 'Proje açıldı'); location.hash = '#/kalite/proje/' + id; }); };
@@ -5391,7 +5415,10 @@ function kysInstBind(K, P, code, d){
   q('#kiopen') && (q('#kiopen').onclick = e => busy(e.currentTarget, async () => { const r = await sb.from('kys_records').insert({ code, kind:'doc', project_id:P.id, label:T.title, data:{ sections:(T.sections || []).map(h => ({ h, p:'' })) } });
     if (r.error) return toast(dbErr(r.error), true); again(); }));
   q('#kisave') && (q('#kisave').onclick = e => busy(e.currentTarget, async () => { if (await upd({ state:'taslak', sections:secs() })) toast('Kaydedildi'); }));
-  q('#kipub') && (q('#kipub').onclick = e => { if (!confirmTwice(e.currentTarget, 'Bugünün tarihiyle yürürlüğe alınsın mı? Tekrar bas')) return;
+  q('#kipub') && (q('#kipub').onclick = e => { const b = e.currentTarget, empty = secs().filter(x => !String(x.p).trim()).map(x => x.h);
+    if (empty.length) { if (b.dataset.warned !== '1') { b.dataset.warned = '1'; b.textContent = 'Yine de yürürlüğe al'; q('#kipubwarn') && q('#kipubwarn').remove();
+        q('.toolbar').insertAdjacentHTML('afterend', `<p class="banner noprint" id="kipubwarn">Şu bölümler boş: ${esc(empty.join(', '))}. Yine de yürürlüğe alınsın mı?</p>`); return; } }
+    else if (!confirmTwice(b, 'Bugünün tarihiyle yürürlüğe alınsın mı? Tekrar bas')) return;
     return busy(e.currentTarget, async () => { if (await upd({ state:'yururlukte', sections:secs() })) { toast('Yürürlüğe alındı'); again(); } }); });
   q('#kirev') && (q('#kirev').onclick = e => { const note = q('#kinote').value.trim(); if (!note) return toast('Revizyon nedenini yazın', true);
     return busy(e.currentTarget, async () => { if (await upd({ state:'taslak', rev_note:note, sections:d.data.sections })) { toast('Yeni revizyon açıldı'); again(); } }); });
