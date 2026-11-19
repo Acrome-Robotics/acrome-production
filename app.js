@@ -1248,7 +1248,7 @@ async function viewUnit(raw){
   const rm = RM.filter(r => codeKey(r.serial_no) === k || (!r.serial_no && dIds.includes(r.deal_id)));
   const refs = D.map(refNo).filter(r => r !== '—');
   const [TK, MT, ST] = await Promise.all([dIds.length ? get(sb.from('support_tickets').select('id,subject,opened_at,closed_at,deal_id').in('deal_id', dIds)) : [],
-    refs.length ? get(sb.from('motor_tests').select('id,order_ref,result,tested_at').in('order_ref', refs)) : [],
+    refs.length ? get(sb.from('motor_tests').select('id,order_ref,result,tested_at').not('order_ref', 'is', null)).then(L => L.filter(m => refs.some(r => codeKey(r) === codeKey(m.order_ref)))) : [],
     dIds.length ? get(sb.from('deal_stages').select('deal_id,stage,status,done_at').in('deal_id', dIds).eq('status', 'bitti')) : []]);
   const ev = [], add = (t, tag, txt, href, lvl) => { if (t) ev.push({ t:String(t).slice(0, 10), tag, txt, href, lvl }); };
   D.forEach(d => { const h = '#/kayit/' + d.id, o = `${refNo(d)} · ${custName(d)}`;
@@ -4391,14 +4391,14 @@ async function viewSuppliers(id){
 async function supKarne(){
   if (S._karne && Date.now() - S._karne.at < 120e3) return S._karne.K;
   const since = addDays(today(), -365), get = p => p.then(r => r.data || [], () => []);
-  const [P, I, N] = await Promise.all([get(sb.from('purchases').select('supplier_id,expected_at,purchased_at').eq('status', 'alindi').not('supplier_id', 'is', null).not('expected_at', 'is', null).gte('purchased_at', since)),
+  const [P, I, N] = await Promise.all([fetchAll(() => sb.from('purchases').select('supplier_id,expected_at,purchased_at').eq('status', 'alindi').not('supplier_id', 'is', null).not('expected_at', 'is', null).gte('purchased_at', since).order('id')).then(r => r.data || []),
     get(sb.from('purchase_inspections').select('supplier_id,result').is('voided_at', null).gte('inspected_at', since)),
     get(sb.from('ncr').select('source_id').eq('source_kind', 'purchase').gte('opened_at', since))]);
-  const NP = N.length ? await get(sb.from('purchases').select('supplier_id').in('id', N.map(n => n.source_id))) : [];
+  const NP = N.length ? await get(sb.from('purchases').select('id,supplier_id').in('id', [...new Set(N.map(n => n.source_id))])) : [];
   const K = {}, k = id => K[id] = K[id] || { m:0, k:0, gec:0, sar:0, kal:0, ncr:0 };
   P.forEach(p => { const x = k(p.supplier_id); x.m++; if (p.purchased_at <= p.expected_at) x.k++; });
   I.forEach(i => { if (!i.supplier_id) return; const x = k(i.supplier_id); if (i.result === 'gecti') x.gec++; else if (i.result === 'sartli') x.sar++; else if (i.result === 'kaldi') x.kal++; });
-  NP.forEach(p => p.supplier_id && k(p.supplier_id).ncr++);
+  N.forEach(n => { const p = NP.find(x => x.id === n.source_id); if (p && p.supplier_id) k(p.supplier_id).ncr++; });
   S._karne = { at:Date.now(), K }; return K;
 }
 const karneTxt = k => !k ? '' : [k.m ? `%${Math.round(100 * k.k / k.m)} zamanında` : '', k.kal ? `${k.kal} red` : '', k.ncr ? `${k.ncr} uygunsuzluk` : ''].filter(Boolean).join(' · ');
@@ -5271,7 +5271,7 @@ const KPI_OPS = { '>=':'En az (≥)', '<=':'En çok (≤)', '=':'Eşit (=)', man
 // otomatik ölçüt: değer veritabanında kpi_auto ile hesaplanır, forma önerilir; kaydedilen değer o dönem için donar
 const KPI_AUTO = { zamaninda_sevk:['Zamanında sevk oranı (sevk ≤ planlanan, iç siparişler hariç)', '%'], rma_kapanis:['Ortalama RMA kapanış süresi (talep → teslim)', 'gün'], support_ilk_cevap:['Support ilk cevap süresi (açılış → ilk giden mesaj)', 'saat'],
   giris_red:['Giriş kontrol red oranı', '%'], tedarikci_zamaninda:['Tedarikçi zamanında teslim (teslim ≤ termin)', '%'] };
-const kpFrom = (k, pe) => { const d = new Date(pe + 'T12:00:00Z'); d.setUTCMonth(d.getUTCMonth() - ({ 'Aylık':1, 'Yıllık':12 }[k.freq] || 3)); return addDays(d.toISOString().slice(0, 10), 1); };
+const kpFrom = (k, pe) => { const d = new Date(addDays(pe, 1) + 'T12:00:00Z'), day = d.getUTCDate(); d.setUTCMonth(d.getUTCMonth() - ({ 'Aylık':1, 'Yıllık':12 }[k.freq] || 3)); if (d.getUTCDate() !== day) d.setUTCDate(0); return d.toISOString().slice(0, 10); };
 const canKpi = () => can('viewer', 'sales', 'production', 'orders', 'support', 'purchasing', 'stock', 'muhasebe', 'kalite', 'admin');
 let KP = null, kpSel = null, kpMode = '', kpF = { s:'', dep:'', proc:'', own:'', prj:'', st:'' };
 const kpOwn = id => (KP.ppl.find(p => p.id === id) || {}).name || '';
@@ -5357,7 +5357,7 @@ async function viewKpis(){
     const { error } = await sb.from('q_kpi_values').delete().eq('id', +b.dataset.vdel); if (error) return toast(dbErr(error), true); toast('Silindi'); viewKpis(); });
   if (q('#kpauto')) { const k = kpCur(), f = q('#kpvf').elements, box = q('#kpauto');
     const calc = async () => { const pe = f.pe.value; if (!pe) return; const fr = kpFrom(k, pe); box.textContent = 'Otomatik değer hesaplanıyor…';
-      const { data, error } = await sb.rpc('kpi_auto', { p_metric:k.auto_metric, p_from:fr, p_to:pe }); if (!box.isConnected || f.pe.value !== pe) return;
+      const { data, error } = await sb.rpc('kpi_auto', { p_metric:k.auto_metric, p_from:fr, p_to:pe, p_since:k.start_date || null }); if (!box.isConnected || f.pe.value !== pe) return;
       const r = (data || [])[0]; if (error) return box.textContent = 'Otomatik değer alınamadı: ' + dbErr(error);
       if (!r || r.value == null) return box.textContent = `Otomatik: ${fmtD(fr)} – ${fmtD(pe)} döneminde veri yok.`;
       box.innerHTML = `Otomatik: <b>${esc(kFmt(+r.value))}${k.unit ? ' ' + esc(k.unit) : ''}</b> <span class="sub">(${fmtD(fr)} – ${fmtD(pe)}, ${r.n} kayıt)</span> <button type="button" class="btn sm" id="kpaput">Değere yaz</button>`;

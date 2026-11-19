@@ -3,7 +3,8 @@
 alter table public.q_kpis add column if not exists auto_metric text
   check (auto_metric in ('zamaninda_sevk', 'rma_kapanis', 'support_ilk_cevap', 'giris_red', 'tedarikci_zamaninda'));
 
-create or replace function public.kpi_auto(p_metric text, p_from date, p_to date)
+-- p_since = hedefin ilk ölçüm tarihi: RMA'da bundan önce açılmış (arşivden toplu kapatılmış) kayıtları dışarıda bırakır
+create or replace function public.kpi_auto(p_metric text, p_from date, p_to date, p_since date default null)
 returns table(value numeric, n int)
 language plpgsql stable security definer set search_path = public as $$
 begin
@@ -15,11 +16,13 @@ begin
       from deals d where d.ship_date between p_from and p_to and d.planned_ship_date is not null and not coalesce(d.is_internal, false) and d.deleted_at is null;
   elsif p_metric = 'rma_kapanis' then  -- gün: talep → müşteriye teslim (yoksa geri gönderim)
     return query select round(avg(coalesce(r.delivered_at, r.shipped_back_at)::date - r.requested_at::date), 1), count(*)::int
-      from rma r where r.status = 'closed' and coalesce(r.delivered_at, r.shipped_back_at)::date between p_from and p_to and not coalesce(r.is_draft, false);
-  elsif p_metric = 'support_ilk_cevap' then  -- saat: konu açılışı → ilk giden mesaj
-    return query select round(avg(extract(epoch from (f.first_out - t.opened_at)) / 3600)::numeric, 1), count(*)::int
-      from support_tickets t cross join lateral (select min(m.sent_at) first_out from support_messages m where m.ticket_id = t.id and m.direction = 'out') f
-      where t.opened_at::date between p_from and p_to and f.first_out is not null and t.category is distinct from 'other';
+      from rma r where r.status = 'closed' and coalesce(r.delivered_at, r.shipped_back_at)::date between p_from and p_to and not coalesce(r.is_draft, false) and (p_since is null or r.requested_at::date >= p_since);
+  elsif p_metric = 'support_ilk_cevap' then  -- saat: müşterinin ilk mesajı → ondan sonraki ilk giden mesaj (konuyu biz başlattıysak sayılmaz)
+    return query select round(avg(extract(epoch from (o.first_out - f.first_in)) / 3600)::numeric, 1), count(*)::int
+      from support_tickets t
+      cross join lateral (select min(m.sent_at) first_in, (select min(m2.sent_at) from support_messages m2 where m2.ticket_id = t.id and m2.direction = 'out') any_out from support_messages m where m.ticket_id = t.id and m.direction = 'in') f
+      cross join lateral (select min(m.sent_at) first_out from support_messages m where m.ticket_id = t.id and m.direction = 'out' and m.sent_at > f.first_in) o
+      where f.first_in::date between p_from and p_to and o.first_out is not null and f.first_in <= coalesce(f.any_out, f.first_in) and t.category is distinct from 'other';
   elsif p_metric = 'giris_red' then  -- %: kalan giriş kontrolü / tüm giriş kontrolleri
     return query select round(100.0 * count(*) filter (where i.result = 'kaldi') / nullif(count(*), 0), 1), count(*)::int
       from purchase_inspections i where i.voided_at is null and i.inspected_at::date between p_from and p_to;
@@ -30,5 +33,5 @@ begin
     raise exception 'bilinmeyen ölçüt %', p_metric;
   end if;
 end $$;
-revoke all on function public.kpi_auto(text, date, date) from public, anon;
-grant execute on function public.kpi_auto(text, date, date) to authenticated;
+revoke all on function public.kpi_auto(text, date, date, date) from public, anon;
+grant execute on function public.kpi_auto(text, date, date, date) to authenticated;

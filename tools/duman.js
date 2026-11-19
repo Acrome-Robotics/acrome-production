@@ -24,7 +24,7 @@ const WAIT = +process.env.DUMAN_BEKLE || 350;
 const src = fs.readFileSync(path.join(root, 'app.js'), 'utf8'), i0 = src.indexOf('function route(){'), i1 = src.indexOf('\n}\n', i0), body = src.slice(i0, i1);
 const routes = [...new Set([...body.matchAll(/case '([a-z0-9-]+)'/g), ...body.matchAll(/p === '([a-z0-9-]+)'/g)].map(m => m[1]))];
 if (!routes.length) { console.error('duman: route() içinde rota bulunamadı (app.js yapısı değişti mi?)'); process.exit(1); }
-const extra = ['kayit/1', 'support/1', 'alimlar/1', 'rma/1', 'stok/1', 'bom/1', 'kalite/i/ACR-LS-UY-01', 'kalite/m/uygunsuzluk', 'kalite/belgeler', 'kayitlar/production', 'kayitlar/pipeline'];
+const extra = ['kayit/1', 'support/1', 'alimlar/1', 'rma/1', 'stok/1', 'bom/1', 'kalite/i/ACR-LS-UY-01', 'kalite/m/uygunsuzluk', 'kalite/belgeler', 'kayitlar/production', 'kayitlar/pipeline', 'cihaz/ACRPO917-0101', 'kalite/denetim', 'kalite/hedefler', 'tedarikciler/1'];
 
 const page = role => `<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"><link rel="icon" href="data:,"></head><body>
 <div id="app"><div class="boot">Yükleniyor…</div></div><div id="toast" role="status"></div>
