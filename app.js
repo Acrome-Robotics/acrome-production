@@ -3895,7 +3895,7 @@ async function viewPurchases(){
   <div class="toolbar"><input type="search" id="pq" placeholder="Ara: ürün, proje, tedarikçi, not…" value="${esc(s.q)}">
     <select id="punit" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm birimler</option>${PUR_UNIT.map(u => `<option ${s.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
     <select id="pyear" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm yıllar</option>${years.map(y => `<option ${s.year === y ? 'selected' : ''}>${y}</option>`).join('')}</select>
-    <select id="pst" aria-label="Durum"><option value="">Durum: hepsi</option>${Object.entries(PUR_ST).map(([k, l]) => `<option value="${k}" ${s.st === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <select id="pst" aria-label="Durum"></select>
     <select id="pwho" aria-label="Talep eden"></select>
     <select id="pbom" class="noopen" ${s.tab === 'open' ? 'hidden' : ''}><option value="">Tüm ürün / projeler</option>${bomOpts(+s.bom)}</select>
     ${pkgOpts.length ? `<select id="ppkg" aria-label="Alım paketi"><option value="">Tüm paketler</option>${planIds.map(pid => `<option value="plan:${pid}" ${s.pkg === 'plan:' + pid ? 'selected' : ''}>Plan #${pid} (tümü)</option>${pkgOpts.filter(p => p.plan_id === pid).map(p => `<option value="${pid}|${esc(p.package || '')}" ${s.pkg === pid + '|' + (p.package || '') ? 'selected' : ''}>&nbsp;&nbsp;${esc(p.package || '—')}</option>`).join('')}`).join('')}</select>` : ''}
@@ -3907,7 +3907,13 @@ async function viewPurchases(){
     const ql = s.q.trim().toLocaleLowerCase('tr');
     const pkgOk = p => !s.pkg || (s.pkg.startsWith('plan:') ? p.plan_id === +s.pkg.slice(5) : `${p.plan_id}|${p.package || ''}` === s.pkg);
     const op = s.tab === 'open'; // Açık talepler'de yıl / birim / ürün süzgeci yok (kullanıcı kararı)
-    const base = (P.filter(p => pkgOk(p) && (s.tab === 'all' || inTab(p, s.tab)) && (!s.st || p.status === s.st) && (op || !s.unit || p.unit === s.unit) && (op || !s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (op || !s.year || (p.requested_at || '').startsWith(s.year))
+    // durum süzgeci sekmeye göre: Açık talepler'de sipariş öncesi aşamalar, Teslim alınanlar'da giriş kontrolü sonucu, Tümü'nde hepsi; diğer sekmelerde yok
+    const so = s.tab === 'open' ? PUR_WAIT.map(k => [k, PUR_ST[k]]) : s.tab === 'alindi' ? [...Object.entries(INS_ST).map(([k, l]) => ['ins:' + k, l]), ['ins:', 'Kontrolsüz']] : s.tab === 'all' ? Object.entries(PUR_ST) : [];
+    if (!so.some(([k]) => k === s.st)) s.st = '';
+    const ps = q('#pst'); ps.hidden = !so.length;
+    ps.innerHTML = `<option value="">${s.tab === 'alindi' ? 'Giriş kontrolü: hepsi' : 'Durum: hepsi'}</option>${so.map(([k, l]) => `<option value="${k}" ${s.st === k ? 'selected' : ''}>${l}</option>`).join('')}`;
+    const stOk = p => !s.st || (s.st.startsWith('ins:') ? (p.inspection_status || '') === s.st.slice(4) : p.status === s.st);
+    const base = (P.filter(p => pkgOk(p) && (s.tab === 'all' || inTab(p, s.tab)) && stOk(p) && (op || !s.unit || p.unit === s.unit) && (op || !s.bom || p.bom_id === +s.bom) && (!s.urg || (s.urg === 'acil') === (p.urgency === 'acil')) && (op || !s.year || (p.requested_at || '').startsWith(s.year))
       && (!s.deal || (PD[p.id] || []).some(l => l.deal_id === +s.deal))
       && (!ql || [p.item_name, p.project, p.supplier_text, supName(p.supplier_id), p.note, p.purpose, p.requester_name, ...(PD[p.id] || []).map(l => l.ref_no + ' ' + (l.customer || ''))].join(' ').toLocaleLowerCase('tr').includes(ql))));
     // talep eden listesinde yalnız şu an (sekme + diğer süzgeçler) talebi olanlar; seçili kişinin talebi kalmadıysa süzgeç temizlenir
@@ -3920,7 +3926,7 @@ async function viewPurchases(){
         <td><b style="font-weight:600">${esc(p.item_name)}</b>${hasF.has(p.id) ? ' <span title="Proforma / belge var">📎</span>' : ''}${p.bom_id && bomById(p.bom_id) ? ` <span class="chip bomchip">${esc(bomById(p.bom_id).name)}</span>` : ''}${p.package ? ` <span class="chip pkgchip" title="Tedarik planı #${p.plan_id} alım paketi">📦 ${esc(p.package)}</span>` : ''}${p.general_use ? ' <span class="chip pkgchip">Genel kullanım</span>' : ''}${(PD[p.id] || []).map(l => ` <span class="chip bomchip mono" title="Bağlı sipariş · ${esc(l.customer || '')}">${esc(l.ref_no)}</span>`).join('')}${g === 'siparis' && (PD[p.id] || []).length > 1 ? `<div class="sub">${PD[p.id].length} siparişe bağlı</div>` : ''}${p.project ? `<div class="sub">${esc(p.project)}</div>` : ''}${p.note ? `<div class="sub clamp opt">${esc(p.note)}</div>` : ''}</td>
         <td class="num">${p.qty == null ? '—' : fmtQ(p.qty)}</td><td class="num">${fmtMoney(p.total, p.currency)}</td><td>${esc(p.requester_name || '') || '<span class="sub">—</span>'}<div class="sub opt">${esc([p.unit, p.area].filter(Boolean).join(' · '))}</div></td>
         <td>${sn ? esc(sn) : ''}${p.link ? `${sn ? '<br>' : ''}<a href="${esc(safeUrl(p.link))}" target="_blank" rel="noopener" class="sub stopprop">bağlantı ↗</a>` : (sn ? '' : '<span class="sub">—</span>')}</td>
-        <td>${purPill(p.status)}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}${p.status === 'siparis_verildi' ? etaTxt(p) : ''}</td></tr>`; };
+        <td>${purPill(p.status)}${p.status === 'alindi' ? ' ' + insPill(p.inspection_status) : ''}${p.status === 'alindi' && p.purchased_at ? `<div class="sub">${fmtD(p.purchased_at)}</div>` : ''}${p.status === 'siparis_verildi' ? etaTxt(p) : ''}</td></tr>`; };
     const bodyH = list => { if (!grp) return list.map(p => rowH(p, '')).join('');
       return purGroups(grp, list, PD).map(g => { const k = grp + ':' + g.key, shut = purCollapsed.has(k), bl = g.sid && (S.suppliers || []).find(x => x.id === g.sid)?.blacklisted;
         return `<tr class="grphead" tabindex="0" role="button" aria-expanded="${!shut}" data-g="${esc(k)}"><td colspan="7"><span class="gcaret">${shut ? '▸' : '▾'}</span> <b>${esc(g.name)}</b>${g.status ? ' ' + pill(g.status) : ''}${bl ? ' <span class="pill sp-high">⚠ kara liste</span>' : ''} <span class="sub">${g.rows.length} talep · ${sumPur(g.rows)}</span></td></tr>${shut ? '' : g.rows.map(p => rowH(p, grp)).join('')}`; }).join(''); };

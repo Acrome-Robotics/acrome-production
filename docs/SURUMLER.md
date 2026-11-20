@@ -14,4 +14,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611200112 | 20.11.2026 01:12 | Denetim paketi: #/kalite/denetim yazdırılabilir özet (dokümanlar, uygunsuzluk/DF, kalibrasyon, süreç hedefleri, açık riskler, tedarikçi değerlendirme + karne) |
 | 202611200114 | 20.11.2026 01:14 | Atölye QR etiketi: parça ve cihaz sayfasında QR etiketi yazdır (sayfa linki; qrcode-generator yalnız basarken yüklenir) |
 | 202611200120 | 20.11.2026 01:20 | Düzeltmeler: hedef dönem başı (ay sonu taşması), RMA'da ilk ölçüm tarihi kesimi ve support ilk cevap = müşterinin ilk mesajından, motor testi sipariş kodu toleranslı, karnede uygunsuzluk başına sayım + sayfalı okuma; duman testine yeni sayfalar |
-| 202611201102 | 20.11.2026 11:02 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611201102 | 20.11.2026 11:02 | Rol açıklamaları koda uyduruldu; Sipariş verildi bildirimi SQL'i (henüz uygulanmadı) |
+| 202611201332 | 20.11.2026 13:32 | (bu commit; mesajı bir sonraki commit'te yazılır) |
