@@ -18,4 +18,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611201332 | 20.11.2026 13:32 | Alımlar: durum süzgeci sekmeye göre (Açık: sipariş öncesi aşamalar, Yolda'da yok, Teslim alınanlar: giriş kontrolü) |
 | 202611201420 | 20.11.2026 14:20 | Kalite: proje sayfasında form kayıtları, süreç sayfasında form kayıtları süzgeci ve gecikme, form yer tutucuları, sabit+ek satır, gerçek tarih, zorunlu alan, durum geçmişi, CI seçimi, proje kalite sorumlusu; PCB sürümleri karta göre gruplu |
 | 202611201426 | 20.11.2026 14:26 | Kalite formları: eski tarih biçimleri (/, -) okunur, okunamayan tarih metin kutusunda kalır; yazdırmada boş tarih maskesi basılmaz; boş form çıktısında otomatik doldurma yok |
-| 202611201459 | 20.11.2026 14:59 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611201459 | 20.11.2026 14:59 | Eğitimler sayfası (kişi kendi eğitimini tamamlar, talep, bütçe yalnız muhasebe/yönetici/satış), RK-03 canlı risk kaydı (aksiyon tarihi, sorumlu, hatırlatma), tedarikçi risk seviyesi ve tek kaynak |
+| 202611201600 | 20.11.2026 16:00 | (bu commit; mesajı bir sonraki commit'te yazılır) |
