@@ -58,3 +58,4 @@ end $$;
 drop trigger if exists kys_doc_rev on public.kys_records;
 create trigger kys_doc_rev after update on public.kys_records for each row execute function public.kys_doc_rev_trg();
 revoke all on function public.kys_content_rev_trg(), public.kys_doc_rev_trg() from public, anon, authenticated;
+alter function public._kys_rev_date(jsonb, text) set search_path = '';
