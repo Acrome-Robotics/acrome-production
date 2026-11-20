@@ -5588,7 +5588,7 @@ const kCell = (K, c) => { const t = String(c ?? ''); if (/^@[a-z-]+$/.test(t)) {
 const kTbl = (K, cols, rows, reg) => `<div class="tablewrap"><table><thead><tr>${(cols || []).map(c => `<th class="nosort">${esc(c)}</th>`).join('')}</tr></thead><tbody>${(rows || []).map(r => `<tr>${r.map(c => `<td${/^[A-ZÇĞİÖŞÜ0-9][A-ZÇĞİÖŞÜa-z0-9.#\-\/]{0,19}$/.test(String(c)) ? ' class="nw"' : ''}>${kCell(K, c)}</td>`).join('')}</tr>`).join('') || (reg ? `<tr><td colspan="${(cols || []).length}" class="empty">Belgede kayıt satırı yok</td></tr>` : '')}</tbody></table></div>`;
 const kSecs = ss => (ss || []).map(s => `<div class="sec"><h3>${esc(s.h)}</h3><div class="p">${kSafe(s.p)}</div></div>`).join('');
 const kTables = (K, it) => [].concat(it.table || [], it.tables || []).map(t => `${t.caption ? `<div class="cap">${esc(t.caption)}</div>` : ''}${kTbl(K, t.columns, t.rows)}`).join('');
-const kHist = (K, it) => `<div class="sec"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], (it.history || [[it.rev || '00', kDate(K, it), 'İlk yayın']]).slice().reverse())}</div>`;
+const kHist = (K, it) => `<div class="sec khist"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], (it.history || [[it.rev || '00', kDate(K, it), 'İlk yayın']]).slice().reverse())}</div>`;
 const kLive = it => KYS_LIVE[it.code] ? `<p class="banner info noprint">Güncel kayıtlar Acrome ERP yazılımında tutulur: <a href="${KYS_LIVE[it.code][0]}">${KYS_LIVE[it.code][1]} →</a>${it.kind === 'form' ? '' : ' Aşağıdaki döküm belgenin yayın tarihindeki durumdur.'}</p>` : '';
 const kHead = (K, it, o) => `<div class="dochead"><div class="lg">${kLogo}ACROME</div><div class="tt">${esc(o.title)}<small>${esc(o.proj || kType(it))}</small></div>
   <div class="mt"><div><b>Doküman no</b><span>${esc(o.no)}</span></div><div><b>Revizyon</b><span>${esc(o.rev)}</span></div><div><b>Yayın tarihi</b><span>${esc(o.date)}</span></div><div><b>Doküman sahibi</b><span>${esc(it.owner)}</span></div><div><b>Süreç</b><span>${it._m._no}</span></div></div></div>`;
@@ -5793,6 +5793,7 @@ function kysItem(K, code, P){
   <div class="toolbar noprint"><button class="btn primary" data-print="1">Yazdır / PDF</button>${it.kind === 'form' && it.pk && own ? `<div class="seg" id="kfm"><button data-v="proj" class="${kysMode === 'proj' ? 'on' : ''}">Proje bilgileriyle</button><button data-v="bos" class="${kysMode === 'bos' ? 'on' : ''}">Boş form</button></div>` : ''}
   <span style="flex:1"></span>${kSib(it, P)}</div>
   <div class="sheet${(it.columns || []).length > 8 ? ' wide' : ''}" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>
+  ${it.kind === 'form' || it.kind === 'register' ? `<div class="panel noprint mt kys-hist">${kHist(K, it)}</div>` : ''}
   ${frm ? '<div class="savebar noprint"><span class="sub" id="kcur"></span><button class="btn" id="kclear">Yeni kayıt</button><button class="btn primary" id="ksave">Kaydet</button></div>' : ''}${frm || (it.kind === 'register' && !live && !rows) ? '<div class="noprint" id="krecs"></div>' : ''}`;
 }
 // projenin kendi belgesi (kys_records 'doc'): taslakta düzenlenir, yürürlüğe alınınca değişmez; değişiklik yeni revizyonla
@@ -5801,7 +5802,7 @@ function kysInst(K, P, code, d){
   const head = kHead(K, it, { title:T.title, proj:P.name, no:d ? d.record_no : code + '-' + P.code, rev:d ? d.data.rev : '00', date:st === 'yururlukte' ? d.data.date : 'yürürlüğe alınmadı' });
   const body = !d ? '<p class="note">Bu belge projede henüz açılmadı.</p>'
     : (T.sections ? secs.map((s, i) => `<div class="sec"><h3>${esc(s.h)}</h3>${ed ? `<textarea data-sec="${i}" rows="4" style="width:100%">${esc(s.p || '')}</textarea>` : `<div class="p">${kText(s.p) || '<span class="sub">—</span>'}</div>`}</div>`).join('') : '')
-      + `<div class="sec"><h3>Revizyon geçmişi</h3>${(d.data.history || []).length ? kTblRaw(['Rev', 'Tarih', 'Açıklama'], d.data.history.slice().reverse()) : '<p class="small">Belge henüz yürürlüğe alınmadı.</p>'}</div>`;
+      + `<div class="sec khist"><h3>Revizyon geçmişi</h3>${(d.data.history || []).length ? kTblRaw(['Rev', 'Tarih', 'Açıklama'], d.data.history.slice().reverse()) : '<p class="small">Belge henüz yürürlüğe alınmadı.</p>'}</div>`;
   const tb = !d ? '<button class="btn primary" id="kiopen">Belgeyi aç</button>' : ed ? `${T.sections ? '<button class="btn" id="kisave">Kaydet</button>' : ''}<button class="btn primary" id="kipub">Yürürlüğe al</button><span class="sub">Taslak · Rev ${esc(d.data.rev)}${d.data.rev_note ? ' · ' + esc(d.data.rev_note) : ''}</span>`
     : `<input id="kinote" type="text" maxlength="300" placeholder="Revizyon nedeni" style="max-width:280px"><button class="btn" id="kirev">Yeni revizyon aç</button>`;
   return `<div class="crumbs noprint">${kCrumb(it, P)}</div>
@@ -6036,6 +6037,31 @@ function kysFormBind(K, it, P){
   sheet.addEventListener('click', e => { const a = e.target.closest('.kradd'), d = e.target.closest('.krdel'), w = (a || d) && e.target.closest('.ftable'); if (!w) return;
     if (a) kysAddRow(w); else { d.closest('tr').remove(); kysReidx(w); } kysRecalc(); kGrowAll(); });
 }
+// revizyon arşivi (kys_item_revs): geçmiş tablosunda arşivi bulunan revizyona "Göster"; açılan revizyon salt okunur ve yazdırılınca da arşiv olduğu görünür
+async function kArch(K, it, P, inst){
+  const pid = inst ? P.id : null, cur = inst ? inst.data.rev : it.rev || '00', T = inst ? K.PT.docs[it.code] : null;
+  let A = [];
+  try { let qq = sb.from('kys_item_revs').select('id,rev,rev_date').eq('code', it.code); qq = pid ? qq.eq('project_id', pid) : qq.is('project_id', null); const { data } = await qq; A = data || []; } catch { return; }
+  if (!A.length) return;
+  qa('.khist tbody tr').forEach(tr => { const r = A.find(x => x.rev === tr.cells[0].textContent.trim()); if (r) tr.cells[0].insertAdjacentHTML('beforeend', ` <button type="button" class="btn sm noprint karch" data-id="${r.id}">Göster</button>`); });
+  const show = async id => {
+    const { data:r, error } = await sb.from('kys_item_revs').select('*').eq('id', id).maybeSingle(); if (error || !r) return toast(error ? dbErr(error) : 'Arşiv kaydı bulunamadı', true);
+    const a = inst ? r.item : { ...it, ...r.item }, sheet = q('#ksheet'); if (!sheet) return;
+    const head = kHead(K, a, { title:inst ? T.title : a.title, proj:inst ? P.name : it.pk ? kPName(P || kPjCode(K, it.pk)) : P ? kPName(P) : '', no:inst ? inst.record_no : it.no || it.code, rev:r.rev, date:r.rev_date || '' });
+    const hist = h => `<div class="sec"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], (h || []).slice().reverse())}</div>`;
+    const m0 = kysMode; kysMode = 'bos';
+    const body = inst ? (a.sections || []).map(x => `<div class="sec"><h3>${esc(x.h)}</h3><div class="p">${kText(x.p) || '<span class="sub">—</span>'}</div></div>`).join('') + (T.columns ? kTbl(K, T.columns, a.rows || [], true) : '') + hist(a.history)
+      : a.kind === 'doc' ? kSecs(a.sections) + kTables(K, a) + hist(a.history)
+      : a.kind === 'register' ? `${a.source ? `<p class="small"><b>Kaynak:</b> ${kSafe(a.source)}</p>` : ''}${a.note ? `<p class="small" style="color:var(--ink)">${kSafe(a.note)}</p>` : ''}${kTbl(K, a.columns, a.rows, true)}${hist(a.history)}`
+      : a.kind === 'form' ? kysForm(K, a, P) + hist(a.history) : kysReport(K, a) + hist(a.history);
+    kysMode = m0;
+    sheet.innerHTML = `<p class="banner"><b>ARŞİV · Rev ${esc(r.rev)}${r.rev_date ? ` (${esc(r.rev_date)})` : ''}</b> — yürürlükte değildir; güncel revizyon Rev ${esc(cur)}. <button type="button" class="btn sm noprint" id="kback">Güncel revizyona dön</button></p>${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p>`;
+    sheet.classList.toggle('wide', (a.columns || (T && T.columns) || []).length > 8);
+    qa('input,select,textarea,button:not(#kback)', sheet).forEach(e => { if (e.type === 'checkbox' || e.type === 'radio') e.checked = false; else if (e.tagName !== 'BUTTON') e.value = ''; e.disabled = true; });
+    qa('.savebar, #krecs, #kfm, #kinote, #kirev, #kipub, #kisave, #kiopen, .kys-hist').forEach(e => e.hidden = true);
+    q('#kback').onclick = () => viewKys(); scrollTo(0, 0); };
+  qa('.karch').forEach(b => b.onclick = () => show(+b.dataset.id));
+}
 async function viewKys(){
   const [, sub, arg, arg2] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/'), code = arg ? decodeURIComponent(arg) : '';
   if (sub === 'yukle') return viewKysUpload();
@@ -6055,9 +6081,10 @@ async function viewKys(){
   q('#kfm') && (q('#kfm').onclick = e => { const m = e.target.dataset.v; if (m) { kysMode = m; viewKys(); } });
   q('#kpf') && kysProjectFormBind(K, arg === 'yeni' ? null : P);
   if (sub === 'm') kysModRecs(K, code);
-  if (pc && kInst(K, P, pc)) return kysInstBind(K, P, pc, inst);
+  if (pc && kInst(K, P, pc)) { if (inst) kArch(K, K.BY[pc], P, inst); return kysInstBind(K, P, pc, inst); }
   const sheet = q('#ksheet'), it = sub === 'i' ? K.BY[code] : pc ? K.BY[pc] : null;
   if (sheet) { sheet.addEventListener('input', kysRecalc); kysRecalc(); }
+  if (it) kArch(K, it, P, null);
   if (it && q('#krisk')) return ['ACR-LS-RK-03', 'ACR-LS-RK-04'].includes(it.code) ? kysRisk3(K, it) : kysRisk(K, it);
   if (!it || !q('#krecs')) return;
   if (it.kind === 'form') { kysFormBind(K, it, P); kGrowAll(); } else kysRows(K, it.code, it.columns || [], P);
