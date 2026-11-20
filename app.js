@@ -227,6 +227,8 @@ const ICON = {
   users: svgI('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>'),
   chev: '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
 };
+// sol menü küçültülebilir (yalnız geniş ekranda): tercih kişiye özel (user_prefs side_closed); küçükken ikon şeridi kalır, orta sütun genişler
+const sideClosed = () => !!(S.prefs || {}).side_closed;
 const navClosed = () => { try { return JSON.parse(localStorage.getItem('navClosed') || '[]'); } catch { return []; } };
 // Geri düğmesi: site içinde gezildiyse bir önceki sayfaya döner (tarayıcının geri tuşuyla aynı)
 let NAV_DEPTH = 0, NAV_BACK = false;
@@ -323,16 +325,21 @@ function shell(active, html){
   const home = staffOnly() ? '#/calisma-plani' : '#/bugun';
   S._navAll = nav.flatMap(([g, , items]) => items.filter(n => n[0]).map(n => ({ k:n[0], t:String(n[1]).replace(/<[^>]+>/g, ''), g })));
   $app.innerHTML = `<a class="skip" href="#main">İçeriğe geç</a><div class="topbar"><a class="brand homelink" href="${home}" style="padding:0" title="Ana sayfa">${logo()} Acrome</a><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
-  <div class="shell"><aside class="side" id="side"><button class="btn sm side-close" id="sideclose" type="button">Kapat ✕</button>
+  <div class="shell${sideClosed() ? ' side-min' : ''}"><aside class="side" id="side"><button class="btn sm side-close" id="sideclose" type="button">Kapat ✕</button>
     <a class="brand homelink" href="${home}" title="Ana sayfa">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></a>
-    <nav class="nav">${staffOnly() ? '' : `<a href="#/bugun" class="ntop ${active==='bugun'?'on':''}">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>`}${nav.map(([g, ic, items]) => { const cur = items.some(n => (n[5] || n[0]) === active), closed = !cur && (navClosed().includes(g) || matchMedia('(max-width:820px)').matches), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
-      return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===(n[5]||n[0])?'on':''}${n[4]==='sub'?' sub2':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
+    <button type="button" class="iconbtn sidetog" id="sidetog" aria-controls="side" aria-expanded="${!sideClosed()}" aria-label="Menüyü ${sideClosed() ? 'aç' : 'küçült'}" title="Menüyü ${sideClosed() ? 'aç' : 'küçült'}">${sideClosed() ? '»' : '«'}</button>
+    <nav class="nav">${staffOnly() ? '' : `<a href="#/bugun" class="ntop ${active==='bugun'?'on':''}" title="Bugün">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>`}${nav.map(([g, ic, items]) => { const cur = items.some(n => (n[5] || n[0]) === active), closed = !cur && (navClosed().includes(g) || matchMedia('(max-width:820px)').matches), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
+      return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}" title="${g}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===(n[5]||n[0])?'on':''}${n[4]==='sub'?' sub2':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
     <div class="me"><b>${esc(S.profile.full_name || S.profile.email)}</b>${esc(roleLabel(S.profile))} · <button class="linkbtn" id="lo">Çıkış</button>${realAdmin() ? ` · <a href="#/rol-onizleme">Rol önizleme</a>` : ''}<div class="prefs">${themeSwitch()}</div></div>
   </aside><main class="main" id="main">${sbarHtml()}${NAV_DEPTH > 0 && active !== 'bugun' && !(staffOnly() && active === 'calisma-plani') && !/^\s*<p><a href="#\/[^"]*">←/.test(html) ? '<button type="button" class="backbtn" id="gback" title="Bir önceki sayfaya dön (Alt + ←)">← Geri</button>' : ''}${S.profile._preview ? `<div class="pvbar" role="status"><span>👁 <b>Rol önizleme:</b> ${esc(roleLabel(S.profile))}${myDeps().length ? ' · bölüm: ' + esc(myDeps().map(stgName).join(', ')) : ''}. Yalnız arayüz değişir; veri ve kayıtlar yönetici yetkinle yapılır.</span><span><a href="#/rol-onizleme">Değiştir</a> · <button class="linkbtn" id="pvexit">Önizlemeden çık</button></span></div>` : ''}${html}</main>${feedBox()}</div>`;
   q('#lo').onclick = () => sb.auth.signOut();
   q('#gback') && (q('#gback').onclick = goBack);
   q('#pvexit') && (q('#pvexit').onclick = () => { try { localStorage.removeItem(PV_KEY); } catch {} location.hash = '#/kullanicilar'; location.reload(); });
+  const sh = q('.shell'), st = q('#sidetog');
+  const sideSet = c => { sh.classList.toggle('side-min', c); st.setAttribute('aria-expanded', String(!c)); st.title = 'Menüyü ' + (c ? 'aç' : 'küçült'); st.setAttribute('aria-label', st.title); st.textContent = c ? '»' : '«'; savePref('side_closed', c); };
+  st.onclick = () => sideSet(!sh.classList.contains('side-min'));
   qa('.nhead').forEach(h => h.onclick = () => { const g = h.parentNode, k = g.dataset.g, set = new Set(navClosed());
+    if (sh.classList.contains('side-min') && matchMedia('(min-width:821px)').matches) { sideSet(false); if (!g.classList.contains('closed')) return; }   // ikon şeridinde grup ikonu menüyü açar
     g.classList.toggle('closed'); const c = g.classList.contains('closed'); h.setAttribute('aria-expanded', !c); c ? set.add(k) : set.delete(k);
     try { localStorage.setItem('navClosed', JSON.stringify([...set])); } catch {} });
   q('#menu').setAttribute('aria-controls', 'side');
@@ -4332,6 +4339,7 @@ async function viewPlan(id){
   const INHOUSE = 'İç üretim – 3D baskı';
   if (p.status === 'onaylandi' && can('admin', 'purchasing')) acts.push(btn('alim', `Alım taleplerini oluştur (${L.filter(l => !l.purchase_id && l.package !== INHOUSE).length} kalem)`, 'primary'));
   if (['taslak', 'gonderildi', 'onaylandi'].includes(p.status) && (can('admin') || (p.status === 'taslak' && p.created_by === S.profile.id))) acts.push(btn('iptal', 'Planı iptal et', 'danger'));
+  if (p.status === 'iptal' && can('admin')) acts.push(btn('taslak', 'Yeniden aç (taslağa döner)', 'primary'), btn('sil', 'Kalıcı olarak sil', 'danger'));
   shell('tedarik', `<p><a href="#/tedarik">← Tedarik planları</a></p>
     <div class="pagehead"><div><h1>${esc(p.name)}</h1><p class="lede">${esc(p.created_by_name || '')} · ${fmtDT(p.created_at)}${p.approved_by_name ? ` · onaylayan ${esc(p.approved_by_name)} (${fmtDT(p.approved_at)})` : ''}</p></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${planPill(p.status)}<button class="btn" id="plcsv" type="button">CSV</button><button class="btn" data-print="1" type="button">Yazdır / PDF</button></div></div>
@@ -4349,11 +4357,12 @@ async function viewPlan(id){
         ${R.map(l => { const u = toUSD(l.unit_price, l.currency, fx); return `<tr style="cursor:default"><td>${l.purchase_id ? `<a href="#/alimlar/${l.purchase_id}">${esc(l.name)}</a>` : esc(l.name)}<div class="sub">${esc(l.products || '')}</div></td><td class="num">${fmtQ(l.need)}</td><td class="num">${fmtQ(l.stock)}</td><td class="num"><b>${fmtQ(l.order_qty)}</b></td>
           <td class="num">${l.unit_price == null ? '<span class="amber-txt">fiyat yok</span>' : fmtMoney(l.unit_price, l.currency)}</td><td class="num">${u == null ? '—' : fmtUSD2(u * l.order_qty)}</td></tr>`; }).join('')}</tbody></table></div></section>`; }).join('') || '<div class="empty mt">Bu planda alınacak kalem yok.</div>'}`);
   qa('[data-pa]').forEach(b => b.onclick = async () => { const a = b.dataset.pa;
-    if (a === 'iptal' && !b.dataset.ok) { b.dataset.ok = 1; b.textContent = 'Emin misin? Tekrar bas'; return; }
+    if ((a === 'iptal' || a === 'sil') && !b.dataset.ok) { b.dataset.ok = 1; b.textContent = a === 'sil' ? 'Plan ve kalemleri kalıcı silinir. Tekrar bas' : 'Emin misin? Tekrar bas'; return; }
     b.disabled = true;
+    if (a === 'sil') { const r = await sb.rpc('supply_plan_delete', { p_id:id }); if (r.error) { b.disabled = false; return toast(dbErr(r.error), true); } toast('Plan silindi'); await loadPlanCount(); location.hash = '#/tedarik'; return; }
     const r = a === 'alim' ? await sb.rpc('supply_plan_create_purchases', { p_id:id }) : await sb.rpc('supply_plan_set_status', { p_id:id, p_status:a, p_note:(q('#plrev') || {}).value || null });
     b.disabled = false; if (r.error) return toast(dbErr(r.error), true);
-    toast(a === 'alim' ? `${r.data} alım talebi oluşturuldu` : { gonderildi:'Plan yöneticiye ve muhasebeye gönderildi', onaylandi:'Plan onaylandı', taslak:'Plan geri gönderildi', iptal:'Plan iptal edildi' }[a]);
+    toast(a === 'alim' ? `${r.data} alım talebi oluşturuldu` : { gonderildi:'Plan yöneticiye ve muhasebeye gönderildi', onaylandi:'Plan onaylandı', taslak: p.status === 'iptal' ? 'Plan yeniden açıldı (taslak)' : 'Plan geri gönderildi', iptal:'Plan iptal edildi' }[a]);
     if (a === 'alim') loadPurCount(); await loadPlanCount(); viewPlan(id); });
   q('#plcsv').onclick = () => { const head = ['Paket', 'Parça', 'Ürünler', 'İhtiyaç', 'Stok', 'Eksik', 'Sipariş adedi', 'Birim fiyat', 'Para birimi', 'Tutar (USD)', 'Teslim (gün)'];
     const lines = [head, ...L.map(l => { const u = toUSD(l.unit_price, l.currency, fx); return [l.package, l.name, l.products || '', l.need, l.stock, l.net, l.order_qty, l.unit_price ?? '', l.currency || '', u == null ? '' : (u * l.order_qty).toFixed(2), l.lead_days ?? '']; })]

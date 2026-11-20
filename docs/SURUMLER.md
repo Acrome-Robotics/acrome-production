@@ -25,4 +25,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611202329 | 20.11.2026 23:29 | Kalite: revizyon arşivi — eski revizyon salt okunur açılır; yeni revizyonda eski hal otomatik saklanır |
 | 202611210011 | 21.11.2026 00:11 | Üretim: Tedarik ilk aşama + üretim maliyeti sütunu; Support: SUP kayıt kodu, müşteriye kayıt e-postası, Kaynak'ta E-posta |
 | 202611210018 | 21.11.2026 00:18 | Tedarik: geri doldurma eski aşama zamanıyla, satın almacılara Tedarik görünür; maliyet notu, e-posta notunda Gmail bağlantısı yok; geri alma SQL'i tam |
-| 202611210038 | 21.11.2026 00:38 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611210038 | 21.11.2026 00:38 | Support: müşteri e-postası support@acrome.net göndereniyle; yeni konu sayfası İngilizce, müşteriye giden alanlar işaretli + e-posta önizlemesi |
+| 202611210141 | 21.11.2026 01:41 | (bu commit; mesajı bir sonraki commit'te yazılır) |
