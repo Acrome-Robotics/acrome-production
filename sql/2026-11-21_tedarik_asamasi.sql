@@ -78,9 +78,12 @@ begin
   return to_jsonb(r);
 end $function$;
 
--- daha sonraki bir aşaması başlamış / bitmiş siparişlerde Tedarik tamamlanmış sayılır
+-- daha sonraki bir aşaması başlamış / bitmiş siparişlerde Tedarik tamamlanmış sayılır; zaman = o siparişteki en eski aşama zamanı
+-- (yoksa sipariş tarihi), böylece "bu aşamada kaç gündür" sayacı ve sipariş zaman çizelgesi bugüne kaymaz
 insert into public.deal_stages (deal_id, stage, status, note, started_at, done_at, updated_by_name, updated_at)
-select d.id, 'tedarik', 'bitti', 'Tedarik aşaması eklenmeden önce sonraki aşamaya geçmişti', now(), now(), 'Sistem', now()
-from public.deals d
-where exists (select 1 from public.deal_stages s where s.deal_id = d.id and s.status <> 'bekliyor')
+select d.id, 'tedarik', 'bitti', 'Tedarik aşaması eklenmeden önce sonraki aşamaya geçmişti', t0, t0, 'Sistem', t0
+from (select d.id, coalesce((select min(least(coalesce(s.started_at, s.done_at), coalesce(s.done_at, s.started_at))) from public.deal_stages s where s.deal_id = d.id),
+                            d.order_date::timestamptz, now()) t0
+      from public.deals d
+      where exists (select 1 from public.deal_stages s where s.deal_id = d.id and s.status <> 'bekliyor')) d
 on conflict (deal_id, stage) do nothing;

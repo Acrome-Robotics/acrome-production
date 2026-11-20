@@ -23,4 +23,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611202313 | 20.11.2026 23:13 | Kalite: bilgi varlığı (RK-03) ve tedarikçi (RK-04) risk kayıtları ayrıldı; içerikteki &lt; çift kaçmıyor |
 | 202611202320 | 20.11.2026 23:20 | Kalite: proje kodu 2–10 harf/rakam; çok sütunlu kayıtlar tam genişlik; proje belgesi geçmişi en yeni üstte |
 | 202611202329 | 20.11.2026 23:29 | Kalite: revizyon arşivi — eski revizyon salt okunur açılır; yeni revizyonda eski hal otomatik saklanır |
-| 202611210011 | 21.11.2026 00:11 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611210011 | 21.11.2026 00:11 | Üretim: Tedarik ilk aşama + üretim maliyeti sütunu; Support: SUP kayıt kodu, müşteriye kayıt e-postası, Kaynak'ta E-posta |
+| 202611210018 | 21.11.2026 00:18 | (bu commit; mesajı bir sonraki commit'te yazılır) |

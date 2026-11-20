@@ -970,7 +970,7 @@ async function loadProdCost(ids){
 }
 const prodCostCell = (m, id) => { if (m === undefined) return '<span class="sub">…</span>'; if (m === null) return '<span class="sub">—</span>';
   const c = m[id]; if (!c) return '<span class="sub">talep yok</span>';
-  return `<a href="#/alimlar?siparis=${id}" title="Bu siparişe bağlı ${c.n} alım talebi">${c.done + c.open ? fmtUSD(c.done + c.open) : '—'}</a>${c.done && c.open ? `<div class="sub">alındı ${fmtUSD(c.done)} · bekleyen ${fmtUSD(c.open)}</div>` : c.open ? '<div class="sub">tamamı bekliyor</div>' : ''}${c.miss ? `<div class="sub">${c.miss} talep tutarsız</div>` : ''}`; };
+  return `<a href="#/alimlar?siparis=${id}" title="Bu siparişe bağlı ${c.n} alım talebi">${c.done + c.open ? fmtUSD(c.done + c.open) : '—'}</a>${c.done && c.open ? `<div class="sub">alındı ${fmtUSD(c.done)} · bekleyen ${fmtUSD(c.open)}</div>` : c.open ? '<div class="sub">tamamı bekliyor</div>' : ''}${c.miss ? `<div class="sub">${c.miss} talebin tutarı / kuru yok</div>` : ''}`; };
 function viewList(tab){
   const T = today();
   let PC;
@@ -1350,7 +1350,8 @@ const stgName = k => (STG.find(s => s[0] === k) || [k, k])[1];
 const stOf = (id, k) => (S.stages || []).find(s => s.deal_id === id && s.stage === k) || { deal_id:id, stage:k, status:'bekliyor' };
 const stgDone = s => s.status === 'bitti' || s.status === 'gerekmiyor';
 const curStage = id => STG.find(([k]) => !stgDone(stOf(id, k)));
-const myDeps = () => (S.profile && S.profile.departments) || [];
+// bölümü seçili Satın alma kişisine Tedarik de kendi bölümü gibi görünür (can_stage ile aynı); bölümü boş olan tüm aşamaları görür
+const myDeps = () => { const d = (S.profile && S.profile.departments) || []; return d.length && can('purchasing') && !d.includes('tedarik') ? ['tedarik', ...d] : d; };
 const canStg = k => can('admin') || (k === 'gonderim' && can('orders')) || (k === 'tedarik' && can('purchasing')) || (can('production') && (!myDeps().length || myDeps().includes(k)));
 const stgPill = st => `<span class="pill sg-${st}">${STG_ST[st]}</span>`;
 const stgDots = id => `<span class="sgdots" title="${STG.map(([k, n]) => n + ': ' + STG_ST[stOf(id, k).status]).join(' · ')}">${STG.map(([k]) => `<i class="sg-${stOf(id, k).status}"></i>`).join('')}</span>`;
@@ -2658,7 +2659,7 @@ async function viewTicket(id){
     return `<article class="msg msg-${m.direction} src-${m.source}">
       <header><span class="who">${who(m)}</span> <b>${esc(m.from_name || m.from_email || personName(m.created_by) || '')}</b>
         ${m.from_email && m.from_name ? `<span class="sub">&lt;${esc(m.from_email)}&gt;</span>` : ''}
-        <span class="when">${fmtDT(m.sent_at)} · ${SUP_SRC[m.source]||m.source}${m.source === 'gmail' ? ` · ${gmailLink(m.url, m.subject || t.subject, m.sent_at)}` : m.url ? ` · <a href="${esc(safeUrl(m.url))}" target="_blank" rel="noopener">aç ↗</a>` : ''}
+        <span class="when">${fmtDT(m.sent_at)} · ${SUP_SRC[m.source]||m.source}${m.source === 'gmail' && m.direction !== 'internal' ? ` · ${gmailLink(m.url, m.subject || t.subject, m.sent_at)}` : m.url ? ` · <a href="${esc(safeUrl(m.url))}" target="_blank" rel="noopener">aç ↗</a>` : ''}
         ${mine(m)?` · <button class="linkbtn" data-delm="${m.id}">sil</button>`:''}</span></header>
       ${m.to_emails ? `<div class="sub">Kime: ${esc(m.to_emails)}</div>` : ''}
       <div class="body ${long?'clip':''}">${esc(m.body || '(boş)')}</div>
