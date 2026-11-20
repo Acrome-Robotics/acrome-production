@@ -751,6 +751,8 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
 .kys .flow span{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:3px 10px;font-size:12.5px;font-weight:550}
 .kys .flow i{color:var(--muted);font-style:normal}
 .kys .sheet{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px 32px;max-width:1080px}
+.kys .sheet.wide{max-width:none}                       /* çok sütunlu kayıtlar ekranı kullanır */
+.kys .sheet.wide table td:first-child,.kys .sheet.wide table th:first-child{white-space:nowrap}
 .kys .dochead{display:grid;grid-template-columns:150px 1fr 230px;border:1.5px solid var(--ink);margin-bottom:20px}
 .kys .dochead>div{padding:8px 12px}
 .kys .dochead .lg{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;border-right:1.5px solid var(--ink);letter-spacing:.02em}

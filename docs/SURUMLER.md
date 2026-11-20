@@ -20,4 +20,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611201426 | 20.11.2026 14:26 | Kalite formları: eski tarih biçimleri (/, -) okunur, okunamayan tarih metin kutusunda kalır; yazdırmada boş tarih maskesi basılmaz; boş form çıktısında otomatik doldurma yok |
 | 202611201459 | 20.11.2026 14:59 | Eğitimler sayfası (kişi kendi eğitimini tamamlar, talep, bütçe yalnız muhasebe/yönetici/satış), RK-03 canlı risk kaydı (aksiyon tarihi, sorumlu, hatırlatma), tedarikçi risk seviyesi ve tek kaynak |
 | 202611201600 | 20.11.2026 16:00 | Kalite: form sayfasında son 5 kayıt, projeye özel form (projectOnly), tedarikçi alanı ERP listesinden, karne ERP'den doldur, Üretim sürecinde sıcaklık/nem grafiği, stok sayfasında müşteri mülkiyeti bağlantısı |
-| 202611202313 | 20.11.2026 23:13 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611202313 | 20.11.2026 23:13 | Kalite: bilgi varlığı (RK-03) ve tedarikçi (RK-04) risk kayıtları ayrıldı; içerikteki &lt; çift kaçmıyor |
+| 202611202320 | 20.11.2026 23:20 | (bu commit; mesajı bir sonraki commit'te yazılır) |

@@ -5690,7 +5690,7 @@ function kysProjectForm(K, P){
   <h1>${P ? 'Proje bilgilerini düzenle' : 'Yeni proje'}</h1>
   <p class="lede">${P ? 'Proje kodu belge numaralarında kullanıldığı için değiştirilemez.' : `Proje açılınca kalite dosyasındaki ${Object.keys(K.PT.docs).length} projeye özel belge (proje planı, zaman çizelgesi, risk kaydı, tasarım ve konfigürasyon belgeleri…) Rev 00 olarak hazırlanır; her biri içeriği girilip yürürlüğe alındığı gün yayın tarihini alır.`}</p>
   <form id="kpf" class="fs" novalidate>
-    <div class="row r4"><label class="f">Proje kodu <span class="hint">2–4 büyük harf</span><input name="code" maxlength="4" value="${v('code')}" ${P ? 'readonly class="calc"' : ''} style="text-transform:uppercase"></label>
+    <div class="row r4"><label class="f">Proje kodu <span class="hint">2–10 karakter, harfle başlar (A–Z, 0–9); belge numarasına eklenir</span><input name="code" maxlength="10" value="${v('code')}" ${P ? 'readonly class="calc"' : ''} style="text-transform:uppercase"></label>
       <label class="f" style="grid-column:span 2">Proje adı<input name="name" maxlength="200" value="${v('name')}"></label><label class="f">Kısa ad<input name="tag" maxlength="40" value="${v('tag')}"></label></div>
     <div class="row r4"><label class="f">Tür<select name="kind">${sel(KYS_PKIND, P ? P.kind : 'musteri')}</select></label><label class="f" style="grid-column:span 2">Müşteri / destekleyen kurum<input name="customer" maxlength="200" value="${v('customer')}"></label><label class="f">Durum<select name="status">${sel(KYS_PST, P ? P.status : 'aktif')}</select></label></div>
     <div class="row r4"><label class="f">Başlangıç<input type="date" name="start_date" value="${v('start_date')}"></label><label class="f">Bitiş<input type="date" name="end_date" value="${v('end_date')}"></label><label class="f">Proje yöneticisi<input name="manager" maxlength="120" value="${v('manager')}"></label><label class="f">Kalite sorumlusu <span class="hint">formlarda kalite imzasına yazılır</span><input name="quality_lead" maxlength="120" value="${v('quality_lead')}"></label></div>
@@ -5708,7 +5708,7 @@ function kysProjectFormBind(K, P){
     if (o.start_date && o.end_date && o.end_date < o.start_date) return fErr(f.elements.end_date, 'Bitiş başlangıçtan önce olamaz');
     let id = P && P.id;
     if (P) { const r = await sb.from('kys_projects').update(o).eq('id', P.id).select('id'); if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Kaydedilemedi', true); }
-    else { const code = g('code').toLocaleUpperCase('en'); if (!/^[A-Z]{2,4}$/.test(code)) return fErr(f.elements.code, 'Proje kodu 2–4 harf olmalı (A–Z)');
+    else { const code = g('code').toLocaleUpperCase('en'); if (!/^[A-Z][A-Z0-9]{1,9}$/.test(code)) return fErr(f.elements.code, 'Proje kodu 2–10 karakter olmalı: harfle başlar, yalnız A–Z ve 0–9');
       if (K.P.some(p => p.code === code)) return fErr(f.elements.code, 'Bu proje kodu kullanılıyor');
       const docs = Object.entries(K.PT.docs).filter(([c]) => K.BY[c]).map(([c, d]) => ({ code:c, label:d.title, sections:(d.sections || []).map(h => ({ h, p:'' })) }));
       const r = await sb.rpc('kys_project_open', { p:{ ...o, code }, docs }); if (r.error) return toast(dbErr(r.error), true); id = r.data;
@@ -5792,7 +5792,7 @@ function kysItem(K, code, P){
   return `<div class="crumbs noprint">${kCrumb(it, P)}</div>${kLive(it)}${it.projectOnly && !P ? `<p class="banner info noprint">Bu form projeye özeldir; proje sayfasından doldurulur: ${K.P.filter(p => p.status === 'aktif').map(p => `<a href="${kHref(it.code, p)}">${esc(p.code)} · ${esc(kPName(p))}</a>`).join(' · ') || 'aktif proje yok'}</p>` : ''}
   <div class="toolbar noprint"><button class="btn primary" data-print="1">Yazdır / PDF</button>${it.kind === 'form' && it.pk && own ? `<div class="seg" id="kfm"><button data-v="proj" class="${kysMode === 'proj' ? 'on' : ''}">Proje bilgileriyle</button><button data-v="bos" class="${kysMode === 'bos' ? 'on' : ''}">Boş form</button></div>` : ''}
   <span style="flex:1"></span>${kSib(it, P)}</div>
-  <div class="sheet" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>
+  <div class="sheet${(it.columns || []).length > 8 ? ' wide' : ''}" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>
   ${frm ? '<div class="savebar noprint"><span class="sub" id="kcur"></span><button class="btn" id="kclear">Yeni kayıt</button><button class="btn primary" id="ksave">Kaydet</button></div>' : ''}${frm || (it.kind === 'register' && !live && !rows) ? '<div class="noprint" id="krecs"></div>' : ''}`;
 }
 // projenin kendi belgesi (kys_records 'doc'): taslakta düzenlenir, yürürlüğe alınınca değişmez; değişiklik yeni revizyonla
@@ -5801,7 +5801,7 @@ function kysInst(K, P, code, d){
   const head = kHead(K, it, { title:T.title, proj:P.name, no:d ? d.record_no : code + '-' + P.code, rev:d ? d.data.rev : '00', date:st === 'yururlukte' ? d.data.date : 'yürürlüğe alınmadı' });
   const body = !d ? '<p class="note">Bu belge projede henüz açılmadı.</p>'
     : (T.sections ? secs.map((s, i) => `<div class="sec"><h3>${esc(s.h)}</h3>${ed ? `<textarea data-sec="${i}" rows="4" style="width:100%">${esc(s.p || '')}</textarea>` : `<div class="p">${kText(s.p) || '<span class="sub">—</span>'}</div>`}</div>`).join('') : '')
-      + `<div class="sec"><h3>Revizyon geçmişi</h3>${(d.data.history || []).length ? kTblRaw(['Rev', 'Tarih', 'Açıklama'], d.data.history) : '<p class="small">Belge henüz yürürlüğe alınmadı.</p>'}</div>`;
+      + `<div class="sec"><h3>Revizyon geçmişi</h3>${(d.data.history || []).length ? kTblRaw(['Rev', 'Tarih', 'Açıklama'], d.data.history.slice().reverse()) : '<p class="small">Belge henüz yürürlüğe alınmadı.</p>'}</div>`;
   const tb = !d ? '<button class="btn primary" id="kiopen">Belgeyi aç</button>' : ed ? `${T.sections ? '<button class="btn" id="kisave">Kaydet</button>' : ''}<button class="btn primary" id="kipub">Yürürlüğe al</button><span class="sub">Taslak · Rev ${esc(d.data.rev)}${d.data.rev_note ? ' · ' + esc(d.data.rev_note) : ''}</span>`
     : `<input id="kinote" type="text" maxlength="300" placeholder="Revizyon nedeni" style="max-width:280px"><button class="btn" id="kirev">Yeni revizyon aç</button>`;
   return `<div class="crumbs noprint">${kCrumb(it, P)}</div>
