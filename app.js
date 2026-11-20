@@ -5450,7 +5450,7 @@ const kText = s => esc(s || '').replace(/\n/g, '<br>');
 const kVars = (s, p) => String(s ?? '').replace(/\{\{(musteri|Musteri|proje|kalite|Kalite)\}\}/g, (m, k) => { const lo = k.toLowerCase(), up = k !== lo;
   const v = lo === 'musteri' ? (p && p.customer ? p.customer.split(/\s+/)[0] : '') : lo === 'proje' ? kPName(p) : p && p.quality_lead || '';
   return v || (lo === 'musteri' ? (up ? 'Müşteri' : 'müşteri') : lo === 'proje' ? (up ? 'Proje' : 'proje') : up ? 'Kalite sorumlusu' : 'kalite sorumlusu'); });
-const kDateIn = v => { const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(v || '').trim()); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : String(v || ''); };   // eski kayıtlar gg.aa.yyyy
+const kDateIn = v => { const m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(String(v || '').trim()); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : String(v || ''); };   // eski kayıtlar gg.aa.yyyy
 const kNum = x => { const n = parseFloat(String(x).replace(',', '.')); return isFinite(n) ? n : null; };
 const kFmt = x => x == null ? '' : (Math.round(x * 100) / 100).toLocaleString('tr-TR');
 const kLogo = '<svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="31.5" fill="#C41E2A"/><path fill="#fff" d="M14.8 42.5h5.8l13.2-33.1h-5.7zM32.9 12.6l1.3-3 11.1 32.9h-3.8zM14 46h33.8v3.3H14z"/></svg>';
@@ -5626,7 +5626,7 @@ function kysFitRows(sheet, v){ qa('.ftable[data-add]', sheet).forEach(w => { con
   if (!n) return; const tb = w.querySelector('tbody'), fx = +w.dataset.fixed || 0; while (tb.children.length < n) kysAddRow(w); while (tb.children.length > Math.max(n, fx)) tb.lastElementChild.remove(); kysReidx(w); }); }
 function kysForm(K, it, P){
   const E = kysMode === 'proj' && it.pk && (!P || P.code === it.pk), dp = P || kPjCode(K, it.pk); let n = 0;
-  const V = s => kVars(s, dp), today0 = today();
+  const V = s => kVars(s, dp), today0 = kysMode === 'bos' && it.pk ? '' : today();   // boş form çıktısında tarih / kalite sorumlusu doldurulmaz
   const fld = (gk, f) => { const id = 'kf' + (n++), k = esc(gk + ':' + f.l), raw = E ? f.v ?? '' : '', v = Array.isArray(raw) ? raw : kBlank(raw), w = f.w || (['textarea', 'table'].includes(f.t) ? 3 : 1), cls = w === 3 ? 'w3' : w === 2 ? 'w2' : '';
     const vs = Array.isArray(v) ? v : [v]; let ctl;
     if (f.proj) ctl = `<select id="${id}" data-k="${k}" data-proj="1"><option value="">Şirket geneli</option>${K.P.map(p => `<option value="${p.id}" ${dp && dp.id === p.id ? 'selected' : ''}>${esc(p.code + ' · ' + kPName(p))}</option>`).join('')}</select>`;
@@ -5644,9 +5644,9 @@ function kysForm(K, it, P){
     return `<label class="${cls}" ${['radio', 'checks', 'table'].includes(f.t) ? 'role="group"' : `for="${id}"`}>${esc(V(f.dl || f.l))}${f.req ? '<span class="req" title="Zorunlu alan"> *</span>' : ''}${f.hint && !/^\s*\[/.test(f.hint) ? ` <span class="hint">${esc(V(f.hint))}</span>` : ''}${f.note ? `<span class="small" style="display:block;font-weight:400">${kSafe(V(f.note))}</span>` : ''}${ctl}</label>`; };
   const signs = it.signoffs || ['Hazırlayan', 'Kontrol eden', 'Onaylayan'];
   // imza tarihleri ve başlıktaki tarih yeni formda bugünle gelir (değiştirilebilir); kalite imzasına projenin kalite sorumlusu yazılır
-  const hdr = KYS_HDR.map(f => it.hdrLabels && it.hdrLabels[f.l] ? { ...f, dl:it.hdrLabels[f.l] } : f), ql = dp && dp.quality_lead;
+  const hdr = KYS_HDR.map(f => it.hdrLabels && it.hdrLabels[f.l] ? { ...f, dl:it.hdrLabels[f.l] } : f), ql = today0 && dp && dp.quality_lead;
   return (it.header ? [{ h:'Kayıt bilgileri', fields:hdr, k:'h' }] : []).concat(it.groups || []).map((g, gi) => `<fieldset><legend>${esc(V(g.h || ''))}</legend>${g.note ? `<p class="small" style="margin:0 0 8px">${kSafe(V(g.note))}</p>` : ''}<div class="fgrid">${(g.fields || []).map(f => fld(g.k || g.h || 'g' + gi, f)).join('')}</div></fieldset>`).join('')
-    + (signs.length ? `<div class="signs">${signs.map(s => { const qn = ql && /kalite/i.test(s) ? ql : ''; return `<div>${esc(V(s))}<input type="text" data-k="${esc('s:' + s + ':ad')}" placeholder="Ad Soyad" aria-label="${esc(V(s))} ad soyad" value="${esc(qn)}"${qn ? ' data-auto="1"' : ''}><input type="date" data-k="${esc('s:' + s + ':tarih')}" aria-label="${esc(V(s))} tarih" value="${today0}" data-auto="1"><span>İmza</span></div>`; }).join('')}</div>` : '')
+    + (signs.length ? `<div class="signs">${signs.map(s => { const qn = ql && /kalite/i.test(s) ? ql : ''; return `<div>${esc(V(s))}<input type="text" data-k="${esc('s:' + s + ':ad')}" placeholder="Ad Soyad" aria-label="${esc(V(s))} ad soyad" value="${esc(qn)}"${qn ? ' data-auto="1"' : ''}><input type="date" data-k="${esc('s:' + s + ':tarih')}" aria-label="${esc(V(s))} tarih" value="${today0}"${today0 ? ' data-auto="1"' : ''}><span>İmza</span></div>`; }).join('')}</div>` : '')
     + (it.header ? '<div id="klog"></div>' : '');
 }
 const kysReport = (K, it) => `${it.period ? `<p class="small">Periyot: <b style="color:var(--ink)">${esc(it.period)}</b> · Dönem: ______________</p>` : ''}${(it.kpis || []).length ? `<div class="tablewrap" style="margin-bottom:12px"><table><thead><tr><th class="nosort">Gösterge</th><th class="nosort" style="width:22%">Dönem değeri</th><th class="nosort" style="width:22%">Hedef</th></tr></thead><tbody>${it.kpis.map(k => `<tr><td>${esc(k.l)}</td><td>${kSafe(k.v)}</td><td>${kSafe(k.target || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}${kSecs(it.sections)}${kTables(K, it)}`;
@@ -5786,6 +5786,9 @@ const kGrow = el => { el.style.height = 'auto'; el.style.height = el.scrollHeigh
 const kGrowAll = () => qa('#ksheet textarea.ag').forEach(kGrow);
 document.addEventListener('input', e => { if (e.target.matches && e.target.matches('#ksheet textarea.ag')) kGrow(e.target); });
 addEventListener('beforeprint', kGrowAll); addEventListener('afterprint', kGrowAll);
+// yazdırmada boş tarih kutusu gg.aa.yyyy maskesi basmasın
+addEventListener('beforeprint', () => qa('#ksheet input[type=date]').forEach(x => { if (!x.value) { x.type = 'text'; x.dataset.wasDate = '1'; } }));
+addEventListener('afterprint', () => qa('#ksheet input[data-was-date]').forEach(x => { x.type = 'date'; delete x.dataset.wasDate; }));
 function kysRecalc(){
   qa('#ksheet .ftable').forEach(w => {
     let calc = []; try { calc = JSON.parse(w.dataset.calc || '[]'); } catch {}
@@ -5805,7 +5808,7 @@ function kysFormBind(K, it, P){
     const { data, error } = await qq.order('id', { ascending:false }), R = data || [];
     box.innerHTML = `<h2>Kayıtlar <span class="tcount">${R.length}</span></h2>` + (error ? `<div class="empty">${esc(dbErr(error))}</div>` : R.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Kayıt no</th><th class="nosort">Kayıt</th><th class="nosort">Proje</th><th class="nosort">Durum</th><th class="nosort">Son değişiklik</th><th class="nosort"></th></tr></thead><tbody>${R.map(r => `<tr style="cursor:default" data-r="${r.id}"><td class="mono">${esc(r.record_no || '')}</td><td>${esc(r.label || '—')}</td><td>${esc((kPj(K, r.project_id) || {}).code || '')}</td><td>${esc(r.status || '')}</td><td class="sub">${who(r)}</td><td style="white-space:nowrap"><button type="button" class="btn sm kopen">Aç</button> <button type="button" class="btn sm kdel">Sil</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu formla henüz kayıt açılmadı. Formu doldurup "Kaydet" ile saklayın; kayıt numarası otomatik verilir.</p>');
     qa('.kopen', box).forEach(b => b.onclick = async () => { const rid = +b.closest('tr').dataset.r, { data:r } = await sb.from('kys_records').select('*').eq('id', rid).maybeSingle(); if (!r) return toast('Kayıt okunamadı', true);
-      const v = (r.data && r.data.v) || {}; kysFitRows(sheet, v); F().forEach(x => { const val = v[x.dataset.k]; delete x.dataset.auto; if (x.type === 'checkbox' || x.type === 'radio') x.checked = !!val; else x.value = x.type === 'date' ? kDateIn(val) : val ?? ''; });
+      const v = (r.data && r.data.v) || {}; kysFitRows(sheet, v); F().forEach(x => { const val = v[x.dataset.k]; delete x.dataset.auto; if (x.type === 'checkbox' || x.type === 'radio') x.checked = !!val; else if (x.type === 'date' && val && !/^\d{4}-\d\d-\d\d$/.test(kDateIn(val))) { x.type = 'text'; x.value = val; } else x.value = x.type === 'date' ? kDateIn(val) : val ?? ''; });   // tarih olarak okunamayan eski değer metin kutusunda kalır
       kysRec = r.id; kysRecData = r.data || {}; const lg = q('#klog', sheet); if (lg) lg.innerHTML = kLogH(kysRecData.log); const no = q('.krno', sheet); if (no) no.value = r.record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.record_no || ''); kysRecalc(); kGrowAll(); window.scrollTo(0, 0); });
     qa('.kdel', box).forEach(b => b.onclick = async () => { if (!confirmTwice(b, 'Emin misin?')) return; const rid = +b.closest('tr').dataset.r;
       const { error } = await sb.from('kys_records').delete().eq('id', rid); if (error) return toast(dbErr(error), true); if (kysRec === rid) { kysRec = null; kysRecData = null; q('#kcur').textContent = ''; } toast('Silindi'); list(); }); };
