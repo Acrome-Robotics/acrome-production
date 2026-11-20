@@ -398,7 +398,7 @@ function gsIndex(){
   (S.purOpenList || []).forEach(p => out.push({ t:p.item_name, s:[p.project, p.requester_name].filter(Boolean).join(' · '), h:'#/alimlar/' + p.id, kind:'Talep' }));
   (S.items || []).forEach(i => out.push({ t:i.name, s:[i.code, i.mfr_no, i.location].filter(Boolean).join(' · '), c:[i.code, i.mfr_no], h:'#/stok/' + i.id, kind:'Stok' }));
   (S.boms || []).forEach(b => out.push({ t:b.name, s:[b.short_code, b.product_code].filter(Boolean).join(' · '), c:[b.short_code, b.product_code], h:'#/bom/' + b.id, kind:'BOM' }));
-  (S.tickets || []).forEach(t => out.push({ t:t.subject, s:[`#${t.id}`, t.customer_name || t.organization].filter(Boolean).join(' · '), c:['#' + t.id], h:'#/support/' + t.id, kind:'Support' }));
+  (S.tickets || []).forEach(t => out.push({ t:t.subject, s:[tCode(t), t.customer_name || t.organization].filter(Boolean).join(' · '), c:['#' + t.id, t.code || ''], h:'#/support/' + t.id, kind:'Support' }));
   (S.rmas || []).forEach(r => out.push({ t:r.code || ('RMA #' + r.id), s:[r.customer_name || r.customer, r.product, r.serial_no].filter(Boolean).join(' · '), c:[r.code, r.serial_no], h:'#/rma/' + r.id, kind:'RMA' }));
   return out.concat((S._gsx || {}).items || []);
 }
@@ -537,8 +537,8 @@ async function feedItems(){
   }
   for (const x of pay || []) { const d = dl(x.deal_id); if (d) add(x.received_at, 'tahsilat', `${refNo(d)} · ödeme geldi`, x.received_name, ord ? '#/kayit/' + d.id : '#/tahsilat'); }
   for (const x of pur) add(x.requested_at, 'alim', `Yeni talep: ${x.item_name || ''}`, x.requester_name, '#/alimlar/' + x.id);
-  for (const t of tk) { add(t.opened_at || t.created_at, 'support', `Yeni support #${t.id}: ${t.subject || ''}`, '', '#/support/' + t.id);
-    add(t.closed_at, 'support', `Support kapandı #${t.id}: ${t.subject || ''}`, personName(t.assignee), '#/support/' + t.id); }
+  for (const t of tk) { add(t.opened_at || t.created_at, 'support', `Yeni support ${tCode(t)}: ${t.subject || ''}`, '', '#/support/' + t.id);
+    add(t.closed_at, 'support', `Support kapandı ${tCode(t)}: ${t.subject || ''}`, personName(t.assignee), '#/support/' + t.id); }
   for (const r of rm) { const h = '#/rma/' + r.id;
     add(r.requested_at, 'rma', `Yeni RMA ${r.code} · ${r.customer_name || ''}`, '', h); add(r.received_at, 'rma', `${r.code} cihaz geldi`, '', h); add(r.shipped_back_at, 'rma', `${r.code} geri gönderildi`, '', h); }
   return out.sort((a, b) => b.ms - a.ms).slice(0, 30);
@@ -654,7 +654,7 @@ function todaySections(){
   const prod = S.deals.filter(d => d.status === 'production' && !d.is_internal);
   const due = d => d.planned_ship_date || d.requested_ship_date;
   const R = (S.rmas || []).filter(r => !r.is_draft);
-  const tRow = t => { const w = supWait(t); return { href:'#/support/' + t.id, main:`<span class="mono">#${t.id}</span> ${esc(t.subject)}`, sub:esc(t.organization || t.customer_name || ''), meta: w ? `<span class="${w.cls}">${w.txt.replace(' · takip et','')}</span>` : `<span class="sub">${ago(t.last_activity_at)}</span>`, hot: !!w && (t.status === 'new' || t.status === 'ours') }; };
+  const tRow = t => { const w = supWait(t); return { href:'#/support/' + t.id, main:`<span class="mono">${esc(tCode(t))}</span> ${esc(t.subject)}`, sub:esc(t.organization || t.customer_name || ''), meta: w ? `<span class="${w.cls}">${w.txt.replace(' · takip et','')}</span>` : `<span class="sub">${ago(t.last_activity_at)}</span>`, hot: !!w && (t.status === 'new' || t.status === 'ours') }; };
   const dRow = (d, late) => ({ href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub:esc(d.description || ''), meta: due(d) ? `<span class="${late ? 'late-txt' : ''}">${late ? days(due(d), T) + ' gün gecikti' : fmtD(due(d))}</span>` : '<span class="sub">tarih yok</span>', hot: late });
   const rRow = r => ({ href:'#/rma/' + r.id, main:`<span class="mono">${esc(r.code)}</span> ${esc(r.customer || r.customer_name || '')}`, sub:[r.product ? prodName(r.product) : '', r.failed_component].filter(Boolean).map(esc).join(' · '), meta: rmaLate(r) ? '<span class="late-txt">süre aşıldı</span>' : rmaPill(r.status), hot: rmaLate(r) });
   const S_ = [];
@@ -666,10 +666,10 @@ function todaySections(){
     const fol = tk.filter(t => mine(t) && t.status === 'customer' && supWait(t));
     S_.push({ id:'fol', title:'Müşteride 7+ gün · takip maili atılmalı', link:'#/support', rows: fol.map(tRow), empty:'Takip bekleyen yok.' });
   }
-  if (can('production','orders','admin') && prod.length) {
-    const deps = myDeps(), ks = deps.length ? deps : can('production','admin') ? STG.map(x => x[0]) : ['gonderim'];
+  if (can('production','orders','purchasing','admin') && prod.length) {
+    const deps = myDeps(), ks = deps.length ? deps : can('production','admin') ? STG.map(x => x[0]) : [...(can('purchasing') ? ['tedarik'] : []), ...(can('orders') ? ['gonderim'] : [])];
     const sq = prod.filter(d => ks.includes((curStage(d.id) || [])[0])).sort((a,b) => (due(a)||'9999').localeCompare(due(b)||'9999'));
-    S_.push({ id:'stg', title: deps.length ? `Bölümümde sıradaki siparişler · ${deps.map(stgName).join(', ')}` : ks.length === 1 ? 'Gönderime hazır siparişler' : 'Üretim aşamaları', link:'#/uretim-pano',
+    S_.push({ id:'stg', title: deps.length ? `Bölümümde sıradaki siparişler · ${deps.map(stgName).join(', ')}` : ks.length === 1 ? (ks[0] === 'tedarik' ? 'Tedarik aşamasındaki siparişler' : 'Gönderime hazır siparişler') : 'Üretim aşamaları', link:'#/uretim-pano',
       rows: sq.map(d => { const late = due(d) && due(d) < T; return { href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub:esc(stgNow(d.id)) + (late ? ' · <span class="late-txt">gecikti</span>' : ''), meta:stgDots(d.id), hot: late && deps.length > 0 }; }),
       empty:'Sırada bekleyen sipariş yok.', alert: deps.length > 0 });
   }
@@ -954,8 +954,26 @@ const listState = { q:'', year:'', month:'', basis:'', country:'', product:'', s
 const MONTHS_LONG = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const BASES = { order:['Sipariş tarihi', d => d.order_date || d.lead_date], ship:['Sevk tarihi', d => shipDate(d)], due:['İstenen sevk', d => d.requested_ship_date], lead:['Fırsat girişi', d => d.lead_date || d.order_date] };
 const defBasis = tab => tab === 'shipped' ? 'ship' : tab === 'pipeline' || tab === 'lost' || tab === 'archived' ? 'lead' : 'order';
+// üretimdeki siparişe bağlı alım talepleri (USD, bugünkü TCMB kuru): reddedilenler hariç, sipariş verilmiş / alınmış ile bekleyen ayrı.
+// Bir talep birden çok siparişe bağlıysa her siparişte tam tutarıyla görünür (kullanıcı kararı). Kuru ya da tutarı olmayan "eksik" sayılır.
+const PUR_BOUGHT = ['siparis_verildi', 'alindi', 'arsiv'];
+async function loadProdCost(ids){
+  if (!ids.length) return {};
+  const { data, error } = await sb.from('purchase_deals').select('deal_id,purchases(id,status,total,currency)').in('deal_id', ids);
+  if (error) return null;
+  const rows = (data || []).filter(x => x.purchases && x.purchases.status !== 'reddedildi'), rate = { USD:1 };
+  await Promise.all([...new Set(rows.map(x => x.purchases.currency || 'TRY'))].filter(c => c !== 'USD').map(async c => { const r = await fxRate(c, today()); rate[c] = r ? +r.usd_rate : null; }));
+  const m = {};
+  rows.forEach(({ deal_id, purchases:p }) => { const c = m[deal_id] || (m[deal_id] = { done:0, open:0, n:0, miss:0 }), k = rate[p.currency || 'TRY']; c.n++;
+    if (p.total == null || !k) { c.miss++; return; } c[PUR_BOUGHT.includes(p.status) ? 'done' : 'open'] += +p.total * k; });
+  return m;
+}
+const prodCostCell = (m, id) => { if (m === undefined) return '<span class="sub">…</span>'; if (m === null) return '<span class="sub">—</span>';
+  const c = m[id]; if (!c) return '<span class="sub">talep yok</span>';
+  return `<a href="#/alimlar?siparis=${id}" title="Bu siparişe bağlı ${c.n} alım talebi">${c.done + c.open ? fmtUSD(c.done + c.open) : '—'}</a>${c.done && c.open ? `<div class="sub">alındı ${fmtUSD(c.done)} · bekleyen ${fmtUSD(c.open)}</div>` : c.open ? '<div class="sub">tamamı bekliyor</div>' : ''}${c.miss ? `<div class="sub">${c.miss} talep tutarsız</div>` : ''}`; };
 function viewList(tab){
   const T = today();
+  let PC;
   // sekmeler bölüme göre: Üretim'den girilen sayfada satış sekmeleri yok (sol menüde bölüm değişmesin)
   const tabs = ['production', 'shipped'].includes(tab) ? { production:'Üretimde', shipped:'Gönderilenler' } : { pipeline:'Fırsatlar', waiting:'Beklemede', lost:'Kaybedilenler', archived:'Arşiv', all:'Tümü' };
   if (listState._tab !== tab) { listState._tab = tab; listState.basis = defBasis(tab); listState.sort = 'date'; listState.dir = -1; listState.stage = ''; const n = new Date(); listState.year = tab === 'shipped' || tab === 'pipeline' ? n.getFullYear() : ''; listState.month = tab === 'shipped' ? n.getMonth() + 1 : ''; }
@@ -981,7 +999,7 @@ function viewList(tab){
       <th data-s="ref">No ${ar('ref')}</th><th data-s="cust">Müşteri ${ar('cust')}</th><th class="nosort">Açıklama / ürünler</th>
       ${tab==='all'?'<th class="nosort">Durum</th>':''}
       <th data-s="date">${tab==='pipeline'?'Giriş':'Sipariş'} ${ar('date')}</th><th data-s="due">İstenen sevk ${ar('due')}</th>
-      ${tab==='shipped'?'<th class="nosort">Sevk</th>':''}${tab==='pipeline'||tab==='production'?'<th class="nosort">Aşama</th>':''}
+      ${tab==='shipped'?'<th class="nosort">Sevk</th>':''}${tab==='pipeline'||tab==='production'?'<th class="nosort">Aşama</th>':''}${tab==='production'?'<th class="nosort num" title="Siparişe bağlı alım talepleri, USD (bugünkü kur)">Üretim maliyeti</th>':''}
       <th data-s="amt" class="num">Tutar ${ar('amt')}</th></tr></thead><tbody>
       ${rows.map(d => { const lt = d.status==='production' && d.requested_ship_date && d.requested_ship_date < T;
         return `<tr data-id="${d.id}"><td class="mono">${esc(refNo(d))}${d.order_no&&d.opp_no?`<div class="sub">${esc(d.opp_no)}</div>`:''}</td>
@@ -989,9 +1007,9 @@ function viewList(tab){
         <td>${esc(d.description)}<div class="items">${Object.entries(d.items||{}).map(([c,q])=>`<span>${fmtN(q)}× ${esc(prodName(c))}</span>`).join('')}</div></td>
         ${tab==='all'?`<td>${pill(d.status)}</td>`:''}
         <td>${fmtD(d.order_date || d.lead_date)}</td><td class="${lt?'late-txt':''}">${fmtD(d.requested_ship_date)}${lt?`<div class="sub late-txt">${days(d.requested_ship_date,T)} gün gecikti</div>`:''}</td>
-        ${tab==='shipped'?`<td>${fmtShip(d)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}${tab==='production'?`<td style="white-space:nowrap">${stgDots(d.id)}<div class="sub">${esc(stgNow(d.id))}</div></td>`:''}
+        ${tab==='shipped'?`<td>${fmtShip(d)}</td>`:''}${tab==='pipeline'?`<td>${STAGES[d.stage]}</td>`:''}${tab==='production'?`<td style="white-space:nowrap">${stgDots(d.id)}<div class="sub">${esc(stgNow(d.id))}</div></td>`:''}${tab==='production'?`<td class="num">${prodCostCell(PC, d.id)}</td>`:''}
         <td class="num">${fmtUSD(d.amount_usd)}${d.currency!=='USD'&&d.amount_orig?`<div class="sub">${fmtN(d.amount_orig)} ${esc(d.currency)}</div>`:''}</td></tr>`; }).join('')}
-      <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'||tab==='production'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td><td class="num">${fmtUSD(total)}</td></tr>
+      <tr class="tfoot"><td colspan="${tab==='all'||tab==='shipped'||tab==='pipeline'||tab==='production'?6:5}">${rows.length} kayıt${s.year||s.month?` · ${BASES[s.basis][0].toLocaleLowerCase('tr')}: ${s.month?MONTHS_LONG[s.month-1]+' ':''}${s.year||'tüm yıllar'}`:''}</td>${tab==='production'?'<td></td>':''}<td class="num">${fmtUSD(total)}</td></tr>
       </tbody></table>` : `<div class="empty">Bu filtrelerle kayıt yok.${s.month?' <a href="#" id="allyear">Tüm yılı göster</a>':''}${can('sales','orders','admin')?' <a href="#/yeni">Yeni kayıt ekle</a>':''}</div>`;
     const ay = q('#allyear'); if (ay) ay.onclick = e => { e.preventDefault(); s.month = ''; q('#fm').value = ''; draw(); };
     qa('#tbl th[data-s]').forEach(th => { const k = th.dataset.s; th.tabIndex = 0; th.setAttribute('aria-sort', s.sort===k ? (s.dir>0 ? 'ascending' : 'descending') : 'none');
@@ -1022,6 +1040,8 @@ function viewList(tab){
   q('#fp') && (q('#fp').onchange = e => { listState.product = e.target.value; draw(); });
   q('#fs') && (q('#fs').onchange = e => { listState.stage = e.target.value; viewList(tab); });
   draw();
+  const tblEl = q('#tbl');
+  if (tab === 'production') loadProdCost(base.map(d => d.id)).then(m => { PC = m; if (q('#tbl') === tblEl) draw(); });
 }
 function csv(rows, name){
   const cols = [['No',refNo],['PROS',d=>d.opp_no],['Müşteri',custName],['Ülke',d=>ctryName(d.country)],['Açıklama',d=>d.description],['Aşama',d=>STAGES[d.stage]],['Durum',d=>STATUSES[d.status]],
@@ -1261,7 +1281,7 @@ async function viewUnit(raw){
   const mtDays = {}; MT.forEach(m => { const t = (m.tested_at || '').slice(0, 10); (mtDays[t] = mtDays[t] || []).push(m); });
   Object.entries(mtDays).forEach(([t, L]) => { const bad = L.filter(m => m.result && m.result !== 'GEÇTİ').length;
     add(t, 'Motor testi', `${L.length} motor test edildi${bad ? ` · ${bad} uyarı/hata` : ''}`, '#/motor-test', 'sipariş'); });
-  TK.forEach(t => { add(t.opened_at, 'Support', `#${t.id} · ${t.subject}`, '#/support/' + t.id, 'sipariş'); if (t.closed_at) add(t.closed_at, 'Support', `#${t.id} kapandı`, '#/support/' + t.id, 'sipariş'); });
+  TK.forEach(t => { add(t.opened_at, 'Support', `${tCode(t)} · ${t.subject}`, '#/support/' + t.id, 'sipariş'); if (t.closed_at) add(t.closed_at, 'Support', `${tCode(t)} kapandı`, '#/support/' + t.id, 'sipariş'); });
   rm.forEach(r => { const h = '#/rma/' + r.id, lv = r.serial_no ? null : 'sipariş';
     add(r.requested_at, 'RMA', `${r.code} · ${r.fault_reported || RMA_ST[r.status] || ''}`.slice(0, 140), h, lv);
     add(r.received_at, 'RMA', `${r.code} · ürün teslim alındı`, h, lv); add(r.repaired_at, 'RMA', `${r.code} · onarıldı`, h, lv); add(r.shipped_back_at, 'RMA', `${r.code} · geri gönderildi`, h, lv); });
@@ -1322,16 +1342,16 @@ async function viewTrash(){
 }
 
 // ---------------------------------------------------------------- ÜRETİM AŞAMALARI (sipariş başına)
-// Mekanik montaj → Elektronik → Yazılım / test → Paketleme → Gönderim. Her bölüm kendi aşamasını günceller
+// Tedarik → Mekanik montaj → Elektronik → Yazılım / test → Paketleme → Gönderim. Her bölüm kendi aşamasını günceller
 // (Kullanıcılar sayfasında kişiye bölüm atanır; bölümü boş olan Üretim rolü tüm aşamaları günceller).
-const STG = [['mekanik','Mekanik montaj','Mekanik'], ['elektronik','Elektronik','Elektronik'], ['yazilim','Yazılım / test','Yazılım'], ['paketleme','Paketleme','Paketleme'], ['gonderim','Gönderim','Gönderim']];
+const STG = [['tedarik','Tedarik','Tedarik'], ['mekanik','Mekanik montaj','Mekanik'], ['elektronik','Elektronik','Elektronik'], ['yazilim','Yazılım / test','Yazılım'], ['paketleme','Paketleme','Paketleme'], ['gonderim','Gönderim','Gönderim']];
 const STG_ST = { bekliyor:'Bekliyor', devam:'Devam ediyor', bitti:'Bitti', gerekmiyor:'Gerekmiyor' };
 const stgName = k => (STG.find(s => s[0] === k) || [k, k])[1];
 const stOf = (id, k) => (S.stages || []).find(s => s.deal_id === id && s.stage === k) || { deal_id:id, stage:k, status:'bekliyor' };
 const stgDone = s => s.status === 'bitti' || s.status === 'gerekmiyor';
 const curStage = id => STG.find(([k]) => !stgDone(stOf(id, k)));
 const myDeps = () => (S.profile && S.profile.departments) || [];
-const canStg = k => can('admin') || (k === 'gonderim' && can('orders')) || (can('production') && (!myDeps().length || myDeps().includes(k)));
+const canStg = k => can('admin') || (k === 'gonderim' && can('orders')) || (k === 'tedarik' && can('purchasing')) || (can('production') && (!myDeps().length || myDeps().includes(k)));
 const stgPill = st => `<span class="pill sg-${st}">${STG_ST[st]}</span>`;
 const stgDots = id => `<span class="sgdots" title="${STG.map(([k, n]) => n + ': ' + STG_ST[stOf(id, k).status]).join(' · ')}">${STG.map(([k]) => `<i class="sg-${stOf(id, k).status}"></i>`).join('')}</span>`;
 const stgNow = id => { const c = curStage(id); if (!c) return 'Tamamlandı'; const s = stOf(id, c[0]); return c[1] + (s.status === 'devam' ? ' · devam ediyor' : ''); };
@@ -2441,6 +2461,7 @@ const SUP_STATUS_HINT = { new:'Henüz kimse cevap vermedi', ours:'Cevap / iş Ac
 const SUP_CAT = { support:'Teknik destek', sales:'Satış', admin:'İdari / ödeme', other:'Diğer' };
 const SUP_PRIO = { low:'Düşük', normal:'Normal', high:'Yüksek' };
 const SUP_SRC = { gmail:'E-posta', basecamp:'Basecamp', note:'Not', call:'Telefon', meet:'Meet' };
+const tCode = t => t && t.code || (t ? '#' + t.id : '');   // SUP-00123; kod gelmeden önceki önbellekte #id
 const supPill = st => `<span class="pill sp-${st}" title="${SUP_STATUS_HINT[st]||''}">${SUP_STATUS[st]||st}</span>`;
 const supState = { tab:'ours', cat:'support', product:'', who:'', q:'', hits:null, sort:'act' };
 let supPeople = null;
@@ -2453,7 +2474,7 @@ async function loadNotifs(){
 }
 async function loadSupport(){
   const { data, error } = await sb.from('support_tickets')
-    .select('id,subject,category,status,priority,product,customer_name,organization,country,contact_email,assignee,watchers,summary,resolution,tags,gmail_thread_ids,basecamp_urls,opened_at,last_activity_at,last_inbound_at,last_outbound_at,closed_at,created_at,updated_at,deal_id,deal_link_source,ai_updated_at')
+    .select('id,code,subject,category,status,priority,product,customer_name,organization,country,contact_email,assignee,watchers,summary,resolution,tags,gmail_thread_ids,basecamp_urls,opened_at,last_activity_at,last_inbound_at,last_outbound_at,closed_at,created_at,updated_at,deal_id,deal_link_source,ai_updated_at')
     .order('last_activity_at', { ascending:false }).range(0, 4999);
   if (error) { S.tickets = S.tickets || []; S.supErr = error.message; return; }
   S.tickets = data; S.supErr = null;
@@ -2545,12 +2566,12 @@ async function viewSupport(){
       (s.tab === 'all' || (s.tab === 'open' ? t.status !== 'closed' : s.tab === 'ours' ? (t.status === 'ours' || t.status === 'new') : t.status === s.tab)) &&
       (!s.product || t.product === s.product) &&
       (!s.who || (s.who === 'me' ? (t.assignee === S.profile.id || (t.watchers||[]).includes(S.profile.id)) : s.who === 'none' ? !t.assignee : t.assignee === s.who)) &&
-      (!ql || hitMap.has(t.id) || ('#' + t.id + ' ' + [t.subject,t.customer_name,t.organization,t.country,t.contact_email,t.summary,t.resolution,(t.tags||[]).join(' '),prodName(t.product)].join(' ')).toLocaleLowerCase('tr').includes(ql)));
+      (!ql || hitMap.has(t.id) || ('#' + t.id + ' ' + (t.code || '') + ' ' + [t.subject,t.customer_name,t.organization,t.country,t.contact_email,t.summary,t.resolution,(t.tags||[]).join(' '),prodName(t.product)].join(' ')).toLocaleLowerCase('tr').includes(ql)));
     if (ql && s.hits) rows.sort((a,b) => ((hitMap.get(b.id)?.rank)||0) - ((hitMap.get(a.id)?.rank)||0));
     else rows.sort((a,b) => s.sort === 'open' ? (b.opened_at||'').localeCompare(a.opened_at||'') : (b.last_activity_at||'').localeCompare(a.last_activity_at||''));
-    q('#stbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">#</th><th class="nosort">Konu</th><th class="nosort">Müşteri</th><th class="nosort">Ürün</th><th class="nosort">Durum</th><th class="nosort">Mail durumu</th><th class="nosort">Sorumlu</th><th class="nosort">Son hareket</th></tr></thead><tbody>
+    q('#stbl').innerHTML = rows.length ? `<table><thead><tr><th class="nosort">Kod</th><th class="nosort">Konu</th><th class="nosort">Müşteri</th><th class="nosort">Ürün</th><th class="nosort">Durum</th><th class="nosort">Mail durumu</th><th class="nosort">Sorumlu</th><th class="nosort">Son hareket</th></tr></thead><tbody>
       ${rows.map(t => { const w = supWait(t), h = hitMap.get(t.id);
-        return `<tr data-tid="${t.id}"><td class="mono">#${t.id}</td>
+        return `<tr data-tid="${t.id}"><td class="mono">${esc(tCode(t))}</td>
         <td><b style="font-weight:600">${esc(t.subject)}</b>${t.priority==='high'?' <span class="pill sp-high">Acil</span>':''}
           ${t.summary?`<div class="sub clamp opt">${esc(t.summary)}</div>`:''}
           ${h && h.snippet ? `<div class="sub hit">… ${esc(h.snippet).replace(/&lt;&lt;/g,'<mark>').replace(/&gt;&gt;/g,'</mark>')} …</div>`:''}
@@ -2631,7 +2652,7 @@ async function viewTicket(id){
     : e.kind === 'category' ? `Kategori: ${SUP_CAT[e.old_value]||e.old_value} → <b>${SUP_CAT[e.new_value]||e.new_value}</b>` : esc(e.kind);
   const items = [...msgs.map(m => ({ at:m.sent_at, m })), ...evs.map(e => ({ at:e.at, e }))].sort((a,b) => b.at.localeCompare(a.at));
   const who = m => m.direction === 'in' ? 'Müşteri' : m.direction === 'out' ? 'Acrome' : SUP_SRC[m.source] || 'Dahili';
-  const mine = m => canSup() && ['note','call','meet'].includes(m.source) && (m.created_by === S.profile.id || can('admin'));
+  const mine = m => canSup() && (['note','call','meet'].includes(m.source) || m.source === 'gmail' && m.direction === 'internal') && (m.created_by === S.profile.id || can('admin'));
   const msgHtml = m => {
     const long = (m.body||'').length > 900;
     return `<article class="msg msg-${m.direction} src-${m.source}">
@@ -2654,7 +2675,7 @@ async function viewTicket(id){
   shell('support', `
   <p><a href="#/support">← Support listesi</a></p>
   <div class="pagehead"><div><h1>${esc(t.subject)}</h1>
-    <p class="lede"><span class="mono">#${t.id}</span> · ${esc([t.organization, t.customer_name, t.country].filter(Boolean).join(' · ') || 'Müşteri belirtilmemiş')} · açıldı ${fmtD(t.opened_at.slice(0,10))}</p></div>
+    <p class="lede"><span class="mono">${esc(tCode(t))}</span> · ${esc([t.organization, t.customer_name, t.country].filter(Boolean).join(' · ') || 'Müşteri belirtilmemiş')} · açıldı ${fmtD(t.opened_at.slice(0,10))}</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${supPill(t.status)}
       ${!canSup()?'':t.status!=='closed'?`<button class="btn primary" id="tclose">Kapat</button>`:`<button class="btn" id="treopen">Yeniden aç</button>`}
       ${can('admin')?`<button class="btn danger" id="tdel">Sil</button>`:''}</div></div>
@@ -2666,11 +2687,11 @@ async function viewTicket(id){
         <div class="timeline">${items.length ? items.map(x => x.m ? msgHtml(x.m) : `<div class="ev"><span>${fmtDT(x.e.at)}</span> · ${esc(x.e.actor_name||'')} · ${evText(x.e)}</div>`).join('') : '<p class="note">Henüz mesaj yok.</p>'}</div>
       </section>
       ${hist.length ? `<section class="panel mt"><h2>Bu müşterinin destek geçmişi <span class="sub">(${hist.length} konu)</span></h2>
-        <div class="tablewrap"><table><tbody>${hist.map(h => `<tr data-hid="${h.id}"><td class="mono">#${h.id}</td><td>${esc(h.subject)}<div class="sub">${h.product?esc(prodName(h.product)):'Ürün yok'} · açıldı ${fmtD(h.opened_at.slice(0,10))}</div></td><td>${supPill(h.status)}</td>${canSup()?`<td><button class="btn sm" data-merge="${h.id}" title="#${h.id} bu konunun içine taşınır">Buraya birleştir</button></td>`:''}</tr>`).join('')}</tbody></table></div>
+        <div class="tablewrap"><table><tbody>${hist.map(h => `<tr data-hid="${h.id}"><td class="mono">${esc(tCode(h))}</td><td>${esc(h.subject)}<div class="sub">${h.product?esc(prodName(h.product)):'Ürün yok'} · açıldı ${fmtD(h.opened_at.slice(0,10))}</div></td><td>${supPill(h.status)}</td>${canSup()?`<td><button class="btn sm" data-merge="${h.id}" title="#${h.id} bu konunun içine taşınır">Buraya birleştir</button></td>`:''}</tr>`).join('')}</tbody></table></div>
         <p class="note">Aynı kurum veya aynı e-posta alan adından gelen diğer konular. Aynı ürün için olanları birleştirince tek bir support geçmişi oluşur.</p></section>` : ''}
       ${canSup() ? `<section class="panel mt"><h2>Not ekle</h2>
         <form id="nf" class="fs" novalidate>
-          <div class="row r2"><label class="f">Tür<select name="src"><option value="note">Not</option><option value="call">Telefon görüşmesi</option><option value="meet">Meet / toplantı</option></select></label>
+          <div class="row r2"><label class="f">Tür<select name="src"><option value="note">Not</option><option value="gmail">E-posta</option><option value="call">Telefon görüşmesi</option><option value="meet">Meet / toplantı</option></select></label>
           <label class="f">Zaman<input type="datetime-local" name="at" value="${nowLocal()}"></label></div>
           <label class="f">Not <span class="hint">mail dışında konuşulanlar, yapılan iş, karar</span><textarea name="body" rows="4" required></textarea></label>
           <div class="row r2"><label class="f">Durumu da değiştir<select name="st"><option value="">Değiştirme</option>${opt(SUP_STATUS, '')}</select></label><div></div></div>
@@ -2678,7 +2699,7 @@ async function viewTicket(id){
         </form></section>
       <section class="panel mt"><h2>Konu numarasıyla birleştir</h2>
         <form id="mf" class="fs" novalidate><div class="row r2"><label class="f">Birleştirilecek konu no <span class="hint">virgülle birden fazla</span><input type="text" name="ids" placeholder="ör. 13, 33" inputmode="numeric"></label><div></div></div>
-        <p class="note">Seçilen konuların mesajları ve geçmişi bu konuya (#${t.id}) taşınır; eski konular silinir, özetleri buraya not olarak eklenir.</p><p><button class="btn">Birleştir</button></p></form></section>` : ''}
+        <p class="note">Seçilen konuların mesajları ve geçmişi bu konuya (${esc(tCode(t))}) taşınır; eski konular silinir, özetleri buraya not olarak eklenir.</p><p><button class="btn">Birleştir</button></p></form></section>` : ''}
     </div>
     <aside>
       ${dealPanel(t, sugg)}
@@ -2821,7 +2842,7 @@ async function enablePush(btn){
   } catch(e) { btn.disabled = false; toast(e.message || String(e), true); }
 }
 const NOTIF_KIND = { sayim:'Stok sayımı', sayim_rapor:'Stok sayımı', masraf:'Masraf', asama:'Üretim aşaması', alim:'Alım', mesai:'Geç kalma', ncr:'Uygunsuzluk', siparis:'Sipariş', rma:'RMA' };
-const notifText = n => { if (n.ticket_id) { const t = (S.tickets || []).find(x => x.id === n.ticket_id); return `Yeni support maili · <span class="mono">#${n.ticket_id}</span> ${esc(t ? t.subject : '')}`; }
+const notifText = n => { if (n.ticket_id) { const t = (S.tickets || []).find(x => x.id === n.ticket_id); return `Yeni support maili · <span class="mono">${t ? esc(tCode(t)) : '#' + n.ticket_id}</span> ${esc(t ? t.subject : '')}`; }
   return n.title ? `${NOTIF_KIND[n.kind] ? `<b>${NOTIF_KIND[n.kind]}</b> · ` : ''}${esc(n.title)}` : 'Test bildirimi'; };
 async function viewNotifications(){
   shell('bildirimler', `<div class="empty">Yükleniyor…</div>`);
@@ -2853,7 +2874,7 @@ async function viewTicketNew(){
   if (!S.supSet) await loadSupport();
   await people();
   shell('support-yeni', `<p><a href="#/support">← Support listesi</a></p><h1>Yeni support konusu</h1>
-  <p class="lede">Mail dışında gelen (telefon, Meet, Basecamp, yüz yüze) bir konuyu kaydetmek için. Mailden gelenler otomatik eklenir.</p>
+  <p class="lede">Telefon, Meet, Basecamp, yüz yüze ya da başka bir adrese gelen e-postayla iletilen konuyu kaydetmek için. support@acrome.net'e gelen mailler otomatik eklenir. Her konu SUP-00000 biçiminde kalıcı bir kayıt kodu alır.</p>
   <form id="tn" class="fs" style="max-width:760px" novalidate>
     <label class="f">Konu<input type="text" name="subject" required></label>
     <div class="row r2"><label class="f">Kategori<select name="category">${Object.entries(SUP_CAT).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
@@ -2861,8 +2882,9 @@ async function viewTicketNew(){
     <div class="row r2"><label class="f">Müşteri (kişi)<input type="text" name="customer_name"></label><label class="f">Kurum / bayi<input type="text" name="organization"></label></div>
     <div class="row r2"><label class="f">Ülke<input type="text" name="country"></label><label class="f">E-posta<input type="email" name="contact_email"></label></div>
     <div class="row r2"><label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${p.id===((S.supSet||{}).default_assignee||S.profile.id)?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
-    <label class="f">Kaynak<select name="src"><option value="note">Not</option><option value="call">Telefon</option><option value="meet">Meet</option></select></label></div>
-    <label class="f">Talep / ilk not<textarea name="body" rows="5"></textarea></label>
+    <label class="f">Kaynak<select name="src"><option value="note">Not</option><option value="gmail">E-posta</option><option value="call">Telefon</option><option value="meet">Meet</option></select></label></div>
+    <label class="f">Talep / ilk not <span class="hint">müşteriye giden kayıt e-postasında da yer alır</span><textarea name="body" rows="5"></textarea></label>
+    <label class="chk"><input type="checkbox" name="ack" checked> Müşteriye kayıt e-postası gönder (İngilizce; kayıt kodu, konu ve ilk not; cevaplar support@acrome.net'e döner)</label>
     <p><button class="btn primary">Konuyu aç</button></p>
   </form>`);
   q('#tn').onsubmit = e => {
@@ -2872,7 +2894,9 @@ async function viewTicketNew(){
       organization:v('organization'), country:v('country'), contact_email:v('contact_email'), assignee:v('assignee'), status:'ours' }).select('id').single();
     if (error) return toast(dbErr(error), true);
     if (v('body')) await sb.from('support_messages').insert({ ticket_id:data.id, source:f.src.value, direction:'internal', body:v('body'), from_name:S.profile.full_name || S.profile.email, from_email:S.profile.email });
-    await loadSupport(); toast('Konu açıldı'); location.hash = '#/support/' + data.id;
+    let msg = 'Konu açıldı';
+    if (f.ack.checked && v('contact_email')) { const r = await sb.rpc('support_ticket_ack', { p_ticket:data.id }); msg = r.error ? 'Konu açıldı; kayıt e-postası gönderilemedi: ' + dbErr(r.error) : `Konu açıldı (${r.data}); kayıt e-postası müşteriye gidiyor`; }
+    await loadSupport(); toast(msg, /gönderilemedi/.test(msg)); location.hash = '#/support/' + data.id;
   }); };
 }
 

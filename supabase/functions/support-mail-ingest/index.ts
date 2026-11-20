@@ -86,6 +86,9 @@ Deno.serve(async (req) => {
       const msgs = fresh.map((m) => msgOf(m, th.id, hesap));
 
       let { data: t } = await db.from("support_tickets").select("id").contains("gmail_thread_ids", [th.id]).limit(1).maybeSingle();
+      // konu satırında [SUP-00123] kayıt kodu varsa (kayıt e-postası ve müşterinin cevabı) o konuya bağlanır
+      const code = !t && all.map((m) => /\[(SUP-\d{5,})\]/i.exec(m.subject || "")).find(Boolean);
+      if (code) ({ data: t } = await db.from("support_tickets").select("id").eq("code", code[1].toUpperCase()).maybeSingle());
       const first = all.map((m) => msgOf(m, th.id, hesap)).find((m) => m.direction === "in");
       const subj = strip(all[0].subject || "") || "(konu yok)";
       // Gmail konu değişince yeni thread açar: aynı başlık + aynı müşteri alan adı, son 45 gün → aynı konu

@@ -15,10 +15,10 @@ const FROM = env("MAIL_FROM") || "Acrome <noreply@acrome.net>";
 const escH = (s: string) => s.replace(/[&<>\"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 const smtpOn = () => !!(env("SMTP_USER") && env("SMTP_PASS"));
 
-async function send(to: string, subject: string, text: string, html: string) {
+async function send(to: string, subject: string, text: string, html: string, replyTo?: string) {
   if (env("RESEND_API_KEY")) {
     const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${env("RESEND_API_KEY")}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: [to], subject, text, html }) });
+      body: JSON.stringify({ from: FROM, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}) }) });
     if (!r.ok) throw new Error(`Resend ${r.status}: ${(await r.text()).slice(0, 200)}`);
     return;
   }
@@ -26,7 +26,7 @@ async function send(to: string, subject: string, text: string, html: string) {
     const port = +(env("SMTP_PORT") || 465);
     const t = nodemailer.createTransport({ host: env("SMTP_HOST") || "smtp.gmail.com", port, secure: port === 465,
       auth: { user: env("SMTP_USER"), pass: env("SMTP_PASS").replace(/\s+/g, "") } });
-    await t.sendMail({ from: FROM, to, subject, text, html });
+    await t.sendMail({ from: FROM, to, subject, text, html, ...(replyTo ? { replyTo } : {}) });
     return;
   }
   throw new Error("mail ayarı yok");
@@ -71,10 +71,12 @@ Deno.serve(async (req) => {
     }
     // 2) e-posta kuyruğu (hesabı olmayanlar dahil; ör. yoklama hatırlatması) — 2 günden eskiler gönderilmez
     const since = new Date(Date.now() - 2 * 864e5).toISOString();
-    const { data: box } = await db.from("mail_outbox").select("id,to_email,to_name,subject,title,link").is("sent_at", null).gte("created_at", since).limit(200);
+    // body_text dolu satır (ör. müşteriye support kayıt e-postası): metin olduğu gibi gider, site bağlantısı yok
+    const { data: box } = await db.from("mail_outbox").select("id,to_email,to_name,subject,title,link,body_text,reply_to").is("sent_at", null).gte("created_at", since).limit(200);
     for (const m of box || []) {
-      const b = body((m.to_name || "").split(" ")[0], m.title, SITE + (m.link || ""));
-      try { await send(m.to_email, m.subject, b.text, b.html); sent++; await db.from("mail_outbox").update({ sent_at: new Date().toISOString(), error: null }).eq("id", m.id); }
+      const b = m.body_text ? { text: m.body_text, html: `<div style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">${escH(m.body_text)}</div>` }
+        : body((m.to_name || "").split(" ")[0], m.title, SITE + (m.link || ""));
+      try { await send(m.to_email, m.subject, b.text, b.html, m.reply_to || undefined); sent++; await db.from("mail_outbox").update({ sent_at: new Date().toISOString(), error: null }).eq("id", m.id); }
       catch (e) { failed++; const msg = String((e as Error)?.message || e).slice(0, 160); errs.push(msg); await db.from("mail_outbox").update({ error: msg }).eq("id", m.id); }
     }
     return json({ sent, failed, errors: errs.slice(0, 3) });

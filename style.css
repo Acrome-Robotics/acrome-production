@@ -510,7 +510,7 @@ mark{background:color-mix(in srgb,var(--amber) 30%,transparent);color:inherit;bo
 .stgev{margin:8px 0 0;padding-left:18px;font-size:13px;display:grid;gap:3px}
 .depchk{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)}
 .depchk .chk{display:inline-flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap;cursor:pointer}
-.pboard{display:grid;grid-template-columns:repeat(var(--bcols,5),minmax(200px,1fr));gap:12px;align-items:start;overflow-x:auto;padding-bottom:6px}
+.pboard{display:grid;grid-template-columns:repeat(var(--bcols,6),minmax(170px,1fr));gap:12px;align-items:start;overflow-x:auto;padding-bottom:6px}
 .bcol{background:var(--soft);border-radius:var(--radius);padding:10px;display:grid;gap:8px;min-width:0}
 .bcol.mine{outline:2px solid var(--brand);outline-offset:-2px}
 .bcol header{display:flex;align-items:center;gap:8px}
