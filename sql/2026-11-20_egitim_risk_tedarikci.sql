@@ -173,3 +173,46 @@ revoke all on function public.q_rk3_remind() from public, anon, authenticated;
 
 select cron.unschedule('risk-aksiyon-hatirlat') where exists (select 1 from cron.job where jobname = 'risk-aksiyon-hatirlat');
 select cron.schedule('risk-aksiyon-hatirlat', '5 4 * * *', $$select public.q_rk3_remind()$$); -- 07:05 TR
+
+-- kys_records: oturumsuz güncelleme (hatırlatma işareti) "son değiştiren / zaman" bilgisini silmesin; gövde 2026-11-16 tanımıyla aynı, yalnız son satır değişti
+create or replace function public.kys_records_trg() returns trigger language plpgsql security definer set search_path = 'public' as $function$
+declare y text := to_char(now() at time zone 'Europe/Istanbul', 'YYYY'); d text := to_char(now() at time zone 'Europe/Istanbul', 'DD.MM.YYYY');
+  pre text; k int; os text; ns text;
+begin
+  if tg_op = 'INSERT' then
+    new.created_by := auth.uid(); new.created_by_name := public._q_me(); new.created_at := now();
+    if new.kind = 'form' then
+      pre := substr(new.code, 5) || '-' || y || '-';
+      perform pg_advisory_xact_lock(hashtext('kys_records_no'));
+      select coalesce(max(substr(record_no, length(pre) + 1)::int), 0) + 1 into k from public.kys_records where record_no like pre || '%';
+      new.record_no := pre || lpad(k::text, 3, '0');
+    elsif new.kind = 'doc' then
+      new.record_no := new.code || '-' || (select code from public.kys_projects where id = new.project_id);
+      new.data := jsonb_build_object('state', 'taslak', 'rev', '00', 'date', null, 'history', '[]'::jsonb, 'sections', coalesce(new.data->'sections', '[]'::jsonb));
+      new.status := null;
+    else new.record_no := null; end if;
+  else
+    new.code := old.code; new.kind := old.kind; new.record_no := old.record_no;
+    new.created_by := old.created_by; new.created_by_name := old.created_by_name; new.created_at := old.created_at;
+    if old.kind = 'doc' then
+      new.project_id := old.project_id; new.status := null;
+      os := old.data->>'state'; ns := coalesce(new.data->>'state', os);
+      if os = 'yururlukte' and ns = 'yururlukte' then
+        raise exception 'Yürürlükteki belge değiştirilemez; önce yeni revizyon açın.';
+      elsif os = 'yururlukte' and ns = 'taslak' then
+        if nullif(trim(new.data->>'rev_note'), '') is null then raise exception 'Revizyon nedeni yazılmalı.'; end if;
+        new.data := (old.data || jsonb_build_object('sections', new.data->'sections', 'rev_note', left(trim(new.data->>'rev_note'), 300)))
+          || jsonb_build_object('state', 'taslak', 'rev', lpad(((old.data->>'rev')::int + 1)::text, 2, '0'));
+      elsif os = 'taslak' and ns = 'yururlukte' then
+        new.data := (old.data || jsonb_build_object('sections', new.data->'sections', 'state', 'yururlukte', 'date', d,
+          'history', coalesce(old.data->'history', '[]'::jsonb) || jsonb_build_array(jsonb_build_array(old.data->>'rev', d, coalesce(nullif(old.data->>'rev_note', ''), 'İlk yayın')))))
+          - 'rev_note';
+      else
+        new.data := old.data || jsonb_build_object('sections', new.data->'sections');
+      end if;
+    end if;
+  end if;
+  if tg_op = 'UPDATE' and auth.uid() is null then new.updated_at := old.updated_at; new.updated_by_name := old.updated_by_name; return new; end if;
+  new.updated_at := now(); new.updated_by_name := public._q_me();
+  return new;
+end $function$;
