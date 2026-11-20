@@ -7,15 +7,15 @@ const STAGES = { qualify:'1 · Nitelendirme', advance:'2 · İlerliyor', closing
 const STATUSES = { pipeline:'Fırsat', waiting:'Beklemede', production:'Üretimde', shipped:'Gönderildi', lost:'Kaybedildi', archived:'Arşiv' };
 const ROLES = { pending:'Erişim kapalı', viewer:'İzleyici', sales:'Satış', production:'Üretim', orders:'Sipariş', support:'Support', purchasing:'Satın alma', stock:'Depo / Stok', muhasebe:'Muhasebe', kalite:'Kalite', personel:'Personel', admin:'Yönetici' };
 // rol ayrıntıları (Kullanıcılar sayfası)
-const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sales:'Fırsat ve sipariş girer, düzenler; müşteri ekler.',
+const ROLE_INFO = { viewer:'Rapor ve kayıtları görür, değiştiremez.', sales:'Fırsat ve sipariş girer, düzenler; müşteri ekler; ödeme planı girer, tahsilatı "geldi" işaretler; kaydı Silinenler’e taşır, geri alır ya da kalıcı siler.',
   production:'Üretim alanlarını (planlanan sevk, sevk tarihi, durum, gecikme) değiştirir; sipariş aşamalarını günceller (bölüm seçildiyse yalnız o aşamaları); stok, BOM ve alım taleplerini yönetir.',
-  orders:'Fırsat ve siparişlerin tümünü düzenler, müşteri ekler; stok, BOM ve alım taleplerini yönetir.',
+  orders:'Fırsat ve siparişlerin tümünü düzenler, müşteri ekler, ödeme planı girer; sipariş aşamalarından gönderimi günceller; alım taleplerini yönetir, tedarik planı hazırlar. Stok ve BOM’u değiştiremez.',
   support:'Support konuları ve RMA kayıtlarını düzenler: durum, sorumlu, not, kapatma, birleştirme.',
-  purchasing:'Alım taleplerinin durumunu, fiyatını ve tedarikçisini yönetir; tedarikçi ekler.',
-  stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller. Her ayın ilk cuması sayım e-postası alır.',
-  muhasebe:'Masraf formlarının hepsini görür; onaylar, reddeder, ödendi işaretler. Diğer sayfaları izleyici gibi görür.',
+  purchasing:'Alım taleplerinin durumunu, fiyatını, tedarikçisini ve terminini yönetir; tedarikçi ve site hesabı ekler; onaylanan tedarik planından alım talebi açar.',
+  stock:'Stok giriş-çıkış-sayım, BOM, PCB kartları ve motor testlerini yönetir; alım taleplerini günceller, giriş kontrolü sonucunu girer. Her ayın ilk cuması sayım e-postası alır.',
+  muhasebe:'Masraf formlarının hepsini görür; onaylar, reddeder, ödendi işaretler. Faturaları girer, dekont yükler ve onaylar, tahsilatı "geldi" işaretler; aylık yoklama raporunu ve geç kalma kayıtlarını görür. Alım talebinin durumunu ve terminini değiştiremez. Tek rol buysa menüde Alımlar, Tahsilat ve Ekip görünür.',
   personel:'Yalnızca haftalık yoklamayı, daily notlarını ve kendi masraf formunu görür (atölye, stajyer vb.).',
-  kalite:'Kalite menüsünü görür: kalite belgeleri ve form kayıtları, uygunsuzlukların incelenmesi ve kapatılması, kalibrasyon envanteri, tedarikçi onay durumu ve puanı. Diğer sayfalar için yanına İzleyici ya da başka bir rol verin.',
+  kalite:'Kalite menüsünü görür: kalite belgeleri ve form kayıtları, uygunsuzlukların incelenmesi ve kapatılması, kalibrasyon envanteri, tedarikçi bilgileri (onay durumu ve puan dahil), alım giriş kontrolü. Diğer sayfaları izleyici gibi görür.',
   admin:'Her şey + silme, ürün yönetimi, rol verme.' };
 // yalnız Muhasebe (ve Personel) rolü olan: menüde Ekip + Alımlar (görme ve yorum)
 const accOnly = () => !!S.profile && userRoles(S.profile).includes('muhasebe') && userRoles(S.profile).every(r => r === 'muhasebe' || r === 'personel');
@@ -3394,7 +3394,7 @@ async function viewStockItem(id, g){
       ${tx('supplier_text', 'Tedarik notu', 'firma, link ya da açıklama')}${tx('link', 'Bağlantı')}
       <label class="f">Açıklama<textarea name="description" rows="2">${v('description')}</textarea></label>
       <label class="f">Not<textarea name="notes" rows="2">${v('notes')}</textarea></label>
-      ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Parçayı ekle'}</button></p>` : '<p class="note">Düzenlemek için Depo / Stok, Üretim, Sipariş ya da Yönetici rolü gerekir.</p>'}
+      ${ed ? `<p><button class="btn primary">${id ? 'Kaydet' : 'Parçayı ekle'}</button></p>` : '<p class="note">Düzenlemek için Depo / Stok, Üretim ya da Yönetici rolü gerekir.</p>'}
     </fieldset></form>
     ${id ? `<section class="panel mt"><h2>Stok hareketleri</h2>${(mv.data || []).length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Tarih</th><th class="nosort">Neden</th><th class="nosort num">Değişim</th><th class="nosort num">Sonra</th><th class="nosort">Not</th><th class="nosort">Kim</th></tr></thead><tbody>${mv.data.map(m => `<tr><td>${fmtDT(m.at)}</td><td>${MOVE_R[m.reason] || esc(m.reason)}</td><td class="num ${m.delta < 0 ? 'late-txt' : 'ok-txt'}">${m.delta > 0 ? '+' : ''}${fmtQ(m.delta)}</td><td class="num">${fmtQ(m.qty_after)}</td><td>${esc(m.note || '')}</td><td class="sub">${esc(m.actor_name || '')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Henüz hareket yok. Excel\'den gelen stok açılış değeri olarak duruyor.</p>'}</section>` : ''}
   </div><aside>

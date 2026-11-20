@@ -13,4 +13,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611200110 | 20.11.2026 01:10 | Süreç hedefleri: otomatik ölçüt (zamanında sevk, RMA kapanış, support ilk cevap, giriş red, tedarikçi zamanında); kpi_auto değeri forma önerir, kaydedilince donar. SQL önce uygulanmalı |
 | 202611200112 | 20.11.2026 01:12 | Denetim paketi: #/kalite/denetim yazdırılabilir özet (dokümanlar, uygunsuzluk/DF, kalibrasyon, süreç hedefleri, açık riskler, tedarikçi değerlendirme + karne) |
 | 202611200114 | 20.11.2026 01:14 | Atölye QR etiketi: parça ve cihaz sayfasında QR etiketi yazdır (sayfa linki; qrcode-generator yalnız basarken yüklenir) |
-| 202611200120 | 20.11.2026 01:20 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611200120 | 20.11.2026 01:20 | Düzeltmeler: hedef dönem başı (ay sonu taşması), RMA'da ilk ölçüm tarihi kesimi ve support ilk cevap = müşterinin ilk mesajından, motor testi sipariş kodu toleranslı, karnede uygunsuzluk başına sayım + sayfalı okuma; duman testine yeni sayfalar |
+| 202611201102 | 20.11.2026 11:02 | (bu commit; mesajı bir sonraki commit'te yazılır) |
