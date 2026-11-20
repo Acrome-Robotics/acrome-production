@@ -239,6 +239,7 @@ function rowNav(sel, key, base){ qa(sel).forEach(tr => { const h = '#/' + base +
   if (td) td.innerHTML = `<a class="rowlink" href="${h}">${td.innerHTML}</a>`;
   tr.onclick = e => { if (!e.target.closest('a,button,input,select,textarea,label') && !getSelection().toString()) location.hash = h; }; }); }
 function shell(active, html){
+  S._dirty = false;   // yeni çizilen sayfada yazılmış bir şey yok (canlı tazeleme bunu bekler)
   const cnt = st => S.deals.filter(d => d.status === st).length;
   const openIssues = S.issues.filter(i => !i.resolved).length;
   // menü: Bugün + ana başlıklar (üretim üstte, rapor en altta veriden önce)
@@ -350,6 +351,7 @@ function shell(active, html){
   sbarBind();
   bindFeed();
   fillFeed();
+  liveInit();   // sürüm denetimi + veri tazeleme: ekran genişliği ve sağ panelden bağımsız, bir kez kurulur
 }
 
 // ---------------------------------------------------------------- üst bar: arama + sık kullanılanlar
@@ -574,6 +576,51 @@ function feedLive(){
   if (sb.channel) sb.channel('feed').on('postgres_changes', { event:'INSERT', schema:'public', table:'audit_log' }, feedKick).subscribe();
   setInterval(() => document.hidden || feedKick(), 120e3);
   document.addEventListener('visibilitychange', () => document.hidden || feedKick());
+}
+
+// ---------------------------------------------------------------- canlı tazeleme (Ctrl+F5 gerekmesin)
+// 1) Sürüm: 5 dk'da bir ve sekmeye dönünce canlı index.html'deki ?v= okunur; yeni sürümde açık form yoksa sayfa kendisi yenilenir, varsa alttaki şerit.
+// 2) Veri: başka biri audit_log'a düşen bir kayıt değiştirince (Realtime) veri arka planda yeniden yüklenir, açık sayfa yeniden çizilir;
+//    kullanıcı formda yazıyorsa sayfa bozulmaz, şerit "Yenile" der. Sekme gizliyken gelen değişiklik dönüşte uygulanır.
+const MY_V = ((document.querySelector('script[src*="app.js?v="]') || {}).src || '').match(/[?&]v=(\d+)/)?.[1] || '';
+document.addEventListener('input', e => { const t = e.target;
+  if (t.closest && t.closest('#main') && !filterEl(t)) S._dirty = true; }, true);
+const filterEl = t => t.type === 'search' || !!(t.closest && (t.closest('.toolbar') || t.closest('.sbar')));   // süzgeç / arama kutusu yazılmış veri sayılmaz
+const pageBusy = () => { const a = document.activeElement; return !!(S._dirty || document.querySelector('.dlg-ov') || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !filterEl(a))); };
+function upBar(msg, act){
+  let b = document.getElementById('upbar'); if (!b) { b = document.createElement('div'); b.id = 'upbar'; b.className = 'upbar noprint'; b.setAttribute('role', 'status'); document.body.appendChild(b); }
+  b.innerHTML = `<span>${msg}</span><button type="button" class="btn sm primary">Yenile</button><button type="button" class="iconbtn" aria-label="Kapat" title="Kapat">×</button>`;
+  b.querySelector('.primary').onclick = () => { b.remove(); act(); }; b.querySelector('.iconbtn').onclick = () => b.remove();
+}
+const reloadTo = v => { try { if (sessionStorage.getItem('vReload') === v) return; sessionStorage.setItem('vReload', v); } catch {}
+  location.replace(location.pathname + '?_v=' + v + location.hash); };   // farklı adres: tarayıcı önbellekteki eski index.html'i kullanmasın
+async function checkVer(){
+  if (!MY_V || document.hidden) return;
+  const t = await fetch('index.html?_=' + Date.now(), { cache:'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '');
+  const v = (t.match(/app\.js\?v=(\d+)/) || [])[1];
+  if (!v || v === MY_V) return;
+  if (!pageBusy()) return reloadTo(v);
+  upBar('Acrome ERP yazılımının yeni sürümü yayınlandı.', () => reloadTo(v));
+}
+let liveT, liveStale = false;
+async function liveRefresh(){
+  if (document.hidden) { liveStale = true; return; }
+  if (pageBusy()) return upBar('Başka biri kayıtları değiştirdi; güncel veri hazır.', () => liveRefresh2());
+  liveRefresh2();
+}
+async function liveRefresh2(){
+  liveStale = false; const y = scrollY, h = location.hash;
+  try { await loadAll(); } catch { return; }
+  if (location.hash !== h || pageBusy()) return;   // bu arada sayfa değiştiyse ya da yazmaya başladıysa dokunma
+  route(); requestAnimationFrame(() => scrollTo(0, y));
+}
+function liveInit(){
+  if (S._liveInit) return; S._liveInit = true;
+  if (sb.channel) sb.channel('live').on('postgres_changes', { event:'INSERT', schema:'public', table:'audit_log' }, ev => {
+    if (((ev || {}).new || {}).changed_by === S.profile.id) return;   // kendi değişikliğimiz zaten sayfada
+    clearTimeout(liveT); liveT = setTimeout(liveRefresh, 4000); }).subscribe();
+  setInterval(checkVer, 300e3);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) return; checkVer(); if (liveStale) liveRefresh(); });
 }
 let feedRz; addEventListener('resize', () => { clearTimeout(feedRz); feedRz = setTimeout(fillFeed, 200); });
 
