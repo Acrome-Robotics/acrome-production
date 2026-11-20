@@ -858,7 +858,8 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
 .kys .rk-wrap{overflow-x:auto}
 .kys .rkt td,.kys .rkt th{vertical-align:top;font-size:12.5px}
 .kys .rkt tr.rk-late td:nth-child(11){color:var(--red);font-weight:700}
-#kmt tr.rk-late td{background:var(--red-soft)}
+#kmt tr.rk-late td,#egt tr.eg-late td{background:var(--red-soft)}
+#egt tr.eg-done td{background:var(--green-soft)}
 @media print{.kys .rk-wrap{overflow:visible}}
 
 /* süreç hedefleri: son dönem hücresi tutan / tutmayan renginde, detay paneli */

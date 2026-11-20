@@ -246,6 +246,7 @@ function shell(active, html){
       ['masraf','Masraf formu'],
       ...(canAcc() ? [['masraf-liste','Masraf formları', S.expPending || '', 'hot']] : []),
       ['gec-kalma','Geç kalma / telafi'],
+      ['egitim','Eğitimler'],
       ...(can('admin','muhasebe') ? [['calisma-raporu','Aylık yoklama raporu']] : []),
       ...(can('admin') ? [['calisma-kisiler','Yoklama kişileri']] : []),
     ]];
@@ -578,7 +579,7 @@ function route(){
   if (p === 'masraf-liste') return canAcc() ? viewExpenseList() : viewExpense();
   if (p === 'ara') return viewSearch();
   if (p === 'sik-kullanilanlar') return viewBookmarks();
-  if (staffOnly()) return p === 'sifre' ? viewNewPassword() : p === 'daily' ? viewDaily(a) : p === 'gec-kalma' ? viewAttLate(a) : p === 'bildirimler' ? viewNotifications() : viewAttendance(a);
+  if (staffOnly()) return p === 'sifre' ? viewNewPassword() : p === 'daily' ? viewDaily(a) : p === 'gec-kalma' ? viewAttLate(a) : p === 'egitim' ? viewTrainings() : p === 'bildirimler' ? viewNotifications() : viewAttendance(a);
   switch(p){
     case 'calisma-plani': case 'yoklama': return viewAttendance(a);
     case 'daily': return viewDaily(a);
@@ -635,6 +636,7 @@ function route(){
     case 'rapor': return viewReport();
     case 'kalite': return a === 'denetim' ? (canQ() ? viewAuditPack() : viewToday()) : a === 'hedefler' ? (canKpi() ? viewKpis() : viewToday()) : a === 'sartli' ? (canQ() ? viewCondAccept() : viewToday()) : canQ() ? viewKys() : viewToday();
     case 'uygunsuzluk': return a ? viewNcr(+a) : viewNcrList();
+    case 'egitim': return viewTrainings();
     case 'uygunsuzluk-yeni': return viewNcr(null, a);
     case 'kalibrasyon': return a ? viewDevice(a === 'yeni' ? null : +a) : viewDevices();
     default: return viewToday();
@@ -4340,6 +4342,8 @@ const bindAccForm = (box, a, done) => {
     const { error } = await sb.from('supplier_accounts').delete().eq('id', a.id); if (error) return toast(dbErr(error), true); toast('Hesap silindi'); done(); });
 };
 
+const SUP_RISK = { 'Düşük':'Düşük', 'Orta':'Orta', 'Yüksek':'Yüksek', 'Kritik':'Kritik' };
+const supRiskPill = s => `${s.risk_level ? ` <span class="pill ${s.risk_level === 'Kritik' || s.risk_level === 'Yüksek' ? 'sp-high' : s.risk_level === 'Orta' ? 'p-amber' : 'p-green'}">risk ${esc(s.risk_level.toLocaleLowerCase('tr'))}</span>` : ''}${s.single_source ? ' <span class="pill p-amber">tek kaynak</span>' : ''}`;
 async function viewSuppliers(id){
   const ed = canPurchase(), edq = ed || canQ();
   const [sr, ar] = await Promise.all([sb.from('suppliers').select('*').order('name'), ed ? sb.from('supplier_accounts').select('*').order('name') : Promise.resolve({ data:[] })]);
@@ -4351,7 +4355,7 @@ async function viewSuppliers(id){
     const pu = s.id ? ((await sb.from('purchases').select('id,requested_at,item_name,qty,total,currency,status').or(`supplier_id.eq.${s.id},supplier_text.ilike.%${s.name.split(' ')[0].replace(/[,%()]/g, '')}%`).order('requested_at', { ascending:false }).limit(50)).data || []) : [];
     const acc = ACC.filter(a => a.supplier_id === s.id);
     const ta = (k, l, r) => `<label class="f">${l}<textarea name="${k}" rows="${r || 2}">${esc(s[k] || '')}</textarea></label>`;
-    shell('tedarikciler', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>${s.id ? esc(s.name) : 'Yeni tedarikçi'}</h1>${s.grp ? `<p class="lede">${esc(SUP_GRP[s.grp] || s.grp)}</p>` : ''}${s.blacklisted ? `<p class="lede late-txt">Kara listede: ${esc(s.blacklist_reason || '')}</p>` : ''}${s.approval ? `<p class="lede">${supAppPill(s.approval)}${s.score != null ? ` · puan ${fmtQ(s.score)}` : ''}</p>` : ''}</div>${s.id && can('admin') ? '<button class="btn danger" id="sdel">Sil</button>' : ''}</div>
+    shell('tedarikciler', `<p><a href="#/tedarikciler">← Tedarikçiler</a></p><div class="pagehead"><div><h1>${s.id ? esc(s.name) : 'Yeni tedarikçi'}</h1>${s.grp ? `<p class="lede">${esc(SUP_GRP[s.grp] || s.grp)}</p>` : ''}${s.blacklisted ? `<p class="lede late-txt">Kara listede: ${esc(s.blacklist_reason || '')}</p>` : ''}${s.approval || s.risk_level || s.single_source ? `<p class="lede">${supAppPill(s.approval)}${s.score != null ? ` · puan ${fmtQ(s.score)}` : ''}${supRiskPill(s)}</p>` : ''}</div>${s.id && can('admin') ? '<button class="btn danger" id="sdel">Sil</button>' : ''}</div>
     <div class="grid sup-grid"><div><form id="suf" class="fs" novalidate><fieldset ${edq ? '' : 'disabled'} class="plainfs">
       <div class="row r2"><label class="f">Firma adı<input type="text" name="name" value="${esc(s.name || '')}"></label><label class="f">Tür${stkSel('kind', SUP_KIND, s.kind || 'tedarikci')}</label></div>
       <label class="f">Grup${stkSel('grp', SUP_GRP, s.grp || '', '—')}</label>
@@ -4361,16 +4365,17 @@ async function viewSuppliers(id){
       <h2>Onay durumu ve değerlendirme</h2>
       <div class="row r4"><label class="f">Onay durumu${stkSel('approval', SUP_APP, s.approval || '', 'Değerlendirilmedi')}</label><label class="f">Onay tarihi<input type="date" name="approval_date" value="${esc(s.approval_date || '')}"></label><label class="f">Puan <span class="hint">0–100</span><input type="number" min="0" max="100" step="any" name="score" value="${s.score ?? ''}"></label><label class="f">Değerlendirme tarihi<input type="date" name="score_date" value="${esc(s.score_date || '')}"></label></div>
       <div class="row r2"><label class="f">Belgeler <span class="hint">ISO 9001, akreditasyon no vb.</span><input type="text" name="certs" maxlength="500" value="${esc(s.certs || '')}"></label><label class="f">Onay notu<input type="text" name="approval_note" maxlength="1000" value="${esc(s.approval_note || '')}"></label></div>
+      <div class="row r4"><label class="f">Risk seviyesi${stkSel('risk_level', SUP_RISK, s.risk_level || '', '—')}</label><label class="f">Tek kaynak${stkSel('single_source', { false:'Hayır', true:'Evet' }, String(!!s.single_source))}</label><label class="f" style="grid-column:span 2">Risk notu <span class="hint">ACR-LS-RK-03 kararı, alternatif durumu</span><input type="text" name="risk_note" maxlength="500" value="${esc(s.risk_note || '')}"></label></div>
       ${edq ? '<p><button class="btn primary">Kaydet</button></p>' : ''}</fieldset></form>
       ${s.id && ed ? `<section class="panel mt"><div class="board-head"><h2 style="margin:0">Site hesabı <span class="tcount">${acc.length}</span></h2><button class="btn sm" id="accadd">Hesap ekle</button></div>
         <div id="accbox"></div>${acc.length ? `<div class="tablewrap"><table><thead><tr><th class="nosort">Site</th><th class="nosort">Kullanıcı</th><th class="nosort">Şifre</th><th class="nosort">Telefon / not</th><th class="nosort"></th></tr></thead><tbody>${acc.map(a => `<tr data-aid="${a.id}" style="cursor:default">${accCells(a)}<td class="sub">${esc([a.phone, a.note].filter(Boolean).join(' · '))}</td><td><button class="btn sm aedit">Düzenle</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu firmaya kayıtlı site hesabı yok.</p>'}
         <p class="note">Hesapları yalnızca Satın alma, Depo / Stok, Üretim, Sipariş ve Yönetici görür.</p></section>
       <section class="panel mt"><h2>Başka bir kayıtla birleştir</h2><p class="note" style="margin-top:0">Aynı firma iki kez kayıtlıysa seçtiğiniz kayıt bu firmaya katılır: alımları, parçaları ve site hesapları buraya taşınır; iletişim, e-posta, web, parça ve notlar eklenir, hiçbir bilgi silinmez. Seçilen kayıt sonra kaldırılır.</p>
         <div class="row r2"><label class="f">Bu firmaya katılacak kayıt<select id="smerge"><option value="">—</option>${all.filter(x => x.id !== s.id).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label><div style="align-self:end"><button class="btn" id="smergeb">Birleştir</button></div></div></section>` : ''}</div>
-    <aside>${s.id ? '<section class="panel" id="skarne"><h2>Karne <span class="sub">son 12 ay</span></h2><p class="note">Yükleniyor…</p></section>' : ''}<section class="panel${s.id ? ' mt' : ''}"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total, p.currency)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
+    <aside>${s.id && can('kalite', 'admin') ? '<section class="panel" id="srisk" hidden></section>' : ''}${s.id ? '<section class="panel" id="skarne"><h2>Karne <span class="sub">son 12 ay</span></h2><p class="note">Yükleniyor…</p></section>' : ''}<section class="panel${s.id ? ' mt' : ''}"><h2>Alımlar</h2>${pu.length ? `<ul class="sugg">${pu.map(p => `<li><a href="#/alimlar/${p.id}">${esc(p.item_name)}</a> · ${fmtD(p.requested_at)} · ${fmtMoney(p.total, p.currency)}</li>`).join('')}</ul>` : '<p class="note">Kayıt yok.</p>'}</section></aside></div>`);
     q('#suf').onsubmit = async e => { e.preventDefault(); const f = e.target, g = n => f[n].value.trim() || null; if (!g('name')) return toast('Firma adı girin', true);
       const o = { name:g('name'), kind:f.kind.value, grp:f.grp.value || null, contacts:g('contacts'), emails:g('emails'), websites:g('websites'), parts:g('parts'), products:g('products'), notes:g('notes'), blacklisted:f.blacklisted.value === 'true', blacklist_reason:g('blacklist_reason'),
-        approval:f.approval.value || null, approval_date:g('approval_date'), score:num0(g('score')), score_date:g('score_date'), certs:g('certs'), approval_note:g('approval_note') };
+        approval:f.approval.value || null, approval_date:g('approval_date'), score:num0(g('score')), score_date:g('score_date'), certs:g('certs'), approval_note:g('approval_note'), risk_level:f.risk_level.value || null, single_source:f.single_source.value === 'true', risk_note:g('risk_note') };
       if (o.score != null && !(o.score >= 0 && o.score <= 100)) return toast('Puan 0 ile 100 arasında olmalı', true);
       const r = s.id ? await sb.from('suppliers').update(o).eq('id', s.id) : await sb.from('suppliers').insert(o).select('id').single();
       if (r.error) return toast(dbErr(r.error), true); toast('Kaydedildi'); S.stockLoaded = false; if (s.id) viewSuppliers(s.id); else location.hash = '#/tedarikciler/' + r.data.id; };
@@ -4381,6 +4386,9 @@ async function viewSuppliers(id){
     if (q('#accbox')) { const box = q('#accbox'), open = a => { box.innerHTML = accForm(a, all); bindAccForm(box, a, () => viewSuppliers(s.id)); box.scrollIntoView({ block:'nearest' }); };
       bindAccCells(document); q('#accadd').onclick = () => open({ supplier_id:s.id, kind:s.kind === 'kargo' ? 'kargo' : 'tedarikci', name:s.name, url:(s.websites || '').startsWith('http') ? s.websites : '' });
       qa('.aedit').forEach(b => b.onclick = () => open(ACC.find(a => a.id === +b.closest('tr').dataset.aid))); }
+    // risk kaydında (ACR-LS-RK-03) bu tedarikçiye bağlı satırlar: yalnız Kalite / Yönetici okur
+    if (s.id && q('#srisk')) sb.from('kys_records').select('data').eq('code', 'ACR-LS-RK-03').eq('kind', 'row').eq('data->>supplier_id', String(s.id)).then(({ data }) => { const b = q('#srisk'); if (!b || !(data || []).length) return; b.hidden = false; b.classList.add('mb');
+      b.innerHTML = `<h2>Risk kaydı <span class="sub">ACR-LS-RK-03</span></h2><ul class="sugg">${data.map(({ data:d }) => { const w = d.row || [], p = (+w[4] || 0) * (+w[5] || 0); return `<li><a href="#/kalite/i/ACR-LS-RK-03">${esc(w[0] || '')}</a> · ${esc(w[3] || '')} ${p ? rkLvPill(p) : ''} <span class="sub">${esc(d.st || 'Açık')}</span></li>`; }).join('')}</ul>`; });
     if (s.id) supKarne().then(K => { const b = q('#skarne'); if (!b) return; const k = K[s.id];
       b.innerHTML = `<h2>Karne <span class="sub">son 12 ay</span></h2>${k ? `<dl class="kv">${[['Zamanında teslim', k.m ? `${k.k} / ${k.m} · <b>%${Math.round(100 * k.k / k.m)}</b>` : '<span class="sub">termini girilmiş teslim yok</span>'], ['Giriş kontrolü', k.gec + k.sar + k.kal ? `${k.gec} geçti · ${k.sar} şartlı · <span class="${k.kal ? 'late-txt' : ''}">${k.kal} kaldı</span>` : '<span class="sub">kayıt yok</span>'], ['Uygunsuzluk', k.ncr]].map(([a, v]) => `<dt>${a}</dt><dd>${v}</dd>`).join('')}</dl>` : '<p class="note">Son 12 ayda termini girilmiş teslim, giriş kontrolü veya uygunsuzluk yok.</p>'}
         <p class="note">Zamanında = teslim tarihi ≤ son girilen termin. Yıllık değerlendirmede "Puan" alanına buradan bakarak girin.</p>`; });
@@ -4394,7 +4402,7 @@ async function viewSuppliers(id){
   const draw = () => { const ql = (q('#tq').value || '').trim().toLocaleLowerCase('tr');
     const ap = q('#tap').value;
     const r = all.filter(s => (!st.grp || (s.grp || '_') === st.grp) && (!ap || (s.approval || '_') === ap) && (!ql || [s.name, s.contacts, s.parts, s.products, s.emails, s.websites, s.notes].join(' ').toLocaleLowerCase('tr').includes(ql)));
-    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${[...Object.keys(SUP_GRP), '_'].map(gk => { const rs = r.filter(s => (s.grp || '_') === gk); return rs.length ? `<tr class="secrow"><td colspan="${ed ? 5 : 4}">${gk === '_' ? 'Grupsuz' : SUP_GRP[gk]} <span class="sub">${rs.length}</span></td></tr>` + rs.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''} ${supAppPill(s.approval)}${s.score != null ? ` <span class="sub">${fmtQ(s.score)} puan</span>` : ''}${karneTxt(KR[s.id]) ? `<div class="sub">Karne: ${karneTxt(KR[s.id])}</div>` : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('') : ''; }).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
+    q('#ttbl').innerHTML = r.length ? `<table><thead><tr><th class="nosort">Firma</th><th class="nosort">İletişim</th><th class="nosort">Alınan parçalar</th><th class="nosort">E-posta / web</th>${ed ? '<th class="nosort">Hesap</th>' : ''}</tr></thead><tbody>${[...Object.keys(SUP_GRP), '_'].map(gk => { const rs = r.filter(s => (s.grp || '_') === gk); return rs.length ? `<tr class="secrow"><td colspan="${ed ? 5 : 4}">${gk === '_' ? 'Grupsuz' : SUP_GRP[gk]} <span class="sub">${rs.length}</span></td></tr>` + rs.map(s => `<tr data-sid="${s.id}"><td><b style="font-weight:600" class="${s.blacklisted ? 'late-txt' : ''}">${esc(s.name)}</b>${s.kind === 'kargo' ? ' <span class="sub">kargo</span>' : ''} ${supAppPill(s.approval)}${supRiskPill(s)}${s.score != null ? ` <span class="sub">${fmtQ(s.score)} puan</span>` : ''}${karneTxt(KR[s.id]) ? `<div class="sub">Karne: ${karneTxt(KR[s.id])}</div>` : ''}${s.blacklisted ? `<div class="sub late-txt">Kara liste: ${esc(s.blacklist_reason || '')}</div>` : ''}</td><td class="sub">${esc(s.contacts || '')}</td><td>${esc(s.parts || '')}${s.products ? `<div class="sub">${esc(s.products)}</div>` : ''}</td><td class="sub">${esc([s.emails, s.websites].filter(Boolean).join(' · '))}</td>${ed ? `<td class="sub">${nAcc(s.id) ? '🔑 ' + nAcc(s.id) : ''}</td>` : ''}</tr>`).join('') : ''; }).join('')}</tbody><tfoot><tr class="tfoot"><td colspan="${ed ? 5 : 4}">${r.length} firma</td></tr></tfoot></table>` : '<div class="empty">Kayıt yok.</div>';
     rowNav('#ttbl tr[data-sid]', 'sid', 'tedarikciler'); };
   let KR = {};
   draw(); q('#tq').oninput = draw; q('#tap').onchange = draw;
@@ -5428,6 +5436,103 @@ async function viewAuditPack(){
   q('#aprint').onclick = () => window.print();
 }
 
+// ---------------------------------------------------------------- EĞİTİM (ACR-LS-EG-01)
+// q_trainings: eğitim planı ve gerçekleşen; kişi kendi eğitimini "Tamamladım" ile işaretler (q_training_done), herkes talep açar.
+// Bütçe q_training_costs'ta, yalnız Muhasebe / Yönetici / Satış görür (veritabanı kuralı).
+const EG_ST = { talep:'Talep', planlandi:'Planlandı', tamamlandi:'Tamamlandı', iptal:'İptal' }, EG_KIND = ['İç', 'Dış', 'Sertifikalı (dış)'], EG_SCOPE = { kisi:'Kişi', sirket:'Şirket geneli', proje:'Proje' };
+const egLate = t => t.status === 'planlandi' && t.planned_date && t.planned_date < today();
+const egExp = t => t.status === 'tamamlandi' && t.valid_until && t.valid_until < today();
+const egPill = t => egLate(t) ? '<span class="pill sp-high">Gecikti</span>' : egExp(t) ? '<span class="pill p-amber">Süresi doldu</span>' : t.status === 'tamamlandi' ? '<span class="pill p-green">Tamamlandı</span>' : t.status === 'talep' ? '<span class="pill p-amber">Talep</span>' : `<span class="pill">${EG_ST[t.status] || ''}</span>`;
+let egF = { q:'', who:'', dep:'', sc:'', st:'', y:String(new Date().getFullYear()), me:false };
+async function viewTrainings(){
+  const ed = can('kalite', 'admin'), bud = can('muhasebe', 'admin', 'sales'), me = S.profile.id;
+  const [a, c, pn, ppl] = await Promise.all([sb.from('q_trainings').select('*').order('code'), bud ? sb.from('q_training_costs').select('*') : Promise.resolve({ data:[] }),
+    kysPNames().catch(() => []), ed ? people().catch(() => []) : Promise.resolve([])]);
+  let T = a.data || [], C = Object.fromEntries((c.data || []).map(x => [x.training_id, x])), mode = null;
+  const pName = id => { const p = (pn || []).find(x => x.id === id); return p ? p.code + ' · ' + (p.tag || p.name) : ''; };
+  const who = t => t.person_name || (t.scope === 'sirket' ? 'Tüm ekip' : '');
+  const yr = t => (t.done_date || t.planned_date || '').slice(0, 4);
+  const vis = () => { const s = egF.q.toLocaleLowerCase('tr');
+    return T.filter(t => (!egF.me || t.person_id === me || t.requested_by === me) && (!egF.who || who(t) === egF.who) && (!egF.dep || t.department === egF.dep)
+      && (!egF.sc || (egF.sc.startsWith('p') ? String(t.project_id) === egF.sc.slice(1) : t.scope === egF.sc))
+      && (!egF.st || (egF.st === 'gec' ? egLate(t) : egF.st === 'dol' ? egExp(t) : t.status === egF.st)) && (!egF.y || ['gec', 'dol', 'talep'].includes(egF.st) || yr(t) === egF.y || (!yr(t) && t.status !== 'iptal'))   // gecikmiş / süresi dolan / talep yıldan bağımsız
+      && (!s || [t.code, who(t), t.topic, t.kind, t.reason, t.provider, t.department, pName(t.project_id), t.note].join(' ').toLocaleLowerCase('tr').includes(s))); };
+  const kpis = () => { const Y = egF.y, inY = T.filter(t => t.status !== 'iptal' && t.status !== 'talep' && (!Y || yr(t) === Y)), done = inY.filter(t => t.status === 'tamamlandi');
+    const hrs = done.reduce((s, t) => s + (+t.duration_hours || 0), 0), cs = inY.map(t => C[t.id]).filter(Boolean), sum = k => cs.reduce((s, x) => s + (+x[k] || 0), 0);
+    return `<div class="kpis ${bud ? 'k5' : ''}" style="grid-template-columns:repeat(${bud ? 5 : 4},minmax(0,1fr))"><div class="kpi"><div class="l">Tamamlanma ${esc(Y || '')}</div><div class="v">${inY.length ? Math.round(100 * done.length / inY.length) : 0} %</div><div class="d">${done.length} / ${inY.length} eğitim</div></div>
+      <div class="kpi"><div class="l">Tamamlanan</div><div class="v">${done.length}</div><div class="d">${Y ? Y + ' yılında' : 'tüm yıllar'}</div></div>
+      <div class="kpi"><div class="l">Toplam süre</div><div class="v">${kFmt(hrs)}</div><div class="d">saat</div></div>
+      <div class="kpi ${T.some(egLate) ? 'alert' : ''}"><div class="l">Geciken / talep</div><div class="v">${T.filter(egLate).length}</div><div class="d">${T.filter(t => t.status === 'talep').length} talep bekliyor · ${T.filter(egExp).length} süresi dolan</div></div>
+      ${bud ? `<div class="kpi"><div class="l">Bütçe ${esc(Y || '')}</div><div class="v">${fmtMoney(sum('budget'), 'TRY')}</div><div class="d">harcanan ${fmtMoney(sum('spent'), 'TRY')}</div></div>` : ''}</div>`; };
+  const drawT = () => { const V = vis();
+    q('#egk').innerHTML = kpis(); q('#egn').textContent = V.length + ' / ' + T.length;
+    q('#egt').innerHTML = V.length ? `<div class="tablewrap"><table><thead><tr>${['Kod', 'Kişi', 'Eğitim', 'Tür', 'Kapsam', 'Hedef', 'Durum', 'Süre', 'Geçerlilik', ...(bud ? ['Bütçe / harcanan'] : []), ''].map(h => `<th class="nosort">${h}</th>`).join('')}</tr></thead><tbody>${V.map(t => { const x = C[t.id];
+      return `<tr style="cursor:default" data-t="${t.id}" class="${egLate(t) ? 'eg-late' : t.status === 'tamamlandi' && !egExp(t) ? 'eg-done' : ''}"><td class="mono nw">${esc(t.code || '')}</td><td>${esc(who(t))}${t.department ? `<div class="sub">${esc(t.department)}</div>` : ''}</td>
+        <td><b style="font-weight:600">${esc(t.topic)}</b>${t.reason ? `<div class="sub">${esc(t.reason)}</div>` : ''}${t.provider ? `<div class="sub">${esc(t.provider)}${t.provider_url ? ` · <a href="${esc(safeUrl(t.provider_url))}" target="_blank" rel="noopener">web ↗</a>` : ''}</div>` : ''}</td>
+        <td>${esc(t.kind || '')}</td><td>${esc(t.scope === 'proje' ? pName(t.project_id) || 'Proje' : EG_SCOPE[t.scope] || '')}</td><td class="nw">${t.planned_date ? fmtD(t.planned_date) : esc(t.planned_text || '—')}</td>
+        <td class="nw">${egPill(t)}${t.done_date ? `<div class="sub">${fmtD(t.done_date)}</div>` : ''}</td><td class="num">${t.duration_hours != null ? kFmt(+t.duration_hours) + ' sa' : ''}</td>
+        <td class="nw">${t.valid_until ? fmtD(t.valid_until) : t.repeat_months ? t.repeat_months + ' ayda bir' : ''}</td>${bud ? `<td class="num nw">${x ? `${x.budget != null ? fmtMoney(x.budget, x.currency) : '—'}<div class="sub">${x.spent != null ? fmtMoney(x.spent, x.currency) : ''}</div>` : ''}</td>` : ''}
+        <td class="nw">${t.person_id === me && t.status === 'planlandi' ? '<button type="button" class="btn sm primary" data-a="d">Tamamladım</button> ' : ''}${ed ? '<button type="button" class="btn sm" data-a="e">Düzenle</button>' : bud ? '<button type="button" class="btn sm" data-a="b">Bütçe</button>' : ''}${!ed && t.status === 'talep' && t.requested_by === me ? ' <button type="button" class="btn sm" data-a="x">Talebi sil</button>' : ''}</td></tr>`; }).join('')}</tbody></table></div>`
+      : `<div class="empty">${T.length ? 'Bu süzgeçle eğitim yok.' : 'Henüz eğitim kaydı yok.'}</div>`; };
+  const drawP = () => { const p = q('#egp'); if (!mode) return (p.innerHTML = ''); const t = mode.t || {}, x = (mode.t && C[mode.t.id]) || {}, v = k => esc(t[k] ?? ''), today0 = today();
+    const sel = (id, o, cur) => `<select id="${id}">${o.map(([k, l]) => `<option value="${esc(k)}" ${String(cur ?? '') === String(k) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+    const budF = bud ? `<label>Bütçe<input type="number" step="any" min="0" id="egb" value="${esc(x.budget ?? '')}"></label><label>Harcanan<input type="number" step="any" min="0" id="egs" value="${esc(x.spent ?? '')}"></label><label>Para birimi${sel('egc', [['TRY', 'TRY'], ['USD', 'USD'], ['EUR', 'EUR']], x.currency || 'TRY')}</label>` : '';
+    if (mode.k === 'd') p.innerHTML = `<section class="panel mt"><h2>${esc(t.code)} · ${esc(t.topic)} · tamamlandı</h2><form id="egf" class="kys" novalidate><div class="fgrid"><label>Tamamlanma tarihi<input type="date" id="egdd" value="${today0}" max="${today0}"></label><label>Süre (saat)<input type="number" step="0.5" min="0" id="egdh" value="${v('duration_hours')}"></label><label class="w3">Not <span class="hint">sertifika, kanıt yeri…</span><input type="text" id="egdn" maxlength="500"></label></div><p><button class="btn primary">Kaydet</button> <button type="button" class="btn" data-a="c">Vazgeç</button></p></form></section>`;
+    else if (mode.k === 'b') p.innerHTML = `<section class="panel mt"><h2>${esc(t.code)} · ${esc(t.topic)} · bütçe</h2><form id="egf" class="kys" novalidate><div class="fgrid">${budF}</div><p><button class="btn primary">Kaydet</button> <button type="button" class="btn" data-a="c">Vazgeç</button></p></form></section>`;
+    else if (mode.k === 'r') p.innerHTML = `<section class="panel mt"><h2>Eğitim talebi</h2><p class="note" style="margin-top:0">Talep Kalite'ye düşer; planlanınca listede "Planlandı" olur.</p><form id="egf" class="kys" novalidate><div class="fgrid">
+      <label class="w2">Eğitim konusu<input type="text" id="eg_topic" maxlength="300"></label><label>Tür${sel('eg_kind', [['', ''], ...EG_KIND.map(k => [k, k])], '')}</label>
+      <label class="w3">Gerekçe<input type="text" id="eg_reason" maxlength="500"></label><label>Eğitim veren kuruluş<input type="text" id="eg_provider" maxlength="200"></label><label>Web adresi<input type="url" id="eg_provider_url" maxlength="300"></label><label>İstenen tarih<input type="date" id="eg_planned_date"></label></div>
+      <p><button class="btn primary">Talep gönder</button> <button type="button" class="btn" data-a="c">Vazgeç</button></p></form></section>`;
+    else { const pp = [['', '— kişi seçin —'], ...(ppl || []).map(x => [x.id, x.name])];
+      p.innerHTML = `<section class="panel mt"><h2>${mode.t ? esc(t.code) + ' düzenle' : 'Yeni eğitim'}</h2><form id="egf" class="kys" novalidate><div class="fgrid">
+      <label>Kapsam${sel('eg_scope', Object.entries(EG_SCOPE), t.scope || 'kisi')}</label><label>Kişi${sel('eg_person_id', pp, t.person_id || '')}</label><label>Kişi (profilsiz / ekip) <input type="text" id="eg_person_name" maxlength="120" value="${t.person_id ? '' : v('person_name')}"></label>
+      <label>Proje${sel('eg_project_id', [['', '—'], ...(pn || []).map(x => [x.id, x.code + ' · ' + (x.tag || x.name)])], t.project_id || '')}</label><label>Departman${sel('eg_department', [['', '—'], ...[...new Set([...KPI_DEPS, ...T.map(x => x.department).filter(Boolean)])].map(d => [d, d])], t.department || '')}</label><label>Tür${sel('eg_kind', [['', ''], ...EG_KIND.map(k => [k, k])], t.kind || '')}</label>
+      <label class="w3">Eğitim konusu<input type="text" id="eg_topic" maxlength="300" value="${v('topic')}"></label><label class="w3">Gerekçe / gereklilik<input type="text" id="eg_reason" maxlength="500" value="${v('reason')}"></label>
+      <label>Eğitim veren kuruluş<input type="text" id="eg_provider" maxlength="200" value="${v('provider')}"></label><label>Web adresi<input type="url" id="eg_provider_url" maxlength="300" value="${v('provider_url')}"></label><label>Tekrar süresi (ay)<input type="number" min="1" max="120" id="eg_repeat_months" value="${v('repeat_months')}"></label>
+      <label>Hedef tarih<input type="date" id="eg_planned_date" value="${v('planned_date')}"></label><label>Tarihsiz plan <span class="hint">ör. yasal periyoda göre</span><input type="text" id="eg_planned_text" maxlength="100" value="${v('planned_text')}"></label><label>Durum${sel('eg_status', Object.entries(EG_ST), t.status || 'planlandi')}</label>
+      <label>Tamamlanma tarihi<input type="date" id="eg_done_date" value="${v('done_date')}"></label><label>Süre (saat)<input type="number" step="0.5" min="0" id="eg_duration_hours" value="${v('duration_hours')}"></label><label>Sertifika<input type="text" id="eg_certificate" maxlength="100" value="${v('certificate')}"></label>
+      <label class="w2">Sertifika / kanıt yeri<input type="text" id="eg_cert_location" maxlength="300" value="${v('cert_location')}"></label><label>Etkinlik sonucu<input type="text" id="eg_effectiveness" maxlength="300" value="${v('effectiveness')}"></label>
+      <label class="w3">Not<textarea id="eg_note" rows="2" maxlength="2000">${v('note')}</textarea></label>${budF}</div>
+      <p><button class="btn primary">Kaydet</button> <button type="button" class="btn" data-a="c">Vazgeç</button>${mode.t ? ' <span style="flex:1"></span><button type="button" class="btn danger" data-a="del">Sil</button>' : ''}</p></form></section>`; }
+    p.scrollIntoView({ block:'nearest' });
+    q('#egf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const g = id => (q('#' + id) || {}).value?.trim?.() ?? '', n = id => g(id) === '' ? null : +g(id);
+      const saveCost = async id => { if (!bud) return true; const o = { training_id:id, budget:n('egb'), spent:n('egs'), currency:g('egc') || 'TRY' };
+        if (o.budget == null && o.spent == null && !C[id]) return true; const r = await sb.from('q_training_costs').upsert(o).select('training_id'); if (r.error) { toast(dbErr(r.error), true); return false; } C[id] = { ...C[id], ...o }; return true; };
+      if (mode.k === 'd') { const r = await sb.rpc('q_training_done', { p_id:t.id, p_date:g('egdd'), p_hours:n('egdh'), p_note:g('egdn') }); if (r.error) return toast(dbErr(r.error), true); toast('Tamamlandı olarak işaretlendi'); return viewTrainings(); }
+      if (mode.k === 'b') { if (await saveCost(t.id)) { toast('Kaydedildi'); mode = null; drawP(); drawT(); } return; }
+      const F = ['topic', 'kind', 'reason', 'provider', 'provider_url', 'planned_date'].concat(mode.k === 'r' ? [] : ['scope', 'person_name', 'project_id', 'department', 'planned_text', 'status', 'done_date', 'certificate', 'cert_location', 'effectiveness', 'note']);
+      const o = {}; F.forEach(k => o[k] = g('eg_' + k) || null); if (!o.topic || o.topic.length < 2) return toast('Eğitim konusunu yazın', true);
+      if (mode.k === 'r') Object.assign(o, { status:'talep', person_id:me, person_name:S.profile.full_name || S.profile.email, requested_by:me, scope:'kisi' });
+      else { const pid = g('eg_person_id'); o.person_id = pid || null; if (pid) o.person_name = ((ppl || []).find(x => x.id === pid) || {}).name || null; o.project_id = o.project_id ? +o.project_id : null;
+        o.repeat_months = n('eg_repeat_months'); o.duration_hours = n('eg_duration_hours'); if (o.status === 'tamamlandi' && !o.done_date) o.done_date = today(); if (o.scope === 'proje' && !o.project_id) return toast('Projeyi seçin', true); }
+      const r = mode.t ? await sb.from('q_trainings').update(o).eq('id', t.id).select('id') : await sb.from('q_trainings').insert(o).select('id');
+      if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Kaydedilemedi', true);
+      if (!(await saveCost(r.data[0].id))) return; toast(mode.k === 'r' ? 'Talep gönderildi' : 'Kaydedildi'); viewTrainings(); }); }; };
+  shell('egitim', `<div class="pagehead"><div><h1>Eğitimler</h1><p class="lede">ACR-LS-EG-01 · Eğitim, yetkinlik ve sertifika takibi. Eğitimi alan kişi "Tamamladım" ile işaretler; herkes eğitim talep edebilir. Planı Kalite yönetir.</p></div>
+    <div style="display:flex;gap:8px"><button class="btn" id="egreq">Eğitim talep et</button>${ed ? '<button class="btn primary" id="egnew">Yeni eğitim</button>' : ''}</div></div>
+    ${a.error ? `<div class="empty">${esc(dbErr(a.error))}</div>` : ''}<div id="egk"></div>
+    <div class="toolbar"><input type="search" id="egq" placeholder="Ara: eğitim, kişi, kuruluş…" value="${esc(egF.q)}"><select id="egy" aria-label="Yıl"><option value="">Tüm yıllar</option>${[...new Set([String(new Date().getFullYear()), ...T.map(yr).filter(Boolean)])].sort().reverse().map(y => `<option>${y}</option>`).join('')}</select>
+      <select id="egst" aria-label="Durum"><option value="">Durum: hepsi</option><option value="gec">Gecikmiş</option><option value="dol">Süresi dolmuş</option>${Object.entries(EG_ST).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+      <select id="egw" aria-label="Kişi"><option value="">Kişi: herkes</option>${[...new Set(T.map(who).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'tr')).map(w => `<option>${esc(w)}</option>`).join('')}</select>
+      <select id="egd" aria-label="Departman"><option value="">Departman: hepsi</option>${[...new Set(T.map(t => t.department).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'tr')).map(d => `<option>${esc(d)}</option>`).join('')}</select>
+      <select id="egsc" aria-label="Kapsam"><option value="">Kapsam: hepsi</option><option value="kisi">Kişi</option><option value="sirket">Şirket geneli</option>${(pn || []).map(p => `<option value="p${p.id}">${esc(p.code + ' · ' + (p.tag || p.name))}</option>`).join('')}</select>
+      <label class="chk"><input type="checkbox" id="egme" ${egF.me ? 'checked' : ''}> Yalnız benim</label><span class="sub" id="egn"></span><span style="flex:1"></span><button class="btn" id="egcsv">CSV indir</button></div>
+    <div id="egp" class="noprint"></div><div id="egt"></div>`);
+  [['#egy', 'y'], ['#egst', 'st'], ['#egw', 'who'], ['#egd', 'dep'], ['#egsc', 'sc']].forEach(([s, k]) => { q(s).value = egF[k]; q(s).onchange = e => { egF[k] = e.target.value; drawT(); }; });
+  q('#egq').oninput = e => { egF.q = e.target.value.trim(); drawT(); }; q('#egme').onchange = e => { egF.me = e.target.checked; drawT(); };
+  q('#egreq').onclick = () => { mode = { k:'r' }; drawP(); }; q('#egnew') && (q('#egnew').onclick = () => { mode = { k:'n' }; drawP(); });
+  q('#egcsv').onclick = () => { const H = ['Kod', 'Kişi', 'Departman', 'Kapsam', 'Proje', 'Eğitim', 'Tür', 'Gerekçe', 'Kuruluş', 'Web', 'Hedef', 'Durum', 'Tamamlanma', 'Süre (saat)', 'Sertifika', 'Kanıt yeri', 'Geçerlilik', 'Tekrar (ay)', 'Etkinlik', ...(bud ? ['Bütçe', 'Harcanan', 'Para birimi'] : [])];
+    const L = [H, ...vis().map(t => { const x = C[t.id] || {}; return [t.code, who(t), t.department, EG_SCOPE[t.scope], pName(t.project_id), t.topic, t.kind, t.reason, t.provider, t.provider_url, t.planned_date || t.planned_text, egLate(t) ? 'Gecikti' : EG_ST[t.status], t.done_date, t.duration_hours, t.certificate, t.cert_location, t.valid_until, t.repeat_months, t.effectiveness, ...(bud ? [x.budget, x.spent, x.currency] : [])]; })]
+      .map(r => r.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob(['﻿' + L], { type:'text/csv;charset=utf-8' })); el.download = `egitimler-${today()}.csv`; el.click(); };
+  q('#egp').onclick = async e => { const b = e.target.closest('[data-a]'); if (!b) return; if (b.dataset.a === 'c') { mode = null; drawP(); }
+    else if (b.dataset.a === 'del') { if (!confirmTwice(b, 'Emin misin?')) return; const r = await sb.from('q_trainings').delete().eq('id', mode.t.id).select('id'); if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Silinemedi', true); toast('Silindi'); viewTrainings(); } };
+  q('#egt').onclick = async e => { const b = e.target.closest('[data-a]'); if (!b) return; const t = T.find(x => x.id === +b.closest('tr').dataset.t);
+    if (b.dataset.a === 'x') { if (!confirmTwice(b, 'Emin misin?')) return; const r = await sb.from('q_trainings').delete().eq('id', t.id).select('id'); if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Silinemedi', true); toast('Talep silindi'); return viewTrainings(); }
+    mode = { k:b.dataset.a === 'e' ? 'e' : b.dataset.a, t }; drawP(); };
+  drawT();
+}
+
 // ---------------------------------------------------------------- KALİTE BELGELERİ (KYS)
 // Belge içeriği veritabanındadır (kys_content); depo herkese açık olduğu için burada yalnız görüntüleyici var.
 // Projeler kys_projects'te. Projeye özel belgeler (META.projectFile.docs) her projede kys_records 'doc' kaydıdır; numarası şablon kodu + proje kodu,
@@ -5438,8 +5543,8 @@ const KYS_GRP = { doc:'Prosedürler, planlar ve talimatlar', form:'Formlar', reg
 // güncel kaydı Acrome ERP yazılımında tutulan belgeler: belgedeki döküm yayın tarihindeki durumdur
 const KYS_LIVE = { 'ACR-FR-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-90':['#/rma', 'RMA kayıtları'], 'ACR-RP-UY-90':['#/support-rapor', 'Support raporu'],
   'ACR-LS-KF-90':['#/pcb/versiyon', 'PCB versiyonları'], 'ACR-LS-UR-91':['#/pcb/takip', 'PCB takip kayıtları'], 'ACR-LS-UR-90':['#/checklist-sablon', 'Checklist şablonları'], 'ACR-LS-KD-90':['#/motor-test', 'Motor testleri'],
-  'ACR-LS-TD-90':['#/tedarikciler', 'Tedarikçiler'], 'ACR-LS-TD-01':['#/tedarikciler', 'Tedarikçiler (onay durumu ve puan)'], 'ACR-LS-KL-01':['#/kalibrasyon', 'Kalibrasyon'], 'ACR-LS-KY-02':['#/kalite/hedefler', 'Süreç hedefleri'] };
-const KYS_ROWS_LIVE = { 'ACR-LS-RK-01':1 };      // satırları veritabanında tutulan listeler (kysRisk)
+  'ACR-LS-TD-90':['#/tedarikciler', 'Tedarikçiler'], 'ACR-LS-TD-01':['#/tedarikciler', 'Tedarikçiler (onay durumu ve puan)'], 'ACR-LS-KL-01':['#/kalibrasyon', 'Kalibrasyon'], 'ACR-LS-KY-02':['#/kalite/hedefler', 'Süreç hedefleri'], 'ACR-LS-EG-01':['#/egitim', 'Eğitimler'] };
+const KYS_ROWS_LIVE = { 'ACR-LS-RK-01':1, 'ACR-LS-RK-03':1 };      // satırları veritabanında tutulan listeler (kysRisk)
 const KYS_HDR = [{ l:'Kayıt no', t:'text', ro:1 }, { l:'Tarih', t:'date' }, { l:'Proje / kapsam', t:'text', proj:1 }, { l:'Kayıt sahibi', t:'text' }, { l:'Durum', t:'select', o:['Açık', 'İncelemede', 'Kapandı'] }, { l:'Kanıt / ERP bağlantısı', t:'text' }];
 const KYS_PST = { aktif:'Aktif', tamamlandi:'Tamamlandı', askida:'Askıda', iptal:'İptal' };
 const KYS_PKIND = { musteri:'Müşteri projesi', arge:'Ar-Ge projesi', ic:'İç proje' };
@@ -5781,6 +5886,67 @@ async function kysRisk(K, it){
       D[r.id] = D[r.id].filter(i => i !== did); drawT(); drawP(); } };
   ld();
 }
+// Bilgi varlığı ve tedarikçi risk kaydı (ACR-LS-RK-03) canlı: kys_records 'row', data = { row:[12 sütun], st, due, owner_id, supplier_id, opened, closed }
+// Aksiyon tarihi gelince sorumluya e-posta (q_rk3_remind, her sabah). Seviye puandan hesaplanır.
+const RK3_G = { 'Bilgi varlığı':'BV-', 'Tedarikçi':'TR-', 'Diğer':'DG-' };
+const rkLvPill = p => { const l = rkLv(p); return `<span class="pill ${l === 'Kritik' || l === 'Yüksek' ? 'sp-high' : l === 'Orta' ? 'p-amber' : 'p-green'}">${p} · ${l}</span>`; };
+async function kysRisk3(K, it){
+  const box = q('#krisk'), code = it.code, ed = canQ() && can('kalite', 'admin'), F = { st:'act', g:'', lv:'', s:'' }; let R = [], ppl = [], sups = [], mode = null, err = '', legacy = false;
+  const tr = s => String(s).toLocaleLowerCase('tr'), G = r => { const w = r.data.row || [], p = (+w[4] || 0) * (+w[5] || 0) || +w[6] || 0; return { w, p, st:r.data.st || 'Açık', due:r.data.due || '' }; };
+  const late = r => { const { st, due } = G(r); return RK_OPEN.includes(st) && /^\d{4}-/.test(due) && due < today(); };
+  const vis = () => R.filter(r => { const { w, p, st } = G(r); return (F.st === 'all' || (F.st === 'act' ? RK_OPEN.includes(st) : F.st === 'late' ? late(r) : st === F.st)) && (!F.g || w[1] === F.g) && (!F.lv || rkLv(p) === F.lv) && (!F.s || tr(w.join(' ')).includes(tr(F.s))); });
+  const supName = id => (sups.find(x => x.id === id) || {}).name || '';
+  const ld = async () => {
+    const [a, b, c] = await Promise.all([sb.from('kys_records').select('*').eq('code', code).eq('kind', 'row').is('project_id', null).order('id'), people().catch(() => []), sb.from('suppliers').select('id,name').order('name')]);
+    err = a.error ? dbErr(a.error) : ''; R = a.data || []; ppl = b || []; sups = c.data || [];
+    legacy = !R.length && !a.error; if (legacy) R = (it.rows || []).map(row => ({ id:null, data:{ row, st:'Açık' } }));
+    draw(); };
+  const drawT = () => { const V = vis(); q('#r3n').textContent = V.length + ' / ' + R.length;
+    q('#r3t').innerHTML = `<table class="rkt"><thead><tr>${['No', 'Grup', 'Varlık / tedarikçi', 'Tehdit / risk', 'O', 'E', 'Puan', 'Mevcut kontrol', 'Ek önlem / aksiyon', 'Sahip', 'Aksiyon tarihi', 'Durum', 'Kaynak'].map(c => `<th class="nosort">${c}</th>`).join('')}<th class="nosort noprint"></th></tr></thead><tbody>${V.map(r => { const { w, p, st, due } = G(r), lt = late(r);
+      return `<tr style="cursor:default" data-r="${r.id}"${lt ? ' class="rk-late"' : ''}><td class="nw">${esc(w[0])}</td><td>${esc(w[1])}</td><td>${esc(w[2])}${r.data.supplier_id ? `<div class="sub"><a href="#/tedarikciler/${r.data.supplier_id}">${esc(supName(r.data.supplier_id) || 'tedarikçi kartı')} →</a></div>` : ''}</td><td>${esc(w[3])}</td><td>${esc(w[4])}</td><td>${esc(w[5])}</td><td class="nw">${p ? rkLvPill(p) : ''}</td>
+        <td>${esc(w[8])}</td><td>${esc(w[9])}</td><td>${esc(w[10])}</td><td class="nw">${/^\d{4}-/.test(due) ? fmtD(due) : ''}${lt ? '<div class="sub">gecikti</div>' : ''}</td><td>${esc(st)}</td><td>${esc(w[11])}</td>
+        <td class="noprint nw">${r.id && ed ? '<button type="button" class="btn sm" data-a="e">Düzenle</button> <button type="button" class="btn sm" data-a="d">Sil</button>' : ''}</td></tr>`; }).join('') || '<tr><td colspan="14" class="sub">Bu süzgeçle kayıt yok.</td></tr>'}</tbody></table>`; };
+  const drawP = () => { const p = q('#r3p'); if (!mode) return (p.innerHTML = '');
+    const r = mode.r, d = r ? r.data : {}, w = d.row || [], v = i => esc(w[i] ?? ''), sel = (id, o, cur) => `<select id="${id}">${o.map(x => Array.isArray(x) ? x : [x, x]).map(([k, l]) => `<option value="${esc(k)}"${String(cur ?? '') === String(k) ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+    const next = g => { const pre = RK3_G[g] || 'DG-'; return pre + String(1 + Math.max(0, ...R.map(x => (x.data.row || [])[0] || '').filter(n => n.startsWith(pre)).map(n => parseInt(n.slice(3), 10) || 0))).padStart(2, '0'); };
+    p.innerHTML = `<section class="panel mt"><h2>${r ? esc(w[0]) + ' düzenle' : 'Yeni risk'}</h2><form id="r3f" class="kys" novalidate><div class="fgrid">
+      <label>Grup${sel('r3g', Object.keys(RK3_G), w[1] || 'Bilgi varlığı')}</label><label>No<input type="text" id="r3no" maxlength="20" value="${r ? v(0) : next('Bilgi varlığı')}"></label><label>Tedarikçi <span class="hint">tedarikçi riskinde</span>${sel('r3sup', [['', '—'], ...sups.map(x => [x.id, x.name])], d.supplier_id || '')}</label>
+      <label class="w3">Varlık / tedarikçi kalemi<input type="text" id="r3a" maxlength="300" value="${v(2)}"></label><label class="w3">Tehdit / risk<textarea id="r3t2" rows="2" maxlength="500">${v(3)}</textarea></label>
+      <label>O (olasılık 1-5)${sel('r3o', [1, 2, 3, 4, 5], w[4] || 3)}</label><label>E (etki 1-5)${sel('r3e', [1, 2, 3, 4, 5], w[5] || 3)}</label><label>Puan · seviye<input type="text" id="r3p2" readonly></label>
+      <label class="w3">Mevcut kontrol<textarea id="r3c" rows="2" maxlength="1000">${v(8)}</textarea></label><label class="w3">Ek önlem / aksiyon<textarea id="r3x" rows="2" maxlength="1000">${v(9)}</textarea></label>
+      <label>Sorumlu (hatırlatma gider)${sel('r3own', [['', '—'], ...ppl.map(x => [x.id, x.name])], d.owner_id || '')}</label><label>Sahip (metin) <span class="hint">sorumlu seçilmezse</span><input type="text" id="r3ow" maxlength="120" value="${d.owner_id ? '' : v(10)}"></label><label>Aksiyon tarihi<input type="date" id="r3due" value="${esc(/^\d{4}-/.test(d.due || '') ? d.due : '')}"></label>
+      <label>Durum${sel('r3st', RK_ST, d.st || 'Açık')}</label><label class="w2">Kaynak / dayanak<input type="text" id="r3k" maxlength="300" value="${v(11)}"></label></div>
+      <p><button class="btn primary">Kaydet</button> <button type="button" class="btn" data-a="x">Vazgeç</button></p></form></section>`;
+    const pt = () => { const x = (+q('#r3o').value) * (+q('#r3e').value); q('#r3p2').value = x + ' · ' + rkLv(x); }; pt(); q('#r3o').onchange = q('#r3e').onchange = pt;
+    q('#r3g').onchange = e => { if (!r) q('#r3no').value = next(e.target.value); };
+    q('#r3f').onsubmit = e => { e.preventDefault(); return busy(e, async () => {
+      const g = id => q('#' + id).value.trim(), o = +g('r3o'), ef = +g('r3e'), pp = o * ef, no = g('r3no'), own = g('r3own'), st = g('r3st');
+      if (!no || !g('r3a')) return toast('No ve varlık / kalem gerekli', true);
+      if (R.some(x => x !== r && (x.data.row || [])[0] === no)) return toast('Bu No zaten var', true);
+      const owner = own ? (ppl.find(x => x.id === own) || {}).name || '' : g('r3ow');
+      const row = [no, g('r3g'), g('r3a'), g('r3t2'), String(o), String(ef), String(pp), rkLv(pp), g('r3c'), g('r3x'), owner, g('r3k')];
+      const data = { ...d, row, st, due:g('r3due') || null, owner_id:own || null, supplier_id:g('r3sup') ? +g('r3sup') : null, opened:d.opened || today(), closed:RK_OPEN.includes(st) ? null : d.closed || today() };
+      if (data.due !== d.due) delete data.notified_for;       // yeni aksiyon tarihi için hatırlatma yeniden gider
+      const label = (no + ' · ' + row[2]).slice(0, 200), x = r ? await sb.from('kys_records').update({ label, data }).eq('id', r.id).select('id') : await sb.from('kys_records').insert({ code, kind:'row', label, data }).select('id');
+      if (x.error || !x.data || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Kaydedilemedi', true);
+      mode = null; toast('Kaydedildi'); ld(); }); }; p.scrollIntoView({ block:'nearest' }); };
+  const draw = () => {
+    box.innerHTML = `${err ? `<div class="empty">${esc(err)}</div>` : ''}${legacy ? '<p class="banner noprint">Satırlar henüz Acrome ERP yazılımına aktarılmadı; yayınlanan döküm gösteriliyor.</p>' : ''}
+    <div class="toolbar noprint"><select id="r3s" aria-label="Durum"><option value="all">Durum: tümü</option><option value="act">Açık + İzlemede</option><option value="late">Aksiyon tarihi geçmiş</option>${RK_ST.map(s => `<option>${s}</option>`).join('')}</select>
+      <select id="r3gf" aria-label="Grup"><option value="">Grup: tümü</option>${Object.keys(RK3_G).map(s => `<option>${s}</option>`).join('')}</select><select id="r3lv" aria-label="Seviye"><option value="">Seviye: tümü</option>${RK_LV.map(s => `<option>${s}</option>`).join('')}</select>
+      <input type="search" id="r3q" placeholder="Ara…" maxlength="60" aria-label="Ara"><span class="sub" id="r3n"></span><span style="flex:1"></span><button type="button" class="btn" id="r3csv">CSV indir</button>${ed && !legacy ? '<button type="button" class="btn primary" data-a="n">Yeni risk</button>' : ''}</div>
+    <div id="r3p" class="noprint"></div><div class="rk-wrap" id="r3t"></div>`;
+    q('#r3s').value = F.st; q('#r3gf').value = F.g; q('#r3lv').value = F.lv; q('#r3q').value = F.s;
+    q('#r3s').onchange = e => { F.st = e.target.value; drawT(); }; q('#r3gf').onchange = e => { F.g = e.target.value; drawT(); }; q('#r3lv').onchange = e => { F.lv = e.target.value; drawT(); }; q('#r3q').oninput = e => { F.s = e.target.value.trim(); drawT(); };
+    q('#r3csv').onclick = () => { const lines = [['No', 'Grup', 'Varlık / tedarikçi', 'Tehdit / risk', 'O', 'E', 'Puan', 'Seviye', 'Mevcut kontrol', 'Ek önlem / aksiyon', 'Sahip', 'Kaynak', 'Aksiyon tarihi', 'Durum', 'Tedarikçi'], ...vis().map(r => [...(r.data.row || []).slice(0, 12), r.data.due || '', G(r).st, supName(r.data.supplier_id)])]
+        .map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `bilgi-tedarikci-risk-${today()}.csv`; a.click(); };
+    drawT(); drawP(); };
+  box.onclick = async e => { const b = e.target.closest('[data-a]'); if (!b) return; const r = R.find(x => x.id === +(b.closest('tr') || { dataset:{} }).dataset.r);
+    if (b.dataset.a === 'n') { mode = { k:'n' }; drawP(); } else if (b.dataset.a === 'e') { mode = { k:'e', r }; drawP(); } else if (b.dataset.a === 'x') { mode = null; drawP(); }
+    else if (b.dataset.a === 'd') { if (!confirmTwice(b, 'Emin misin?')) return; const x = await sb.from('kys_records').delete().eq('id', r.id).select('id'); if (x.error || !x.data || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Silinemedi', true); toast('Silindi'); ld(); } };
+  ld();
+}
 // uzun metin kutuları içerik kadar uzar (ekranda ve yazdırmada kesilmesin)
 const kGrow = el => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 2 + 'px'; };
 const kGrowAll = () => qa('#ksheet textarea.ag').forEach(kGrow);
@@ -5857,7 +6023,7 @@ async function viewKys(){
   if (pc && kInst(K, P, pc)) return kysInstBind(K, P, pc, inst);
   const sheet = q('#ksheet'), it = sub === 'i' ? K.BY[code] : pc ? K.BY[pc] : null;
   if (sheet) { sheet.addEventListener('input', kysRecalc); kysRecalc(); }
-  if (it && q('#krisk')) return kysRisk(K, it);
+  if (it && q('#krisk')) return it.code === 'ACR-LS-RK-03' ? kysRisk3(K, it) : kysRisk(K, it);
   if (!it || !q('#krecs')) return;
   if (it.kind === 'form') { kysFormBind(K, it, P); kGrowAll(); } else kysRows(K, it.code, it.columns || [], P);
 }
