@@ -44,7 +44,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .side .me{margin-top:auto;padding:12px 10px 0;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
 .side .me b{color:var(--ink);display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis}
 .linkbtn{background:none;border:0;padding:0;color:var(--brand-text);cursor:pointer;text-decoration:underline}
-.main{padding:28px 32px 60px;min-width:0;max-width:1400px}
+.main{padding:28px 32px 60px;min-width:0;max-width:1760px;width:100%;margin:0 auto}   /* paneller küçülünce orta alan genişler; çok geniş ekranda ortada durur */
 .topbar{display:none}
 
 h1{font-stretch:82%;font-weight:740;font-size:27px;line-height:1.15;letter-spacing:-.01em;margin:0 0 4px}
