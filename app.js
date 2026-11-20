@@ -2871,33 +2871,62 @@ async function viewNotifications(){
     if (r.dataset.nl) { await sb.from('support_notifications').update({ read_at: new Date().toISOString() }).eq('id', +r.dataset.nid2).is('read_at', null); loadSupport(); location.hash = r.dataset.nl; } });
 }
 
+// Yeni konu sayfası İngilizce (kullanıcı kararı 21.11): konu, kişi adı ve ilk not müşteriye giden kayıt e-postasına girer; sayfa bunu işaretler ve önizler
+const SUP_CAT_EN = { support:'Technical support', sales:'Sales', admin:'Administrative / payment', other:'Other' };
 async function viewTicketNew(){
   if (!S.supSet) await loadSupport();
   await people();
-  shell('support-yeni', `<p><a href="#/support">← Support listesi</a></p><h1>Yeni support konusu</h1>
-  <p class="lede">Telefon, Meet, Basecamp, yüz yüze ya da başka bir adrese gelen e-postayla iletilen konuyu kaydetmek için. support@acrome.net'e gelen mailler otomatik eklenir. Her konu SUP-00000 biçiminde kalıcı bir kayıt kodu alır.</p>
+  // label.f dikey flex: ad + rozet tek satırda kalsın diye tek span içinde; Subject zorunluluğu JS'te denetlenir (otomatik Türkçe "Zorunlu alan" notu çıkmasın)
+  const lb = (t, c) => `<span>${t}${c ? ' <span class="pill" style="background:var(--amber-soft);color:var(--amber);font-weight:600" title="This text is sent to the customer">sent to customer</span>' : ''}</span>`;
+  shell('support-yeni', `<p><a href="#/support">← Support list</a></p><h1>New support ticket</h1>
+  <p class="lede">Record a request that came by phone, Meet, Basecamp, in person or by e-mail to another address. Mails sent to support@acrome.net are added automatically. Every ticket gets a permanent code (SUP-00000).</p>
+  <p class="banner" id="tnwarn"><b>Write in English.</b> If "Send confirmation e-mail" is ticked, the <b>subject</b>, the <b>customer's first name</b> and the <b>request / first note</b> are e-mailed to the customer exactly as typed (from support@acrome.net). Do not put internal notes, prices or colleague names in these fields.</p>
   <form id="tn" class="fs" style="max-width:760px" novalidate>
-    <label class="f">Konu<input type="text" name="subject" required></label>
-    <div class="row r2"><label class="f">Kategori<select name="category">${Object.entries(SUP_CAT).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
-    <label class="f">Ürün<select name="product"><option value="">—</option>${S.products.map(p=>`<option value="${p.code}">${esc(p.name)}</option>`).join('')}</select></label></div>
-    <div class="row r2"><label class="f">Müşteri (kişi)<input type="text" name="customer_name"></label><label class="f">Kurum / bayi<input type="text" name="organization"></label></div>
-    <div class="row r2"><label class="f">Ülke<input type="text" name="country"></label><label class="f">E-posta<input type="email" name="contact_email"></label></div>
-    <div class="row r2"><label class="f">Sorumlu<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${p.id===((S.supSet||{}).default_assignee||S.profile.id)?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
-    <label class="f">Kaynak<select name="src"><option value="note">Not</option><option value="gmail">E-posta</option><option value="call">Telefon</option><option value="meet">Meet</option></select></label></div>
-    <label class="f">Talep / ilk not <span class="hint">müşteriye giden kayıt e-postasında da yer alır</span><textarea name="body" rows="5"></textarea></label>
-    <label class="chk"><input type="checkbox" name="ack" checked> Müşteriye kayıt e-postası gönder (İngilizce; kayıt kodu, konu ve ilk not; cevaplar support@acrome.net'e döner)</label>
-    <p><button class="btn primary">Konuyu aç</button></p>
+    <label class="f">${lb('Subject (required)', 1)}<input type="text" name="subject"></label>
+    <div class="row r2"><label class="f">Category<select name="category">${Object.entries(SUP_CAT_EN).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
+    <label class="f">Product<select name="product"><option value="">—</option>${S.products.map(p=>`<option value="${p.code}">${esc(p.name)}</option>`).join('')}</select></label></div>
+    <div class="row r2"><label class="f">${lb('Customer name', 1)}<input type="text" name="customer_name" placeholder="First name is used in the greeting"></label><label class="f">Organization / reseller<input type="text" name="organization"></label></div>
+    <div class="row r2"><label class="f">Country<input type="text" name="country"></label><label class="f">Customer e-mail<input type="email" name="contact_email"></label></div>
+    <div class="row r2"><label class="f">Assignee<select name="assignee"><option value="">—</option>${supPeople.map(p=>`<option value="${p.id}" ${p.id===((S.supSet||{}).default_assignee||S.profile.id)?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+    <label class="f">Source<select name="src"><option value="note">Note</option><option value="gmail">E-mail</option><option value="call">Phone</option><option value="meet">Meet</option></select></label></div>
+    <label class="f">${lb('Request / first note', 1)}<textarea name="body" rows="5"></textarea></label>
+    <label class="chk"><input type="checkbox" name="ack" checked> Send confirmation e-mail to the customer (ticket code, subject and request; replies go to support@acrome.net)</label>
+    <details class="mt" id="tnpv" open><summary>Customer e-mail preview</summary><pre class="sub" id="tnpvb" style="white-space:pre-wrap;font-family:inherit;margin:8px 0 0;padding:10px;border:1px solid var(--line);border-radius:var(--radius)"></pre></details>
+    <p><button class="btn primary">Open ticket</button></p>
   </form>`);
-  q('#tn').onsubmit = e => {
-    e.preventDefault(); return busy(e, async () => { const f = e.target; const v = n => f[n].value.trim() || null;
-    if (!v('subject')) return toast('Konu boş olamaz', true);
+  const f = q('#tn'), v = n => f[n].value.trim() || null;
+  const pv = () => { const on = f.ack.checked; q('#tnpv').hidden = !on; q('#tnwarn').hidden = !on; if (!on) return;
+    const first = (v('customer_name') || '').split(/\s+/)[0] || 'Customer';
+    q('#tnpvb').textContent = `To: ${v('contact_email') || '(customer e-mail missing — no e-mail will be sent)'}
+Subject: [SUP-…] ${v('subject') || ''}
+
+Dear ${first},
+
+Thank you for contacting Acrome. We have opened a support ticket for your request.
+
+Ticket number: SUP-…
+Subject: ${v('subject') || ''}
+${v('body') ? `
+Your request:
+${v('body')}
+` : ''}
+Our team will get back to you as soon as possible. Please keep the ticket number in the subject line when you reply to this e-mail.
+
+Best regards,
+Acrome Support
+support@acrome.net`; };
+  f.addEventListener('input', pv); f.ack.onchange = pv; pv();
+  f.onsubmit = e => {
+    e.preventDefault(); return busy(e, async () => {
+    if (!v('subject')) return toast('Subject is required', true);
+    if (f.ack.checked && !v('contact_email')) return toast('Enter the customer e-mail or untick "Send confirmation e-mail"', true);
     const { data, error } = await sb.from('support_tickets').insert({ subject:v('subject'), category:f.category.value, product:v('product'), customer_name:v('customer_name'),
       organization:v('organization'), country:v('country'), contact_email:v('contact_email'), assignee:v('assignee'), status:'ours' }).select('id').single();
     if (error) return toast(dbErr(error), true);
     if (v('body')) await sb.from('support_messages').insert({ ticket_id:data.id, source:f.src.value, direction:'internal', body:v('body'), from_name:S.profile.full_name || S.profile.email, from_email:S.profile.email });
-    let msg = 'Konu açıldı';
-    if (f.ack.checked && v('contact_email')) { const r = await sb.rpc('support_ticket_ack', { p_ticket:data.id }); msg = r.error ? 'Konu açıldı; kayıt e-postası gönderilemedi: ' + dbErr(r.error) : `Konu açıldı (${r.data}); kayıt e-postası müşteriye gidiyor`; }
-    await loadSupport(); toast(msg, /gönderilemedi/.test(msg)); location.hash = '#/support/' + data.id;
+    let msg = 'Ticket opened', bad = false;
+    if (f.ack.checked && v('contact_email')) { const r = await sb.rpc('support_ticket_ack', { p_ticket:data.id }); bad = !!r.error; msg = r.error ? 'Ticket opened; confirmation e-mail failed: ' + dbErr(r.error) : `Ticket ${r.data} opened; confirmation e-mail is on its way (within 5 min)`; }
+    await loadSupport(); toast(msg, bad); location.hash = '#/support/' + data.id;
   }); };
 }
 

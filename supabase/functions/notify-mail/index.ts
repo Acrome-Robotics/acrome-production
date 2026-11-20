@@ -12,13 +12,15 @@ const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
 const env = (k: string) => (Deno.env.get(k) || "").trim();
 const SITE = env("SITE_URL") || "https://acrome-robotics.github.io/acrome-production/";
 const FROM = env("MAIL_FROM") || "Acrome <noreply@acrome.net>";
+// müşteriye giden support e-postası (mail_outbox.body_text): SMTP hesabında doğrulanmış "farklı gönder" takma adı; iç bildirimler FROM ile kalır
+const SUPPORT_FROM = env("SUPPORT_FROM") || "Acrome Support <support@acrome.net>";
 const escH = (s: string) => s.replace(/[&<>\"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 const smtpOn = () => !!(env("SMTP_USER") && env("SMTP_PASS"));
 
-async function send(to: string, subject: string, text: string, html: string, replyTo?: string) {
+async function send(to: string, subject: string, text: string, html: string, replyTo?: string, from = FROM) {
   if (env("RESEND_API_KEY")) {
     const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${env("RESEND_API_KEY")}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}) }) });
+      body: JSON.stringify({ from, to: [to], subject, text, html, ...(replyTo ? { reply_to: replyTo } : {}) }) });
     if (!r.ok) throw new Error(`Resend ${r.status}: ${(await r.text()).slice(0, 200)}`);
     return;
   }
@@ -26,7 +28,7 @@ async function send(to: string, subject: string, text: string, html: string, rep
     const port = +(env("SMTP_PORT") || 465);
     const t = nodemailer.createTransport({ host: env("SMTP_HOST") || "smtp.gmail.com", port, secure: port === 465,
       auth: { user: env("SMTP_USER"), pass: env("SMTP_PASS").replace(/\s+/g, "") } });
-    await t.sendMail({ from: FROM, to, subject, text, html, ...(replyTo ? { replyTo } : {}) });
+    await t.sendMail({ from, to, subject, text, html, ...(replyTo ? { replyTo } : {}) });
     return;
   }
   throw new Error("mail ayarı yok");
@@ -76,7 +78,7 @@ Deno.serve(async (req) => {
     for (const m of box || []) {
       const b = m.body_text ? { text: m.body_text, html: `<div style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">${escH(m.body_text)}</div>` }
         : body((m.to_name || "").split(" ")[0], m.title, SITE + (m.link || ""));
-      try { await send(m.to_email, m.subject, b.text, b.html, m.reply_to || undefined); sent++; await db.from("mail_outbox").update({ sent_at: new Date().toISOString(), error: null }).eq("id", m.id); }
+      try { await send(m.to_email, m.subject, b.text, b.html, m.reply_to || undefined, m.body_text ? SUPPORT_FROM : FROM); sent++; await db.from("mail_outbox").update({ sent_at: new Date().toISOString(), error: null }).eq("id", m.id); }
       catch (e) { failed++; const msg = String((e as Error)?.message || e).slice(0, 160); errs.push(msg); await db.from("mail_outbox").update({ error: msg }).eq("id", m.id); }
     }
     return json({ sent, failed, errors: errs.slice(0, 3) });
