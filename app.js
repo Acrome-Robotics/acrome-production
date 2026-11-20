@@ -4386,9 +4386,9 @@ async function viewSuppliers(id){
     if (q('#accbox')) { const box = q('#accbox'), open = a => { box.innerHTML = accForm(a, all); bindAccForm(box, a, () => viewSuppliers(s.id)); box.scrollIntoView({ block:'nearest' }); };
       bindAccCells(document); q('#accadd').onclick = () => open({ supplier_id:s.id, kind:s.kind === 'kargo' ? 'kargo' : 'tedarikci', name:s.name, url:(s.websites || '').startsWith('http') ? s.websites : '' });
       qa('.aedit').forEach(b => b.onclick = () => open(ACC.find(a => a.id === +b.closest('tr').dataset.aid))); }
-    // risk kaydında (ACR-LS-RK-03) bu tedarikçiye bağlı satırlar: yalnız Kalite / Yönetici okur
-    if (s.id && q('#srisk')) sb.from('kys_records').select('data').eq('code', 'ACR-LS-RK-03').eq('kind', 'row').eq('data->>supplier_id', String(s.id)).then(({ data }) => { const b = q('#srisk'); if (!b || !(data || []).length) return; b.hidden = false; b.classList.add('mb');
-      b.innerHTML = `<h2>Risk kaydı <span class="sub">ACR-LS-RK-03</span></h2><ul class="sugg">${data.map(({ data:d }) => { const w = d.row || [], p = (+w[4] || 0) * (+w[5] || 0); return `<li><a href="#/kalite/i/ACR-LS-RK-03">${esc(w[0] || '')}</a> · ${esc(w[3] || '')} ${p ? rkLvPill(p) : ''} <span class="sub">${esc(d.st || 'Açık')}</span></li>`; }).join('')}</ul>`; });
+    // tedarikçi risk kaydında (ACR-LS-RK-04) bu tedarikçiye bağlı satırlar: yalnız Kalite / Yönetici okur
+    if (s.id && q('#srisk')) sb.from('kys_records').select('code,data').in('code', ['ACR-LS-RK-03', 'ACR-LS-RK-04']).eq('kind', 'row').eq('data->>supplier_id', String(s.id)).then(({ data }) => { const b = q('#srisk'); if (!b || !(data || []).length) return; b.hidden = false; b.classList.add('mb');
+      b.innerHTML = `<h2>Risk kaydı <span class="sub">ACR-LS-RK-04</span></h2><ul class="sugg">${data.map(({ code, data:d }) => { const w = d.row || [], p = (+w[4] || 0) * (+w[5] || 0); return `<li><a href="#/kalite/i/${esc(code)}">${esc(w[0] || '')}</a> · ${esc(w[3] || '')} ${p ? rkLvPill(p) : ''} <span class="sub">${esc(d.st || 'Açık')}</span></li>`; }).join('')}</ul>`; });
     if (s.id) supKarne().then(K => { const b = q('#skarne'); if (!b) return; const k = K[s.id];
       b.innerHTML = `<h2>Karne <span class="sub">son 12 ay</span></h2>${k ? `<dl class="kv">${[['Zamanında teslim', k.m ? `${k.k} / ${k.m} · <b>%${Math.round(100 * k.k / k.m)}</b>` : '<span class="sub">termini girilmiş teslim yok</span>'], ['Giriş kontrolü', k.gec + k.sar + k.kal ? `${k.gec} geçti · ${k.sar} şartlı · <span class="${k.kal ? 'late-txt' : ''}">${k.kal} kaldı</span>` : '<span class="sub">kayıt yok</span>'], ['Uygunsuzluk', k.ncr]].map(([a, v]) => `<dt>${a}</dt><dd>${v}</dd>`).join('')}</dl>` : '<p class="note">Son 12 ayda termini girilmiş teslim, giriş kontrolü veya uygunsuzluk yok.</p>'}
         <p class="note">Zamanında = teslim tarihi ≤ son girilen termin. Yıllık değerlendirmede "Puan" alanına buradan bakarak girin.</p>`; });
@@ -5544,12 +5544,12 @@ const KYS_GRP = { doc:'Prosedürler, planlar ve talimatlar', form:'Formlar', reg
 const KYS_LIVE = { 'ACR-FR-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-01':['#/uygunsuzluk', 'Uygunsuzluklar'], 'ACR-LS-UY-90':['#/rma', 'RMA kayıtları'], 'ACR-RP-UY-90':['#/support-rapor', 'Support raporu'],
   'ACR-LS-KF-90':['#/pcb/versiyon', 'PCB versiyonları'], 'ACR-LS-UR-91':['#/pcb/takip', 'PCB takip kayıtları'], 'ACR-LS-UR-90':['#/checklist-sablon', 'Checklist şablonları'], 'ACR-LS-KD-90':['#/motor-test', 'Motor testleri'],
   'ACR-LS-TD-90':['#/tedarikciler', 'Tedarikçiler'], 'ACR-LS-TD-01':['#/tedarikciler', 'Tedarikçiler (onay durumu ve puan)'], 'ACR-LS-KL-01':['#/kalibrasyon', 'Kalibrasyon'], 'ACR-LS-KY-02':['#/kalite/hedefler', 'Süreç hedefleri'], 'ACR-LS-EG-01':['#/egitim', 'Eğitimler'] };
-const KYS_ROWS_LIVE = { 'ACR-LS-RK-01':1, 'ACR-LS-RK-03':1 };      // satırları veritabanında tutulan listeler (kysRisk)
+const KYS_ROWS_LIVE = { 'ACR-LS-RK-01':1, 'ACR-LS-RK-03':1, 'ACR-LS-RK-04':1 };      // satırları veritabanında tutulan listeler (kysRisk)
 const KYS_HDR = [{ l:'Kayıt no', t:'text', ro:1 }, { l:'Tarih', t:'date' }, { l:'Proje / kapsam', t:'text', proj:1 }, { l:'Kayıt sahibi', t:'text' }, { l:'Durum', t:'select', o:['Açık', 'İncelemede', 'Kapandı'] }, { l:'Kanıt / ERP bağlantısı', t:'text' }];
 const KYS_PST = { aktif:'Aktif', tamamlandi:'Tamamlandı', askida:'Askıda', iptal:'İptal' };
 const KYS_PKIND = { musteri:'Müşteri projesi', arge:'Ar-Ge projesi', ic:'İç proje' };
 const kBlank = s => /^\s*\[[^\]]*\]\s*$/.test(String(s ?? '')) ? '' : s;
-const kSafe = s => esc(kBlank(s)).replace(/&lt;(\/?)(b|i|ul|ol|li|br|code)\s*\/?&gt;/g, '<$1$2>');
+const kSafe = s => esc(kBlank(s)).replace(/&lt;(\/?)(b|i|ul|ol|li|br|code)\s*\/?&gt;/g, '<$1$2>').replace(/&amp;(lt|gt|amp|quot|#\d+);/g, '&$1;');   // içerikteki &lt; vb. çift kaçmasın
 const kText = s => esc(s || '').replace(/\n/g, '<br>');
 // form metnindeki yer tutucular projeden doldurulur; kayıt anahtarı ham metinle kalır (proje değişse de kayıt açılır)
 const kVars = (s, p) => String(s ?? '').replace(/\{\{(musteri|Musteri|proje|kalite|Kalite)\}\}/g, (m, k) => { const lo = k.toLowerCase(), up = k !== lo;
@@ -5908,12 +5908,12 @@ async function kysRisk(K, it){
       D[r.id] = D[r.id].filter(i => i !== did); drawT(); drawP(); } };
   ld();
 }
-// Bilgi varlığı ve tedarikçi risk kaydı (ACR-LS-RK-03) canlı: kys_records 'row', data = { row:[12 sütun], st, due, owner_id, supplier_id, opened, closed }
+// Bilgi varlığı (ACR-LS-RK-03) ve tedarikçi (ACR-LS-RK-04) risk kayıtları canlı: kys_records 'row', data = { row:[12 sütun], st, due, owner_id, supplier_id, opened, closed }
 // Aksiyon tarihi gelince sorumluya e-posta (q_rk3_remind, her sabah). Seviye puandan hesaplanır.
-const RK3_G = { 'Bilgi varlığı':'BV-', 'Tedarikçi':'TR-', 'Diğer':'DG-' };
+const RK3_G = { 'ACR-LS-RK-03':{ 'Bilgi varlığı':'BV-', 'Diğer':'DG-' }, 'ACR-LS-RK-04':{ 'Tedarikçi':'TR-' } };
 const rkLvPill = p => { const l = rkLv(p); return `<span class="pill ${l === 'Kritik' || l === 'Yüksek' ? 'sp-high' : l === 'Orta' ? 'p-amber' : 'p-green'}">${p} · ${l}</span>`; };
 async function kysRisk3(K, it){
-  const box = q('#krisk'), code = it.code, ed = canQ() && can('kalite', 'admin'), F = { st:'act', g:'', lv:'', s:'' }; let R = [], ppl = [], sups = [], mode = null, err = '', legacy = false;
+  const box = q('#krisk'), code = it.code, GR = RK3_G[code], G0 = Object.keys(GR)[0], SUP = code === 'ACR-LS-RK-04', KL = SUP ? 'Tedarikçi / kalem' : 'Varlık', ed = canQ() && can('kalite', 'admin'), F = { st:'act', g:'', lv:'', s:'' }; let R = [], ppl = [], sups = [], mode = null, err = '', legacy = false;
   const tr = s => String(s).toLocaleLowerCase('tr'), G = r => { const w = r.data.row || [], p = (+w[4] || 0) * (+w[5] || 0) || +w[6] || 0; return { w, p, st:r.data.st || 'Açık', due:r.data.due || '' }; };
   const late = r => { const { st, due } = G(r); return RK_OPEN.includes(st) && /^\d{4}-/.test(due) && due < today(); };
   const vis = () => R.filter(r => { const { w, p, st } = G(r); return (F.st === 'all' || (F.st === 'act' ? RK_OPEN.includes(st) : F.st === 'late' ? late(r) : st === F.st)) && (!F.g || w[1] === F.g) && (!F.lv || rkLv(p) === F.lv) && (!F.s || tr(w.join(' ')).includes(tr(F.s))); });
@@ -5924,16 +5924,16 @@ async function kysRisk3(K, it){
     legacy = !R.length && !a.error; if (legacy) R = (it.rows || []).map(row => ({ id:null, data:{ row, st:'Açık' } }));
     draw(); };
   const drawT = () => { const V = vis(); q('#r3n').textContent = V.length + ' / ' + R.length;
-    q('#r3t').innerHTML = `<table class="rkt"><thead><tr>${['No', 'Grup', 'Varlık / tedarikçi', 'Tehdit / risk', 'O', 'E', 'Puan', 'Mevcut kontrol', 'Ek önlem / aksiyon', 'Sahip', 'Aksiyon tarihi', 'Durum', 'Kaynak'].map(c => `<th class="nosort">${c}</th>`).join('')}<th class="nosort noprint"></th></tr></thead><tbody>${V.map(r => { const { w, p, st, due } = G(r), lt = late(r);
+    q('#r3t').innerHTML = `<table class="rkt"><thead><tr>${['No', 'Grup', KL, 'Tehdit / risk', 'O', 'E', 'Puan', 'Mevcut kontrol', 'Ek önlem / aksiyon', 'Sahip', 'Aksiyon tarihi', 'Durum', 'Kaynak'].map(c => `<th class="nosort">${c}</th>`).join('')}<th class="nosort noprint"></th></tr></thead><tbody>${V.map(r => { const { w, p, st, due } = G(r), lt = late(r);
       return `<tr style="cursor:default" data-r="${r.id}"${lt ? ' class="rk-late"' : ''}><td class="nw">${esc(w[0])}</td><td>${esc(w[1])}</td><td>${esc(w[2])}${r.data.supplier_id ? `<div class="sub"><a href="#/tedarikciler/${r.data.supplier_id}">${esc(supName(r.data.supplier_id) || 'tedarikçi kartı')} →</a></div>` : ''}</td><td>${esc(w[3])}</td><td>${esc(w[4])}</td><td>${esc(w[5])}</td><td class="nw">${p ? rkLvPill(p) : ''}</td>
         <td>${esc(w[8])}</td><td>${esc(w[9])}</td><td>${esc(w[10])}</td><td class="nw">${/^\d{4}-/.test(due) ? fmtD(due) : ''}${lt ? '<div class="sub">gecikti</div>' : ''}</td><td>${esc(st)}</td><td>${esc(w[11])}</td>
         <td class="noprint nw">${r.id && ed ? '<button type="button" class="btn sm" data-a="e">Düzenle</button> <button type="button" class="btn sm" data-a="d">Sil</button>' : ''}</td></tr>`; }).join('') || '<tr><td colspan="14" class="sub">Bu süzgeçle kayıt yok.</td></tr>'}</tbody></table>`; };
   const drawP = () => { const p = q('#r3p'); if (!mode) return (p.innerHTML = '');
     const r = mode.r, d = r ? r.data : {}, w = d.row || [], v = i => esc(w[i] ?? ''), sel = (id, o, cur) => `<select id="${id}">${o.map(x => Array.isArray(x) ? x : [x, x]).map(([k, l]) => `<option value="${esc(k)}"${String(cur ?? '') === String(k) ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-    const next = g => { const pre = RK3_G[g] || 'DG-'; return pre + String(1 + Math.max(0, ...R.map(x => (x.data.row || [])[0] || '').filter(n => n.startsWith(pre)).map(n => parseInt(n.slice(3), 10) || 0))).padStart(2, '0'); };
+    const next = g => { const pre = GR[g] || 'DG-'; return pre + String(1 + Math.max(0, ...R.map(x => (x.data.row || [])[0] || '').filter(n => n.startsWith(pre)).map(n => parseInt(n.slice(3), 10) || 0))).padStart(2, '0'); };
     p.innerHTML = `<section class="panel mt"><h2>${r ? esc(w[0]) + ' düzenle' : 'Yeni risk'}</h2><form id="r3f" class="kys" novalidate><div class="fgrid">
-      <label>Grup${sel('r3g', Object.keys(RK3_G), w[1] || 'Bilgi varlığı')}</label><label>No<input type="text" id="r3no" maxlength="20" value="${r ? v(0) : next('Bilgi varlığı')}"></label><label>Tedarikçi <span class="hint">tedarikçi riskinde</span>${sel('r3sup', [['', '—'], ...sups.map(x => [x.id, x.name])], d.supplier_id || '')}</label>
-      <label class="w3">Varlık / tedarikçi kalemi<input type="text" id="r3a" maxlength="300" value="${v(2)}"></label><label class="w3">Tehdit / risk<textarea id="r3t2" rows="2" maxlength="500">${v(3)}</textarea></label>
+      <label>Grup${sel('r3g', [...new Set([...Object.keys(GR), w[1]].filter(Boolean))], w[1] || G0)}</label><label>No<input type="text" id="r3no" maxlength="20" value="${r ? v(0) : next(G0)}"></label>${SUP ? `<label>Tedarikçi <span class="hint">ERP kaydı</span>${sel('r3sup', [['', '—'], ...sups.map(x => [x.id, x.name])], d.supplier_id || '')}</label>` : `<input type="hidden" id="r3sup" value="${esc(d.supplier_id || '')}">`}
+      <label class="w3">${KL}<input type="text" id="r3a" maxlength="300" value="${v(2)}"></label><label class="w3">Tehdit / risk<textarea id="r3t2" rows="2" maxlength="500">${v(3)}</textarea></label>
       <label>O (olasılık 1-5)${sel('r3o', [1, 2, 3, 4, 5], w[4] || 3)}</label><label>E (etki 1-5)${sel('r3e', [1, 2, 3, 4, 5], w[5] || 3)}</label><label>Puan · seviye<input type="text" id="r3p2" readonly></label>
       <label class="w3">Mevcut kontrol<textarea id="r3c" rows="2" maxlength="1000">${v(8)}</textarea></label><label class="w3">Ek önlem / aksiyon<textarea id="r3x" rows="2" maxlength="1000">${v(9)}</textarea></label>
       <label>Sorumlu (hatırlatma gider)${sel('r3own', [['', '—'], ...ppl.map(x => [x.id, x.name])], d.owner_id || '')}</label><label>Sahip (metin) <span class="hint">sorumlu seçilmezse</span><input type="text" id="r3ow" maxlength="120" value="${d.owner_id ? '' : v(10)}"></label><label>Aksiyon tarihi<input type="date" id="r3due" value="${esc(/^\d{4}-/.test(d.due || '') ? d.due : '')}"></label>
@@ -5943,7 +5943,7 @@ async function kysRisk3(K, it){
     q('#r3g').onchange = e => { if (!r) q('#r3no').value = next(e.target.value); };
     q('#r3f').onsubmit = e => { e.preventDefault(); return busy(e, async () => {
       const g = id => q('#' + id).value.trim(), o = +g('r3o'), ef = +g('r3e'), pp = o * ef, no = g('r3no'), own = g('r3own'), st = g('r3st');
-      if (!no || !g('r3a')) return toast('No ve varlık / kalem gerekli', true);
+      if (!no || !g('r3a')) return toast('No ve ' + KL.toLocaleLowerCase('tr') + ' gerekli', true);
       if (R.some(x => x !== r && (x.data.row || [])[0] === no)) return toast('Bu No zaten var', true);
       const owner = own ? (ppl.find(x => x.id === own) || {}).name || '' : g('r3ow');
       const row = [no, g('r3g'), g('r3a'), g('r3t2'), String(o), String(ef), String(pp), rkLv(pp), g('r3c'), g('r3x'), owner, g('r3k')];
@@ -5955,14 +5955,14 @@ async function kysRisk3(K, it){
   const draw = () => {
     box.innerHTML = `${err ? `<div class="empty">${esc(err)}</div>` : ''}${legacy ? '<p class="banner noprint">Satırlar henüz Acrome ERP yazılımına aktarılmadı; yayınlanan döküm gösteriliyor.</p>' : ''}
     <div class="toolbar noprint"><select id="r3s" aria-label="Durum"><option value="all">Durum: tümü</option><option value="act">Açık + İzlemede</option><option value="late">Aksiyon tarihi geçmiş</option>${RK_ST.map(s => `<option>${s}</option>`).join('')}</select>
-      <select id="r3gf" aria-label="Grup"><option value="">Grup: tümü</option>${Object.keys(RK3_G).map(s => `<option>${s}</option>`).join('')}</select><select id="r3lv" aria-label="Seviye"><option value="">Seviye: tümü</option>${RK_LV.map(s => `<option>${s}</option>`).join('')}</select>
+      <select id="r3gf" aria-label="Grup"${Object.keys(GR).length < 2 ? ' hidden' : ''}><option value="">Grup: tümü</option>${Object.keys(GR).map(s => `<option>${s}</option>`).join('')}</select><select id="r3lv" aria-label="Seviye"><option value="">Seviye: tümü</option>${RK_LV.map(s => `<option>${s}</option>`).join('')}</select>
       <input type="search" id="r3q" placeholder="Ara…" maxlength="60" aria-label="Ara"><span class="sub" id="r3n"></span><span style="flex:1"></span><button type="button" class="btn" id="r3csv">CSV indir</button>${ed && !legacy ? '<button type="button" class="btn primary" data-a="n">Yeni risk</button>' : ''}</div>
     <div id="r3p" class="noprint"></div><div class="rk-wrap" id="r3t"></div>`;
     q('#r3s').value = F.st; q('#r3gf').value = F.g; q('#r3lv').value = F.lv; q('#r3q').value = F.s;
     q('#r3s').onchange = e => { F.st = e.target.value; drawT(); }; q('#r3gf').onchange = e => { F.g = e.target.value; drawT(); }; q('#r3lv').onchange = e => { F.lv = e.target.value; drawT(); }; q('#r3q').oninput = e => { F.s = e.target.value.trim(); drawT(); };
-    q('#r3csv').onclick = () => { const lines = [['No', 'Grup', 'Varlık / tedarikçi', 'Tehdit / risk', 'O', 'E', 'Puan', 'Seviye', 'Mevcut kontrol', 'Ek önlem / aksiyon', 'Sahip', 'Kaynak', 'Aksiyon tarihi', 'Durum', 'Tedarikçi'], ...vis().map(r => [...(r.data.row || []).slice(0, 12), r.data.due || '', G(r).st, supName(r.data.supplier_id)])]
+    q('#r3csv').onclick = () => { const lines = [['No', 'Grup', KL, 'Tehdit / risk', 'O', 'E', 'Puan', 'Seviye', 'Mevcut kontrol', 'Ek önlem / aksiyon', 'Sahip', 'Kaynak', 'Aksiyon tarihi', 'Durum', 'Tedarikçi'], ...vis().map(r => [...(r.data.row || []).slice(0, 12), r.data.due || '', G(r).st, supName(r.data.supplier_id)])]
         .map(x => x.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
-      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `bilgi-tedarikci-risk-${today()}.csv`; a.click(); };
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines], { type:'text/csv;charset=utf-8' })); a.download = `${SUP ? 'tedarikci' : 'bilgi-varligi'}-risk-${today()}.csv`; a.click(); };
     drawT(); drawP(); };
   box.onclick = async e => { const b = e.target.closest('[data-a]'); if (!b) return; const r = R.find(x => x.id === +(b.closest('tr') || { dataset:{} }).dataset.r);
     if (b.dataset.a === 'n') { mode = { k:'n' }; drawP(); } else if (b.dataset.a === 'e') { mode = { k:'e', r }; drawP(); } else if (b.dataset.a === 'x') { mode = null; drawP(); }
@@ -6058,7 +6058,7 @@ async function viewKys(){
   if (pc && kInst(K, P, pc)) return kysInstBind(K, P, pc, inst);
   const sheet = q('#ksheet'), it = sub === 'i' ? K.BY[code] : pc ? K.BY[pc] : null;
   if (sheet) { sheet.addEventListener('input', kysRecalc); kysRecalc(); }
-  if (it && q('#krisk')) return it.code === 'ACR-LS-RK-03' ? kysRisk3(K, it) : kysRisk(K, it);
+  if (it && q('#krisk')) return ['ACR-LS-RK-03', 'ACR-LS-RK-04'].includes(it.code) ? kysRisk3(K, it) : kysRisk(K, it);
   if (!it || !q('#krecs')) return;
   if (it.kind === 'form') { kysFormBind(K, it, P); kGrowAll(); } else kysRows(K, it.code, it.columns || [], P);
 }

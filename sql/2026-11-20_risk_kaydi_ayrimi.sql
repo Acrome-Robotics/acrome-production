@@ -1,0 +1,28 @@
+-- Risk kaydı ayrımı: bilgi varlıkları ACR-LS-RK-03, tedarikçi riskleri ACR-LS-RK-04.
+-- Aksiyon tarihi hatırlatması iki kayıt için de çalışır; e-posta bağlantısı satırın kaydına gider.
+-- (Satırların RK-04'e taşınması içerikle birlikte ayrı betikle yapılır; kys_records_biu kodu değiştirmeye izin vermez.)
+create or replace function public.q_rk3_remind() returns integer
+language plpgsql security definer set search_path = 'public' as $$
+declare d date := (now() at time zone 'Europe/Istanbul')::date; n int := 0; r record; k int; due date;
+begin
+  for r in select id, code, data from public.kys_records
+           where code in ('ACR-LS-RK-03', 'ACR-LS-RK-04') and kind = 'row' and project_id is null
+             and coalesce(data->>'st', 'Açık') in ('Açık','İzlemede') and (data->>'due') ~ '^\d{4}-\d\d-\d\d$' loop
+    due := (r.data->>'due')::date;
+    continue when due > d or (r.data->>'notified_for') = (r.data->>'due');
+    insert into public.mail_outbox(to_email, to_name, subject, title, link)
+    select p.email, p.full_name, 'Acrome · Risk aksiyonu: ' || coalesce(r.data->'row'->>0, ''),
+           coalesce(r.data->'row'->>0, '') || ' · ' || left(coalesce(r.data->'row'->>2, ''), 120) || ' — aksiyon tarihi ' || to_char(due, 'DD.MM.YYYY')
+             || case when due < d then ', ' || (d - due) || ' gün geçti.' else ', bugün.' end || ' Aksiyon: ' || left(coalesce(r.data->'row'->>9, ''), 200),
+           '#/kalite/i/' || r.code
+    from public.profiles p
+    where p.email is not null
+      and (case when (r.data->>'owner_id') is not null and exists (select 1 from public.profiles o where o.id::text = r.data->>'owner_id' and o.email is not null)
+                then p.id::text = r.data->>'owner_id' else coalesce(p.roles, array[p.role]) && array['kalite','admin'] end);
+    get diagnostics k = row_count; n := n + k;
+    update public.kys_records set data = data || jsonb_build_object('notified_for', r.data->>'due') where id = r.id;
+  end loop;
+  if n > 0 then begin perform public.notify_mail_flush(); exception when others then null; end; end if;
+  return n;
+end $$;
+revoke all on function public.q_rk3_remind() from public, anon, authenticated;
