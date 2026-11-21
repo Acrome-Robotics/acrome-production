@@ -124,7 +124,7 @@ async function loadAll(){
   await loadSupport();
   await loadRma();
   await loadPrefs().catch(() => { S.prefs = {}; });
-  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadPlanCount().catch(() => {}), loadAttToday().catch(() => {}), canQ() ? loadNcrCount().catch(() => {}) : null]);
+  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadPlanCount().catch(() => {}), loadAttToday().catch(() => {}), loadQToday().catch(() => {})]);
   if (isCountDay() && can('stock')) sb.rpc('stock_count_notify_me').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
 // aylık stok sayımı: her ayın ilk cuması
@@ -777,6 +777,19 @@ function todaySections(){
       rows: od.map(({ x, d }) => { const a = payAmt(x, d.amount_usd); return { href:'#/kayit/' + d.id, main:`<span class="mono">${esc(refNo(d))}</span> ${esc(custName(d))}`, sub: a != null ? fmtUSD(a) : '', meta:`<span class="late-txt">${days(x.due_date, T)} gün gecikti</span>`, hot:true }; }) }); }
   if (canAcc() && (S.expPendingList || []).length) S_.push({ id:'exp', title:'Onay bekleyen masraf formları', link:'#/masraf-liste', alert:true,
     rows: S.expPendingList.map(r => ({ href:'#/masraf/' + r.id, main:esc(r.user_name || ''), sub:esc(r.title), meta:`<span class="sub">${sumByCur(r.expense_items)}</span>`, hot:true })) });
+  // kalite: Kalite/Yönetici hepsini görür; diğer roller yalnız kendine atanmış uygunsuzluğu ve ölçümünü
+  const QT = S.qT;
+  if (QT) { const qn = canQ();
+    if (qn || QT.N.length) S_.push({ id:'qncr', title: qn ? 'Açık uygunsuzluklar' : 'Bana atanmış uygunsuzluklar', link:'#/uygunsuzluk', alert:true, empty:'Açık uygunsuzluk yok.',
+      rows: QT.N.map(n => { const late = !!n.action_due && n.action_due < T; return { href:'#/uygunsuzluk/' + n.id, main:`<span class="mono">${esc(n.no || '')}</span> ${esc(n.title || '')}`, sub:esc(NCR_ST[n.status] || ''),
+        meta: late ? `<span class="late-txt">faaliyet ${days(n.action_due, T)} gün gecikti</span>` : n.action_due ? `<span class="sub">termin ${fmtD(n.action_due)}</span>` : '', hot: late || (qn && n.status === 'acik') }; }) });
+    if (QT.D.length) S_.push({ id:'qcal', title:'Kalibrasyonu dolan cihazlar', link:'#/kalibrasyon', alert:true,
+      rows: QT.D.map(d => { const c = devCal(d); return { href:'#/kalibrasyon/' + d.id, main:esc(d.name || d.code || ''), sub:esc(d.code || ''), meta:`<span class="${c[1]}">${c[0]}${d.next_cal_date ? ' · ' + fmtD(d.next_cal_date) : ''}</span>`, hot: c[1] === 'late-txt' }; }) });
+    if (QT.F.length) S_.push({ id:'qrev', title:'İncelemede bekleyen form kayıtları', link:'#/kalite', alert:true,
+      rows: QT.F.map(r => ({ href:`#/kalite/i/${encodeURIComponent(r.code)}?r=${r.id}`, main:`<span class="mono">${esc(r.record_no || r.code)}</span>`, sub:esc(r.label || ''), meta:`<span class="sub">${ago(r.updated_at)}</span>`, hot:true })) });
+    if (QT.K.length) S_.push({ id:'qkpi', title:'Ölçümü geciken süreç hedefleri', link:'#/kalite/hedefler', alert:true,
+      rows: QT.K.map(k => ({ href:'#/kalite/hedefler', main:`<span class="mono">${esc(k.code || '')}</span> ${esc(k.indicator || '')}`, sub:'', meta:`<span class="late-txt">${days(k.next_due, T)} gün gecikti</span>`, hot:true })) });
+  }
   if (isAdmin) { const n = S.issues.filter(i => !i.resolved).length + liveProblemCount();
     if (n) S_.push({ id:'data', title:'Veri kontrolü', link:'#/uyarilar', rows:[{ href:'#/uyarilar', main:`${n} kayıtta eksik veya hatalı bilgi`, sub:'', meta:'', hot:false }] }); }
   return S_;
@@ -5226,6 +5239,16 @@ async function ncrLinked(kind, id){ const { data } = await sb.from('ncr').select
 const ncrChips = L => L.length ? `<p class="qchips">${L.map(n => `<a href="#/uygunsuzluk/${n.id}"><span class="mono">${esc(n.no)}</span> · ${NCR_ST[n.status] || ''}</a>`).join('')}</p>` : '';
 async function kysPNames(){ if (!S.kysPN) { const { data } = await sb.rpc('kys_project_names'); S.kysPN = data || []; } return S.kysPN; }
 const kysPN = id => (S.kysPN || []).find(p => p.id === id);
+// Bugün kalite kutuları için; menüdeki açık uygunsuzluk sayısını da günceller
+async function loadQToday(){
+  const get = p => p.then(r => r.data || [], () => []), me = S.profile.id, isQ = canQ();
+  const [N, D, F, K] = await Promise.all([get(sb.from('ncr').select('id,no,title,status,action_due,responsible_id,action_owner_id').in('status', NCR_OPEN).order('opened_at')),
+    isQ ? get(sb.from('q_devices').select('id,code,name,status,cal_required,last_cal_date,next_cal_date').eq('cal_required', true).eq('status', 'kullanimda')) : [],
+    isQ ? get(sb.from('kys_records').select('id,code,record_no,label,updated_at').eq('kind', 'form').eq('status', 'İncelemede').order('updated_at')) : [],
+    canKpi() ? get(sb.from('q_kpis').select('id,code,indicator,next_due,owner_id').eq('active', true).lt('next_due', today()).order('next_due')) : []]);
+  if (isQ) S.ncrOpen = N.length;
+  S.qT = { N: isQ ? N : N.filter(n => n.responsible_id === me || n.action_owner_id === me), D: D.filter(d => !['', 'ok-txt'].includes(devCal(d)[1])), F, K: isQ ? K : K.filter(k => k.owner_id === me) };
+}
 async function loadNcrCount(){ const { count } = await sb.from('ncr').select('id', { count:'exact', head:true }).in('status', NCR_OPEN); S.ncrOpen = count || 0; }
 async function ncrPreset(arg){
   const pm = /^proje-(\d+)$/.exec(arg || ''); if (pm) return { project_id:+pm[1] };
