@@ -29,4 +29,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611210141 | 21.11.2026 01:41 | Sol menü küçültülebilir (ikon şeridi, orta alan genişler, tercih kişiye özel); iptal edilen tedarik planı yönetici tarafından yeniden açılır ya da kalıcı silinir |
 | 202611210151 | 21.11.2026 01:51 | Canlı tazeleme: yeni sürümde sayfa kendisi yenilenir (form açıksa şerit), başkasının değişikliğinde veri arka planda yüklenip sayfa yeniden çizilir |
 | 202611210215 | 21.11.2026 02:15 | Orta alan: paneller küçülünce 1760 px'e kadar genişler, daha geniş ekranda ortalanır |
-| 202611211526 | 21.11.2026 15:26 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611211526 | 21.11.2026 15:26 | Bugün: kalite uyarıları (açık uygunsuzluk, kalibrasyon, incelemede form, geciken hedef ölçümü) |
+| 202611231317 | 23.11.2026 13:17 | (bu commit; mesajı bir sonraki commit'te yazılır) |

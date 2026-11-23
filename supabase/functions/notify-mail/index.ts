@@ -37,8 +37,8 @@ async function send(to: string, subject: string, text: string, html: string, rep
 const body = (name: string, title: string, url: string) => {
   const hi = name ? `Merhaba ${name},` : "Merhaba,";
   return {
-    text: `${hi}\n\n${title}\n\nAçmak için: ${url}\n\nAcrome Üretim · Satış · Support`,
-    html: `<p>${escH(hi)}</p><p style="font-size:15px"><b>${escH(title)}</b></p><p><a href="${escH(url)}" style="display:inline-block;background:#1b2530;color:#fff;padding:9px 16px;border-radius:6px;text-decoration:none">Sitede aç</a></p><p style="color:#777;font-size:12px">Acrome Üretim · Satış · Support — bu e-posta otomatik gönderildi.</p>`,
+    text: `${hi}\n\n${title}\n\nAçmak için: ${url}\n\nAcrome ERP App`,
+    html: `<p>${escH(hi)}</p><p style="font-size:15px"><b>${escH(title)}</b></p><p><a href="${escH(url)}" style="display:inline-block;background:#1b2530;color:#fff;padding:9px 16px;border-radius:6px;text-decoration:none">Sitede aç</a></p><p style="color:#777;font-size:12px">Acrome ERP App — bu e-posta otomatik gönderildi.</p>`,
   };
 };
 

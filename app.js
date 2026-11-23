@@ -169,7 +169,7 @@ async function start(){
 function renderAuth(mode='in'){
   const up = mode === 'up', reset = mode === 'reset';
   $app.innerHTML = `<div class="auth"><div class="box">
-    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></div>
+    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>ERP App</small></div></div>
     <h1 style="margin-top:18px">${reset?'Şifre sıfırla':up?'Hesap oluştur':'Giriş yap'}</h1>
     <p class="note">${up?'@acrome.net adresinle hesap açınca raporları ve kayıtları hemen görebilirsin. Veri girişi için yöneticiden Satış veya Üretim rolü iste.':reset?'E-posta adresine sıfırlama bağlantısı gönderilir.':'Acrome ekip hesabınla giriş yap.'}</p>
     <form id="af" novalidate>
@@ -298,8 +298,9 @@ function shell(active, html){
       ['motor-test','Motor testleri'],
     ]],
     ...(canQ() ? [['Kalite', 'shield', [
-      ['kalite','Kalite belgeleri'],
+      ['kalite','Kalite Panosu'],
       ['kalite/hedefler','Süreç hedefleri'],
+      ['kalite/proje','Projeler'],
       ['kalite/sartli','Şartlı kabuller'],
       ['uygunsuzluk','Uygunsuzluklar', S.ncrOpen || ''],
       ['kalibrasyon','Kalibrasyon'],
@@ -327,7 +328,7 @@ function shell(active, html){
   S._navAll = nav.flatMap(([g, , items]) => items.filter(n => n[0]).map(n => ({ k:n[0], t:String(n[1]).replace(/<[^>]+>/g, ''), g })));
   $app.innerHTML = `<a class="skip" href="#main">İçeriğe geç</a><div class="topbar"><a class="brand homelink" href="${home}" style="padding:0" title="Ana sayfa">${logo()} Acrome</a><button class="btn sm" id="menu" aria-expanded="false">Menü</button></div>
   <div class="shell${sideClosed() ? ' side-min' : ''}"><aside class="side" id="side"><button class="btn sm side-close" id="sideclose" type="button">Kapat ✕</button>
-    <a class="brand homelink" href="${home}" title="Ana sayfa">${logo()}<div>Acrome<small>Üretim · Satış · Support</small></div></a>
+    <a class="brand homelink" href="${home}" title="Ana sayfa">${logo()}<div>Acrome<small>ERP App</small></div></a>
     <button type="button" class="iconbtn sidetog" id="sidetog" aria-controls="side" aria-expanded="${!sideClosed()}" aria-label="Menüyü ${sideClosed() ? 'aç' : 'küçült'}" title="Menüyü ${sideClosed() ? 'aç' : 'küçült'}">${sideClosed() ? '»' : '«'}</button>
     <nav class="nav">${staffOnly() ? '' : `<a href="#/bugun" class="ntop ${active==='bugun'?'on':''}" title="Bugün">${ICON.home}<span>Bugün</span><span class="count${todayHot?' hot':''}">${todayHot||''}</span></a>`}${nav.map(([g, ic, items]) => { const cur = items.some(n => (n[5] || n[0]) === active), closed = !cur && (navClosed().includes(g) || matchMedia('(max-width:820px)').matches), hot = items.reduce((a, n) => a + (n[3] === 'hot' ? (+n[2] || 0) : 0), 0);
       return `<div class="ngroup${cur ? ' cur' : ''}${closed ? ' closed' : ''}" data-g="${g}"><button class="nhead" type="button" aria-expanded="${!closed}" title="${g}">${ICON[ic]||''}<span>${g}</span>${closed && hot ? `<span class="gcount">${hot}</span>` : ''}${ICON.chev}</button><div class="nitems">${items.map(n => n[0] ? `<a href="#/${n[0]}" class="${active===(n[5]||n[0])?'on':''}${n[4]==='sub'?' sub2':''}">${n[1]}<span class="count${n[3]==='hot'&&n[2]?' hot':''}">${n[2]||''}</span></a>` : `<span class="nsoon">${n[1]}</span>`).join('')}</div></div>`; }).join('')}</nav>
@@ -5546,16 +5547,15 @@ async function viewKpis(){
 async function viewAuditPack(){
   shell('kalite', '<div class="empty">Yükleniyor…</div>');
   const get = p => p.then(r => r.data || [], () => []);
-  const [K, , N, D, RK, SU, KR] = await Promise.all([kysLoad(), kpLoad(), get(sb.from('ncr').select('id,no,title,status,opened_at,product').order('opened_at', { ascending:false })),
+  const [K, , N, D, RK] = await Promise.all([kysLoad(), kpLoad(), get(sb.from('ncr').select('id,no,title,status,opened_at,product').order('opened_at', { ascending:false })),
     get(sb.from('q_devices').select('id,code,name,status,cal_required,last_cal_date,next_cal_date,cal_provider').order('code')),
-    get(sb.from('kys_records').select('id,data').eq('code', 'ACR-LS-RK-01').eq('kind', 'row')), get(sb.from('suppliers').select('id,name,approval,score,score_date,blacklisted').order('name')), supKarne()]);
+    get(sb.from('kys_records').select('id,data').eq('code', 'ACR-LS-RK-01').eq('kind', 'row'))]);
   const T = today(), tbl = (h, rows) => rows.length ? `<div class="tablewrap"><table><thead><tr>${h.map(x => `<th class="nosort">${x}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr style="cursor:default">${r.map(c => `<td>${c ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '<p class="sub">Kayıt yok.</p>';
   const cnt = (L, f) => Object.entries(L.reduce((m, x) => (m[f(x)] = (m[f(x)] || 0) + 1, m), {})).map(([k, n]) => `${esc(k)}: <b>${n}</b>`).join(' · ');
   const docs = K ? K.ITEMS.filter(i => i.kind === 'doc' || i.kind === 'form') : [];
   const nOpen = N.filter(n => !['kapali', 'iptal'].includes(n.status));
   const dLate = D.filter(d => d.cal_required && d.status === 'kullanimda' && d.next_cal_date && d.next_cal_date < T);
   const risks = RK.map(rkG).filter(r => RK_OPEN.includes(r.st));
-  const sup = SU.filter(x => x.approval || KR[x.id]);
   shell('kalite', `<div class="kys"><div class="noprint">${K ? kysNav(K, 'denetim') : ''}</div>
     <div class="pagehead"><div><h1>Denetim paketi</h1><p class="lede">Hazırlanma: ${fmtDT(new Date().toISOString())} · ${esc(S.profile.full_name || '')}. İçerik bu anın verisidir.</p></div><button class="btn noprint" id="aprint">Yazdır / PDF</button></div>
     <section class="panel"><h2>Özet</h2><dl class="kv"><dt>Yürürlükteki doküman / form</dt><dd>${docs.length}</dd><dt>Açık uygunsuzluk / DF</dt><dd>${nOpen.length} / ${N.length}</dd><dt>Kalibrasyonu geçmiş cihaz</dt><dd>${dLate.length} / ${D.length}</dd>
@@ -5564,8 +5564,7 @@ async function viewAuditPack(){
     <section class="panel mt"><h2>Uygunsuzluk / DF <span class="sub">${cnt(N, n => NCR_ST[n.status] || n.status)}</span></h2>${tbl(['No', 'Başlık', 'Ürün', 'Açılış', 'Durum'], nOpen.map(n => [`<a href="#/uygunsuzluk/${n.id}">${esc(n.no || '#' + n.id)}</a>`, esc(n.title || ''), esc(n.product || ''), fmtD((n.opened_at || '').slice(0, 10)), esc(NCR_ST[n.status] || n.status)]))}</section>
     <section class="panel mt"><h2>Kalibrasyon listesi <span class="sub">${D.length}</span></h2>${tbl(['Kod', 'Cihaz', 'Durum', 'Son', 'Sonraki', 'Sağlayıcı'], D.map(d => [esc(d.code || ''), esc(d.name || ''), esc(DEV_ST[d.status] || d.status || ''), fmtD(d.last_cal_date), d.cal_required ? `<span class="${dLate.includes(d) ? 'late-txt' : ''}">${fmtD(d.next_cal_date)}</span>` : 'Gerekmiyor', esc(d.cal_provider || '')]))}</section>
     <section class="panel mt"><h2>Süreç hedefleri <span class="sub">${KP.R.length}</span></h2>${tbl(['KPI', 'Gösterge', 'Hedef', 'Son dönem', 'Değer', 'Durum'], KP.R.map(k => { const v = kpLast(k); return [esc(k.code), esc(k.indicator), esc(k.target_text || ''), v ? fmtD(v.period_end) : '—', esc(kpShow(k, v)), { met:'Tuttu', miss:'Tutmadı', none:'Ölçülmedi' }[kpSt(v)]]; }))}</section>
-    <section class="panel mt"><h2>Risk kaydı · açık <span class="sub">${risks.length}</span></h2>${tbl(['No', 'Tür', 'Tanım', 'Seviye', 'Durum'], risks.map(r => [esc(r.w[0] || ''), esc(r.w[1] || ''), esc(r.w[2] || ''), esc(r.lv), esc(r.st)]))}</section>
-    <section class="panel mt"><h2>Tedarikçi değerlendirme <span class="sub">${sup.length} · karne son 12 ay</span></h2>${tbl(['Firma', 'Onay', 'Puan', 'Karne'], sup.map(x => [esc(x.name), SUP_APP[x.approval] || '—', x.score != null ? `${fmtQ(x.score)}${x.score_date ? ' · ' + fmtD(x.score_date) : ''}` : '—', esc(karneTxt(KR[x.id]) || '—')]))}</section></div>`);
+    <section class="panel mt"><h2>Risk kaydı · açık <span class="sub">${risks.length}</span></h2>${tbl(['No', 'Tür', 'Tanım', 'Seviye', 'Durum'], risks.map(r => [esc(r.w[0] || ''), esc(r.w[1] || ''), esc(r.w[2] || ''), esc(r.lv), esc(r.st)]))}</section></div>`);
   q('#aprint').onclick = () => window.print();
 }
 
@@ -5714,6 +5713,10 @@ const kRange = p => [p.start_date, p.end_date].filter(Boolean).map(fmtD).join(' 
 const kHref = (code, P) => P ? `#/kalite/proje/${P.id}/${encodeURIComponent(code)}` : `#/kalite/i/${encodeURIComponent(code)}`;
 const kKind = k => KYS_KS[k] ? `<span class="kind k-${k}">${KYS_KS[k]}</span>` : '';
 const kType = i => i.docType || KYS_KN[i.kind];
+// şirket geneli prosedür: sahibi yok, raporlardan ayrı çerçeveyle basılır
+const kProc = i => i.docType === 'Prosedür';
+// içerikteki kaynak bilgisi belgenin sonunda Referanslar bölümünde
+const kRefs = src => src ? `<div class="sec krefs"><h3>Referanslar</h3><p class="small">${kSafe(src)}</p></div>` : '';
 const kCard = (K, i, P) => { const pp = kPjCode(K, i.pk);
   return `<a class="card" href="${kHref(i.code, P)}"><div>${kKind(i.kind)} <code class="small">${esc(i.no || i.code)}</code> ${pp && !P ? `<span class="pill p-brand">${esc(kPName(pp))}</span>` : ''}</div><div class="t">${esc(i.title)}</div><div class="m">${esc(kType(i))} · Rev ${esc(i.rev || '00')} · ${esc(i.owner)}</div></a>`; };
 const kTblRaw = (cols, rows) => `<div class="tablewrap"><table><thead><tr>${cols.map(c => `<th class="nosort">${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${kSafe(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
@@ -5723,30 +5726,23 @@ const kSecs = ss => (ss || []).map(s => `<div class="sec"><h3>${esc(s.h)}</h3><d
 const kTables = (K, it) => [].concat(it.table || [], it.tables || []).map(t => `${t.caption ? `<div class="cap">${esc(t.caption)}</div>` : ''}${kTbl(K, t.columns, t.rows)}`).join('');
 const kHist = (K, it) => `<div class="sec khist"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], (it.history || [[it.rev || '00', kDate(K, it), 'İlk yayın']]).slice().reverse())}</div>`;
 const kLive = it => KYS_LIVE[it.code] ? `<p class="banner info noprint">Güncel kayıtlar Acrome ERP yazılımında tutulur: <a href="${KYS_LIVE[it.code][0]}">${KYS_LIVE[it.code][1]} →</a>${it.kind === 'form' ? '' : ' Aşağıdaki döküm belgenin yayın tarihindeki durumdur.'}</p>` : '';
-const kHead = (K, it, o) => `<div class="dochead"><div class="lg">${kLogo}ACROME</div><div class="tt">${esc(o.title)}<small>${esc(o.proj || kType(it))}</small></div>
-  <div class="mt"><div><b>Doküman no</b><span>${esc(o.no)}</span></div><div><b>Revizyon</b><span>${esc(o.rev)}</span></div><div><b>Yayın tarihi</b><span>${esc(o.date)}</span></div><div><b>Doküman sahibi</b><span>${esc(it.owner)}</span></div><div><b>Süreç</b><span>${it._m._no}</span></div></div></div>`;
+const kHead = (K, it, o) => `<div class="dochead"><div class="lg">${kLogo}ACROME</div><div class="tt">${esc(o.title)}<small>${esc(o.proj || (kProc(it) ? '' : kType(it)))}</small></div>
+  <div class="mt"><div><b>Doküman no</b><span>${esc(o.no)}</span></div><div><b>Revizyon</b><span>${esc(o.rev)}</span></div><div><b>Yayın tarihi</b><span>${esc(o.date)}</span></div>${kProc(it) ? '' : `<div><b>Doküman sahibi</b><span>${esc(it.owner)}</span></div>`}<div><b>Süreç</b><span>${it._m._no}</span></div></div></div>`;
 
 function kysNav(K, sub, code){
   const cur = sub === 'm' ? code : sub === 'i' && K.BY[code] ? K.BY[code]._m.id : '';
   return `<div class="toolbar noprint knav"><div class="seg"><a class="segl ${!sub ? 'on' : ''}" href="#/kalite">Genel bakış</a><a class="segl ${sub === 'belgeler' ? 'on' : ''}" href="#/kalite/belgeler">Doküman listesi</a><a class="segl ${sub === 'proje' ? 'on' : ''}" href="#/kalite/proje">Projeler</a><a class="segl ${sub === 'denetim' ? 'on' : ''}" href="#/kalite/denetim">Denetim paketi</a></div>
     <select id="kmsel" aria-label="Süreç"><option value="">Süreç seç…</option>${K.M.map(m => `<option value="${esc(m.id)}" ${cur === m.id ? 'selected' : ''}>${m._no} · ${esc(m.title)}</option>`).join('')}</select></div>`;
 }
-function kysDf(K){
-  const df = K.BY['ACR-LS-KY-90']; if (!df || !df.rows) return '';
-  const open = df.rows.filter(r => /^Açık/.test(r[5])).length, done = df.rows.length - open;
-  return `<div class="panel" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline"><h3 style="margin:0">${esc(df.title)}</h3><a href="#/kalite/i/ACR-LS-KY-90">Takip listesini aç →</a></div>
-  <p class="small" style="margin:6px 0 10px">${df.rows.length} bulgu · <b class="ok-txt">${done} dokümanla karşılandı ve uygulamada</b> · <b class="amber-txt">${open} açık</b></p>
-  <div class="chips">${df.rows.map(r => `<span class="pill ${/^Açık/.test(r[5]) ? 'p-amber' : 'p-green'}" title="${esc(r[1])}">${esc(r[0])}</span>`).join('')}</div></div>`;
-}
 function kysHome(K){
   const cnt = k => K.ITEMS.filter(i => i.kind === k).length, act = K.P.filter(p => p.status === 'aktif');
-  return `<div class="pagehead"><div><h1>Kalite Yönetim Sistemi</h1><p class="lede">${esc(K.META.intro || '')}</p></div><a class="btn noprint" href="#/kalite/yukle">İçeriği güncelle</a></div>
+  return `<div class="pagehead"><div><h1>Kalite Yönetim Sistemi</h1><p class="lede">${(K.META.intro || '').split('\n').map(esc).join('<br>')}</p></div>
+    <div class="noprint" style="display:flex;gap:8px;flex-wrap:wrap">${K.BY['ACR-LS-KY-90'] ? '<a class="btn" href="#/kalite/i/ACR-LS-KY-90">Takip listesini aç</a>' : ''}<a class="btn" href="#/kalite/proje/yeni">Yeni proje başlat</a><a class="btn" href="#/kalite/yukle">İçeriği güncelle</a></div></div>
   <div class="kpis k5"><div class="kpi"><div class="l">Süreç</div><div class="v">${K.M.length}</div><div class="d">tanımlı süreç</div></div>
   <div class="kpi"><div class="l">Prosedür / plan / talimat</div><div class="v">${cnt('doc')}</div><div class="d">yürürlükte</div></div>
   <div class="kpi"><div class="l">Form</div><div class="v">${cnt('form')}</div><div class="d">kontrollü form</div></div>
   <div class="kpi"><div class="l">Kayıt / liste</div><div class="v">${cnt('register')}</div><div class="d">kayıt, envanter, matris</div></div>
   <div class="kpi"><div class="l">Rapor</div><div class="v">${cnt('report')}</div><div class="d">periyodik</div></div></div>
-  ${kysDf(K)}
   <div class="grid g2"><div class="panel"><div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><h3>Aktif projeler</h3><a href="#/kalite/proje">Tüm projeler →</a></div>
     ${act.length ? act.map(p => `<div style="margin-top:8px"><a href="#/kalite/proje/${p.id}"><b>${esc(p.name)}</b></a> <code class="small">${esc(p.code)}</code><div class="small">${esc(p.short || [KYS_PKIND[p.kind], p.customer].filter(Boolean).join(' · '))}</div></div>`).join('') : '<p class="small">Aktif proje yok. <a href="#/kalite/proje/yeni">Yeni proje aç →</a></p>'}</div>
   <div class="panel"><h3>Acrome ERP yazılımındaki kalite kayıtları</h3><div class="chips"><a class="chip" href="#/uygunsuzluk">Uygunsuzluklar${S.ncrOpen ? ` <b>${S.ncrOpen} açık</b>` : ''}</a><a class="chip" href="#/kalibrasyon">Kalibrasyon</a><a class="chip" href="#/tedarikciler">Tedarikçi onay durumu</a><a class="chip" href="#/pcb/takip">PCB takip (sıcaklık / nem)</a><a class="chip" href="#/bom">BOM (MTBF)</a><a class="chip" href="#/rma">RMA</a><a class="chip" href="#/motor-test">Motor testleri</a></div>
@@ -5755,7 +5751,7 @@ function kysHome(K){
   <p class="small noprint" style="margin-top:18px">${esc(K.META.docNo || '')} · Rev ${esc(K.META.rev || '')} · ${esc(K.META.date || '')}${K.at ? ` · içerik yüklendi ${fmtDT(K.at)}${K.by ? ', ' + esc(K.by) : ''}` : ''}</p>`;
 }
 function kysModule(K, id){
-  const m = K.M.find(x => x.id === id); if (!m) return '<h1>Süreç bulunamadı</h1><p><a href="#/kalite">Kalite belgelerine dön</a></p>';
+  const m = K.M.find(x => x.id === id); if (!m) return '<h1>Süreç bulunamadı</h1><p><a href="#/kalite">Kalite Panosuna dön</a></p>';
   return `<div class="crumbs"><a href="#/kalite">Kalite Yönetim Sistemi</a> / Süreç ${m._no}</div><h1>${esc(m.title)}</h1>
   <p class="lede">${kSafe(m.summary)}</p><p class="small">Süreç sorumlusu: <b style="color:var(--ink)">${esc(m.owner)}</b></p>
   ${m.flow ? `<div class="flow">${m.flow.map(s => `<span>${esc(s)}</span>`).join('<i>→</i>')}</div>` : ''}
@@ -5861,7 +5857,7 @@ async function kysProject(K, P){
   return `<div class="crumbs"><a href="#/kalite">Kalite Yönetim Sistemi</a> / <a href="#/kalite/proje">Projeler</a> / ${esc(P.code)}</div>
   <div class="pagehead"><div><h1>${esc(P.name)}</h1><p class="lede">${esc(P.summary || P.short || '')}</p></div><div class="noprint" style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="#/kalite/proje/${P.id}/duzenle">Düzenle</a><a class="btn" href="#/uygunsuzluk-yeni/proje-${P.id}">Uygunsuzluk aç</a></div></div>
   <div class="grid g2"><div class="panel"><h3>Proje kimliği</h3><div class="tablewrap" style="border:0"><table>${facts.map(([k, v]) => `<tr><td class="sub" style="width:40%">${esc(k)}</td><td>${kSafe(v)}</td></tr>`).join('')}</table></div></div>
-  <div class="panel"><h3>Proje kalite dosyası</h3><div class="flow" style="flex-direction:column;align-items:stretch">${K.PT.chain.map(([t, c]) => { const l = c.map(link).filter(Boolean); return l.length ? `<span>${esc(t)}<br>${l.join(' · ')}</span>` : ''; }).join('')}</div></div></div>
+  <div class="panel"><h3>Projeye ait kalite dosyaları</h3><div class="flow" style="flex-direction:column;align-items:stretch">${K.PT.chain.map(([t, c]) => { const l = c.map(link).filter(Boolean); return l.length ? `<span>${esc(t)}<br>${l.join(' · ')}</span>` : ''; }).join('')}</div></div></div>
   ${(P.tests || []).length ? `<h2>Kabul ölçütleri ve testler</h2><div class="tablewrap"><table><thead><tr><th class="nosort">No</th><th class="nosort">Ölçüt / test</th><th class="nosort">Hedef / doğrulanan gereksinim</th></tr></thead><tbody>${P.tests.map(t => `<tr><td><b>${esc(t[0])}</b></td><td>${esc(t[1])}</td><td class="sub">${esc(t[2])}</td></tr>`).join('')}</tbody></table></div>` : ''}
   <h2>Form kayıtları <span class="tcount">${(FR || []).length}</span></h2>${(FR || []).length ? `<div class="tablewrap"><table><tbody>${FR.map(r => { const it = K.BY[r.code]; return `<tr style="cursor:default"><td class="mono" style="white-space:nowrap"><a href="${kHref(r.code, P)}?r=${r.id}">${esc(r.record_no || r.code)}</a></td><td>${esc(it ? it.title : r.code)}</td><td>${esc(r.label || '')}</td><td>${esc(r.status || '')}</td><td class="sub">${fmtD((r.updated_at || '').slice(0, 10))}</td></tr>`; }).join('')}</tbody></table></div>` : '<p class="note">Bu projede doldurulmuş form yok.</p>'}
   <h2>Uygunsuzluklar <span class="tcount">${(N || []).length}</span></h2>${(N || []).length ? `<div class="tablewrap"><table><tbody>${N.map(n => `<tr style="cursor:default"><td class="mono" style="white-space:nowrap"><a href="#/uygunsuzluk/${n.id}">${esc(n.no)}</a></td><td>${fmtD(n.opened_at)}</td><td>${esc(n.title)}</td><td>${ncrPill(n.status)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="note">Bu projede uygunsuzluk kaydı yok.</p>'}
@@ -5917,15 +5913,15 @@ function kysItem(K, code, P){
   const it = K.BY[code]; if (!it) return '<h1>Belge bulunamadı</h1><p><a href="#/kalite/belgeler">Doküman listesine dön</a></p>';
   const live = !!KYS_LIVE[it.code], own = !P || it.pk === P.code, pp = P || kPjCode(K, it.pk), rows = it.kind === 'register' && !!KYS_ROWS_LIVE[it.code] && !P;
   const head = kHead(K, it, { title:it.title, proj:it.pk ? kPName(pp) : P ? kPName(P) : '', no:it.no || it.code, rev:it.rev || '00', date:kDate(K, it) });
-  const src = it.source ? `<p class="small"><b>Kaynak:</b> ${kSafe(it.source)}</p>` : '';
+  const src = kRefs(it.source);
   // başka projenin bağlamında içerikteki proje satırları gösterilmez; yalnız o projeye eklenen kayıtlar
   const body = it.kind === 'doc' ? kSecs(it.sections) + kTables(K, it) + kHist(K, it) : it.kind === 'form' ? kysForm(K, it, P)
-    : it.kind === 'register' ? (own ? `${src}${it.note ? `<p class="small" style="color:var(--ink)">${kSafe(it.note)}</p>` : ''}${rows ? '<div id="krisk"></div>' : kTbl(K, it.columns, it.rows, true)}` : '') : src + kysReport(K, it) + kHist(K, it);
+    : it.kind === 'register' ? (own ? `${it.note ? `<p class="small" style="color:var(--ink)">${kSafe(it.note)}</p>` : ''}${rows ? '<div id="krisk"></div>' : kTbl(K, it.columns, it.rows, true)}${src}` : '') : kysReport(K, it) + src + kHist(K, it);
   const frm = it.kind === 'form' && !live && !(it.projectOnly && !P);
   return `<div class="crumbs noprint">${kCrumb(it, P)}</div>${kLive(it)}${it.projectOnly && !P ? `<p class="banner info noprint">Bu form projeye özeldir; proje sayfasından doldurulur: ${K.P.filter(p => p.status === 'aktif').map(p => `<a href="${kHref(it.code, p)}">${esc(p.code)} · ${esc(kPName(p))}</a>`).join(' · ') || 'aktif proje yok'}</p>` : ''}
   <div class="toolbar noprint"><button class="btn primary" data-print="1">Yazdır / PDF</button>${it.kind === 'form' && it.pk && own ? `<div class="seg" id="kfm"><button data-v="proj" class="${kysMode === 'proj' ? 'on' : ''}">Proje bilgileriyle</button><button data-v="bos" class="${kysMode === 'bos' ? 'on' : ''}">Boş form</button></div>` : ''}
   <span style="flex:1"></span>${kSib(it, P)}</div>
-  <div class="sheet${(it.columns || []).length > 8 ? ' wide' : ''}" id="ksheet">${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>
+  <div class="sheet${(it.columns || []).length > 8 ? ' wide' : ''}${kProc(it) ? ' proc' : ''}" id="ksheet">${head}${kProc(it) ? `<div class="pbody">${body}</div>` : body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p></div>
   ${it.kind === 'form' || it.kind === 'register' ? `<div class="panel noprint mt kys-hist">${kHist(K, it)}</div>` : ''}
   ${frm ? '<div class="savebar noprint"><span class="sub" id="kcur"></span><button class="btn" id="kclear">Yeni kayıt</button><button class="btn primary" id="ksave">Kaydet</button></div>' : ''}${frm || (it.kind === 'register' && !live && !rows) ? '<div class="noprint" id="krecs"></div>' : ''}`;
 }
@@ -6150,7 +6146,8 @@ function kysFormBind(K, it, P){
     const r = kysRec ? await sb.from('kys_records').update(o).eq('id', kysRec).select('id,record_no') : await sb.from('kys_records').insert({ ...o, code:it.code, kind:'form' }).select('id,record_no');
     if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Kaydedilemedi', true);
     kysRec = r.data[0].id; kysRecData = o.data; const lg = q('#klog', sheet); if (lg) lg.innerHTML = kLogH(log); S._gsx = null; const no = q('.krno', sheet); if (no) no.value = r.data[0].record_no || ''; q('#kcur').textContent = 'Açık kayıt: ' + (r.data[0].record_no || ''); toast((r.data[0].record_no || 'Kayıt') + ' kaydedildi'); list(); });
-  q('#kclear').onclick = () => viewKys();
+  // adresteki ?r= kaldırılmazsa yeniden çizim aynı kaydı tekrar açar
+  q('#kclear').onclick = () => { const h = location.hash.split('?')[0]; if (h !== location.hash) location.hash = h; else viewKys(); };
   sheet.addEventListener('input', e => { if (e.target.dataset) delete e.target.dataset.auto; });
   // CI listesi (ACR-LS-KF-01): içerikte duran projede belgedeki satırlar, diğerlerinde projeye eklenen satırlar; sütun 0 CI no, 1 ad, 6 güncel rev
   const ciL = q('#kcil', sheet), ciFill = async () => { if (!ciL) return; const pe = q('[data-proj]', sheet), pp = pe && pe.value ? kPj(K, pe.value) : P || kPjCode(K, it.pk), ci = K.BY['ACR-LS-KF-01'];
@@ -6180,12 +6177,13 @@ async function kArch(K, it, P, inst){
   const show = async id => {
     const { data:r, error } = await sb.from('kys_item_revs').select('*').eq('id', id).maybeSingle(); if (error || !r) return toast(error ? dbErr(error) : 'Arşiv kaydı bulunamadı', true);
     const a = inst ? r.item : { ...it, ...r.item }, sheet = q('#ksheet'); if (!sheet) return;
-    const head = kHead(K, a, { title:inst ? T.title : a.title, proj:inst ? P.name : it.pk ? kPName(P || kPjCode(K, it.pk)) : P ? kPName(P) : '', no:inst ? inst.record_no : it.no || it.code, rev:r.rev, date:r.rev_date || '' });
+    // arşivdeki proje belgesinde süreç bilgisi (_m) yok; şablondan alınır
+    const head = kHead(K, { ...it, ...a, _m:it._m }, { title:inst ? T.title : a.title, proj:inst ? P.name : it.pk ? kPName(P || kPjCode(K, it.pk)) : P ? kPName(P) : '', no:inst ? inst.record_no : it.no || it.code, rev:r.rev, date:r.rev_date || '' });
     const hist = h => `<div class="sec"><h3>Revizyon geçmişi</h3>${kTblRaw(['Rev', 'Tarih', 'Açıklama'], (h || []).slice().reverse())}</div>`;
     const m0 = kysMode; kysMode = 'bos';
     const body = inst ? (a.sections || []).map(x => `<div class="sec"><h3>${esc(x.h)}</h3><div class="p">${kText(x.p) || '<span class="sub">—</span>'}</div></div>`).join('') + (T.columns ? kTbl(K, T.columns, a.rows || [], true) : '') + hist(a.history)
       : a.kind === 'doc' ? kSecs(a.sections) + kTables(K, a) + hist(a.history)
-      : a.kind === 'register' ? `${a.source ? `<p class="small"><b>Kaynak:</b> ${kSafe(a.source)}</p>` : ''}${a.note ? `<p class="small" style="color:var(--ink)">${kSafe(a.note)}</p>` : ''}${kTbl(K, a.columns, a.rows, true)}${hist(a.history)}`
+      : a.kind === 'register' ? `${a.note ? `<p class="small" style="color:var(--ink)">${kSafe(a.note)}</p>` : ''}${kTbl(K, a.columns, a.rows, true)}${kRefs(a.source)}${hist(a.history)}`
       : a.kind === 'form' ? kysForm(K, a, P) + hist(a.history) : kysReport(K, a) + hist(a.history);
     kysMode = m0;
     sheet.innerHTML = `<p class="banner"><b>ARŞİV · Rev ${esc(r.rev)}${r.rev_date ? ` (${esc(r.rev_date)})` : ''}</b> — yürürlükte değildir; güncel revizyon Rev ${esc(cur)}. <button type="button" class="btn sm noprint" id="kback">Güncel revizyona dön</button></p>${head}${body}<p class="small" style="margin-top:18px">${esc(K.META.footer || '')}</p>`;
@@ -6199,7 +6197,7 @@ async function viewKys(){
   const [, sub, arg, arg2] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/'), code = arg ? decodeURIComponent(arg) : '';
   if (sub === 'yukle') return viewKysUpload();
   const K = await kysLoad();
-  if (!K) return shell('kalite', `<div class="pagehead"><div><h1>Kalite belgeleri</h1><p class="lede">Belge içeriği henüz yüklenmedi.</p></div></div><p><a class="btn primary" href="#/kalite/yukle">İçerik dosyasını yükle</a></p>`);
+  if (!K) return shell('kalite', `<div class="pagehead"><div><h1>Kalite Panosu</h1><p class="lede">Belge içeriği henüz yüklenmedi.</p></div></div><p><a class="btn primary" href="#/kalite/yukle">İçerik dosyasını yükle</a></p>`);
   kysRec = null; kysRecData = null;
   const P = sub === 'proje' && /^\d+$/.test(arg || '') ? kPj(K, arg) : null, pc = P && arg2 && arg2 !== 'duzenle' ? decodeURIComponent(arg2) : '';
   if (sub === 'proje' && arg && arg !== 'yeni' && !P) return shell('kalite', `<div class="kys">${kysNav(K, sub)}<h1>Proje bulunamadı</h1><p><a href="#/kalite/proje">Projelere dön</a></p></div>`);
@@ -6208,7 +6206,7 @@ async function viewKys(){
   const html = sub === 'belgeler' ? kysDocs(K) : sub === 'm' ? kysModule(K, code) : sub === 'i' ? kysItem(K, code)
     : sub === 'proje' ? (arg === 'yeni' ? kysProjectForm(K) : !P ? kysProjects(K) : arg2 === 'duzenle' ? kysProjectForm(K, P) : pc ? (!K.BY[pc] ? '<h1>Belge bulunamadı</h1><p><a href="#/kalite/belgeler">Doküman listesine dön</a></p>' : kInst(K, P, pc) ? kysInst(K, P, pc, inst) : kysItem(K, pc, P)) : await kysProject(K, P))
     : kysHome(K);
-  shell('kalite', `<div class="kys">${kysNav(K, sub, code)}${html}</div>`);
+  shell(sub === 'proje' ? 'kalite/proje' : 'kalite', `<div class="kys">${kysNav(K, sub, code)}${html}</div>`);
   q('#kmsel').onchange = e => { if (e.target.value) location.hash = '#/kalite/m/' + e.target.value; };
   q('#kdq') && (q('#kdq').oninput = e => { kysQ = e.target.value.trim(); q('#kdtb').innerHTML = kysDocsRows(K); });
   q('#kfm') && (q('#kfm').onclick = e => { const m = e.target.dataset.v; if (m) { kysMode = m; viewKys(); } });
@@ -6224,7 +6222,7 @@ async function viewKys(){
 }
 function viewKysUpload(){
   let P = null;
-  shell('kalite', `<p><a href="#/kalite">← Kalite belgeleri</a></p><div class="pagehead"><div><h1>Belge içeriğini yükle</h1><p class="lede">Kalite belgelerinin içeriği (kys_icerik.json) veritabanında tutulur, depoda bulunmaz. Yüklenen dosya önceki içeriğin yerine geçer; doldurulmuş form kayıtları, listelere eklenen satırlar ve projelerin kendi belgeleri etkilenmez.</p></div></div>
+  shell('kalite', `<p><a href="#/kalite">← Kalite Panosu</a></p><div class="pagehead"><div><h1>Belge içeriğini yükle</h1><p class="lede">Kalite belgelerinin içeriği (kys_icerik.json) veritabanında tutulur, depoda bulunmaz. Yüklenen dosya önceki içeriğin yerine geçer; doldurulmuş form kayıtları, listelere eklenen satırlar ve projelerin kendi belgeleri etkilenmez.</p></div></div>
   <section class="panel"><form id="kuf" class="fs plain" novalidate><label class="f">İçerik dosyası (.json)<input type="file" name="f" accept=".json,application/json"></label><p id="kuinfo" class="note"></p><p><button class="btn primary" disabled>Yükle</button></p></form></section>`);
   const f = q('#kuf'), info = q('#kuinfo'), btn = f.querySelector('button');
   f.elements.f.onchange = async () => { P = null; btn.disabled = true; const file = f.elements.f.files[0]; if (!file) return (info.textContent = '');

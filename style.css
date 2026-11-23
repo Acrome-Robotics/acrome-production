@@ -751,7 +751,9 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
 .kys .flow span{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:3px 10px;font-size:12.5px;font-weight:550}
 .kys .flow i{color:var(--muted);font-style:normal}
 .kys .sheet{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px 32px;max-width:1080px}
-.kys .sheet.wide{max-width:none}                       /* çok sütunlu kayıtlar ekranı kullanır */
+.kys .sheet.wide{max-width:none}
+.kys .sheet.proc{border:4px double var(--ink);border-radius:2px}      /* prosedür: formlardan ayrışan çift çerçeve */
+.kys .sheet.proc .pbody{border:1.5px solid var(--ink);padding:14px 20px}                       /* çok sütunlu kayıtlar ekranı kullanır */
 .kys .sheet.wide table td:first-child,.kys .sheet.wide table th:first-child{white-space:nowrap}
 .kys .dochead{display:grid;grid-template-columns:150px 1fr 230px;border:1.5px solid var(--ink);margin-bottom:20px}
 .kys .dochead>div{padding:8px 12px}
@@ -791,6 +793,7 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
 @media (max-width:960px){.kys .kpis.k5{grid-template-columns:repeat(2,1fr)}.kys .fgrid{grid-template-columns:1fr}.kys .w2,.kys .w3{grid-column:auto}.kys .dochead{grid-template-columns:1fr}.kys .dochead .lg,.kys .dochead .tt{border-right:0;border-bottom:1.5px solid var(--ink)}.kys .sheet{padding:16px}}
 @media print{
   .kys .sheet{border:0;padding:0;max-width:none}
+  .kys .sheet.proc{border:4px double #000;padding:10px}
   .kys .sheet input,.kys .sheet select,.kys .sheet textarea{border:0;border-bottom:1px solid #999;border-radius:0;padding:1px 2px;min-height:20px;-webkit-appearance:none;appearance:none;background:transparent}
   .kys .sheet textarea{min-height:52px;border:1px solid #999}
   .kys .sheet textarea.ag{min-height:0;border:0;border-bottom:1px solid #999;overflow:visible}
