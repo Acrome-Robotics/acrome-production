@@ -205,9 +205,8 @@ function renderPending(){
     <p><button class="btn" id="rl">Yenile</button> <button class="btn" id="lo">Çıkış yap</button></p></div></div>`;
   q('#rl').onclick = start; q('#lo').onclick = () => sb.auth.signOut();
 }
-// Acrome logosu (gizli kopyada gradyan kaybolmasın diye her çizimde ayrı kimlik)
-let logoN = 0;
-const logo = () => { const g = 'lg' + (++logoN); return `<svg width="32" height="32" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E41F2B"/><stop offset="1" stop-color="#A3141F"/></linearGradient></defs><circle cx="32" cy="32" r="31.5" fill="#C41E2A"/><circle cx="32" cy="32" r="31.5" fill="url(#${g})"/><path fill="#fff" d="M14.8 42.5h5.8l13.2-33.1h-5.7zM32.9 12.6l1.3-3 11.1 32.9h-3.8zM14 46h33.8v3.3H14z"/></svg>`; };
+// Acrome logosu: açık ve koyu tema için iki görsel, hangisinin görüneceğini style.css seçer
+const logo = () => `<img class="lg lg-l" src="logo-light.png" width="32" height="32" alt=""><img class="lg lg-d" src="logo-dark.png" width="32" height="32" alt="">`;
 
 // ---------------------------------------------------------------- iskelet
 // menü grubu ikonları (16px, çizgi)

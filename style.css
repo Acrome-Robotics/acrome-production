@@ -31,7 +31,12 @@ button,input,select,textarea{font:inherit;color:inherit}
 .shell{display:grid;grid-template-columns:var(--sidew,244px) minmax(0,1fr);min-height:100vh}
 .side{background:var(--surface);border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto}
 .brand{display:flex;align-items:center;gap:10px;padding:0 8px 14px;font-stretch:80%;font-weight:750;font-size:19px;letter-spacing:-.01em}
-.brand svg{flex:none}
+.brand svg,.brand img{flex:none}
+.lg-d{display:none}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .lg-l{display:none}:root:not([data-theme="light"]) .lg-d{display:inline}}
+:root[data-theme="dark"] .lg-l{display:none}
+:root[data-theme="dark"] .lg-d{display:inline}
+@media print{.lg-l{display:inline!important}.lg-d{display:none!important}}
 .brand small{display:block;font-weight:450;font-size:12px;color:var(--muted);font-stretch:100%;letter-spacing:0}
 .nav a{display:flex;justify-content:space-between;align-items:center;padding:6px 10px 6px 32px;border-radius:var(--radius);color:var(--ink);text-decoration:none;font-weight:500;font-size:14px;position:relative}
 .nav a:hover{background:var(--soft)}
@@ -699,7 +704,7 @@ table.cltab td.clact .btn{padding:2px 7px;min-height:28px;margin-left:2px}
   .clp-page{page:clp}
   .clp-break{break-before:page}
   .clp-head{display:flex;align-items:center;gap:10px;border-bottom:2px solid #C41E2A;padding-bottom:6px;margin-bottom:10px}
-  .clp-head svg{width:40px;height:40px}
+  .clp-head svg,.clp-head img{width:40px;height:40px}
   .clp-head b{display:block;font-size:18px}
   .clp-head span{font-size:13px;color:#333}
   .clp-title{font-size:14px;margin:0 0 8px;text-transform:uppercase}
