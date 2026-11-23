@@ -5,7 +5,7 @@ self.addEventListener('push', e => {
   e.waitUntil(self.registration.showNotification('Acrome', {
     body: 'Yeni support maili geldi.',
     tag: 'acrome', renotify: true,
-    icon: 'icon-192.png', badge: 'icon-192.png',
+    icon: 'app-icon-192.png', badge: 'app-icon-192.png',
   }));
 });
 self.addEventListener('notificationclick', e => {
