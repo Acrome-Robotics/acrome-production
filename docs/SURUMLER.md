@@ -31,4 +31,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611210215 | 21.11.2026 02:15 | Orta alan: paneller küçülünce 1760 px'e kadar genişler, daha geniş ekranda ortalanır |
 | 202611211526 | 21.11.2026 15:26 | Bugün: kalite uyarıları (açık uygunsuzluk, kalibrasyon, incelemede form, geciken hedef ölçümü) |
 | 202611231317 | 23.11.2026 13:17 | Geri bildirimler 1. ve 2. grup: K-15 arşiv Göster hatası, K-10 Yeni kayıt, uygulama adı Acrome ERP App, Kalite Panosu düzeni, prosedür görünümü |
-| 202611231411 | 23.11.2026 14:11 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611231411 | 23.11.2026 14:11 | Giriş kontrolü tek kayıt (FR-KD-01), Stok > Giriş kontrolleri, Şartlı kabuller Stok menüsünde, FR-KY-01 şirket geneli |
+| 202611231442 | 23.11.2026 14:42 | (bu commit; mesajı bir sonraki commit'te yazılır) |
