@@ -33,4 +33,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611231317 | 23.11.2026 13:17 | Geri bildirimler 1. ve 2. grup: K-15 arşiv Göster hatası, K-10 Yeni kayıt, uygulama adı Acrome ERP App, Kalite Panosu düzeni, prosedür görünümü |
 | 202611231411 | 23.11.2026 14:11 | Giriş kontrolü tek kayıt (FR-KD-01), Stok > Giriş kontrolleri, Şartlı kabuller Stok menüsünde, FR-KY-01 şirket geneli |
 | 202611231442 | 23.11.2026 14:42 | Kalite Panosu: bana atanmış formlar ve görevler (K-3); denetim paketinde proje süzgeci (K-7); sağlık özetine veritabanı boyutu uyarısı |
-| 202611231616 | 23.11.2026 16:16 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611231616 | 23.11.2026 16:16 | Yeni Acrome logosu: açık ve koyu temaya göre ayrı görsel; sekme ve ana ekran simgeleri |
+| 202611231656 | 23.11.2026 16:56 | (bu commit; mesajı bir sonraki commit'te yazılır) |

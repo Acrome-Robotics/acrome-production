@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=202611231616">
+<link rel="stylesheet" href="style.css?v=202611231656">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#C41E2A">
 <link rel="apple-touch-icon" href="app-icon-192.png">
@@ -16,10 +16,14 @@
 <link rel="icon" type="image/png" href="favicon.png">
 </head>
 <body>
-<div id="app"><div class="boot">Yükleniyor…</div></div>
+<div id="app"><div class="splash" role="status" aria-label="Yükleniyor"><div class="splash-in">
+  <svg viewBox="0 0 200 200" aria-hidden="true"><defs><linearGradient id="hxg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2C3842"/><stop offset="1" stop-color="#8E99A1"/></linearGradient></defs>
+    <polygon class="hx2" points="100,4 183,52 183,148 100,196 17,148 17,52"/><polygon class="hx" points="100,4 183,52 183,148 100,196 17,148 17,52"/>
+    <image class="slg" href="logo-dark.png" x="48" y="48" width="104" height="104"/></svg>
+  <div class="stxt">Yükleniyor</div></div></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=202611231616"></script>
-<script src="app.js?v=202611231616"></script>
+<script src="config.js?v=202611231656"></script>
+<script src="app.js?v=202611231656"></script>
 </body>
 </html>

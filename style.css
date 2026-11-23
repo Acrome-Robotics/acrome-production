@@ -26,6 +26,18 @@ a:hover{text-decoration:underline}
 button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .boot{padding:40px;color:var(--muted)}
+/* açılış ekranı: temadan bağımsız koyu zemin; altıgen çizilir, logo belirir (2,4 s döngü) */
+.splash{position:fixed;inset:0;display:grid;place-items:center;background:#171F23;z-index:50}
+.splash-in{display:grid;justify-items:center;gap:18px}
+.splash svg{width:min(46vmin,260px);height:auto;overflow:visible}
+.splash .hx{fill:none;stroke:url(#hxg);stroke-width:2.2;stroke-linejoin:round;stroke-dasharray:600;stroke-dashoffset:600;animation:hxdraw 2.4s cubic-bezier(.6,0,.3,1) infinite}
+.splash .hx2{fill:none;stroke:#22303A;stroke-width:1}
+.splash .slg{opacity:0;transform-origin:100px 100px;animation:slgin 2.4s ease-in-out infinite}
+.splash .stxt{color:#7F8C96;font-size:13px;letter-spacing:.18em;text-transform:uppercase;animation:sblink 2.4s ease-in-out infinite}
+@keyframes hxdraw{0%{stroke-dashoffset:600}55%{stroke-dashoffset:0}85%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:0;opacity:0}}
+@keyframes slgin{0%,35%{opacity:0;transform:scale(.92)}55%,85%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1)}}
+@keyframes sblink{0%,100%{opacity:.45}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.splash .hx{animation:none;stroke-dashoffset:0}.splash .slg{animation:none;opacity:1}.splash .stxt{animation:none}}
 
 /* ---------- shell ---------- */
 .shell{display:grid;grid-template-columns:var(--sidew,244px) minmax(0,1fr);min-height:100vh}
