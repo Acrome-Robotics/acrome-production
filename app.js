@@ -5589,18 +5589,20 @@ async function viewAuditPack(){
 // interns: yalnız Muhasebe + Yönetici (veritabanı kuralı). Stajyer #/staj-formu?k=<anahtar> sayfasından intern_submit ile gönderir;
 // aynı TC ile tekrar gönderirse yalnız boş alanlar ve eksik belge linkleri dolar. Belge tamam = Muhasebe "kontrol edildi" işaretledi.
 const INT_DOCS = { kimlik:'Nüfus cüzdanı fotokopisi', ogrenci:'Öğrenci belgesi (mezunsa diploma)', staj:'Okul staj formu / sözleşme', sgk:'SGK / müstehaklık belgesi' };
-const INT_REQ = { tc_no:'TC kimlik no', sgk_no:'SGK sicil no', phone:'Telefon', email:'E-posta', school:'Okul', birth_date:'Doğum tarihi', start_date:'İşe giriş', address:'İkamet adresi' };
-const intMissing = r => ({ f:Object.keys(INT_REQ).filter(k => !r[k]), d:Object.keys(INT_DOCS).filter(k => !(r.docs || {})[k] || !(r.docs[k].ok)) });
+const INT_REQ = { tc_no:'TC kimlik no', sgk_no:'SGK sicil no', phone:'Telefon', email:'E-posta', school:'Okul', birth_date:'Doğum tarihi', start_date:'İşe giriş', end_date:'Staj bitiş tarihi', address:'İkamet adresi' };
+// Excel'den gelen eski kayıtlarda belgeler tamam sayılır (kullanıcı kararı); yalnız staj bitiş tarihi aranır
+const intMissing = r => r.source === 'excel' ? { f:r.end_date ? [] : ['end_date'], d:[] }
+  : { f:Object.keys(INT_REQ).filter(k => !r[k]), d:Object.keys(INT_DOCS).filter(k => !(r.docs || {})[k] || !(r.docs[k].ok)) };
 const intIsMiss = r => { const m = intMissing(r); return m.f.length + m.d.length > 0; };
-async function loadInterns(){ if (!can('muhasebe', 'admin')) return; const { data } = await sb.from('interns').select('id,tc_no,sgk_no,phone,email,school,birth_date,start_date,address,docs,end_date');
+async function loadInterns(){ if (!can('muhasebe', 'admin')) return; const { data } = await sb.from('interns').select('id,tc_no,sgk_no,phone,email,school,birth_date,start_date,address,docs,end_date,source');
   S.intMiss = (data || []).filter(r => (!r.end_date || r.end_date >= addDays(today(), -30)) && intIsMiss(r)).length; }   // bitişinden 30 gün geçmiş eski kayıtlar sayaca girmez
 const intSt = r => { const T = today(); return r.start_date && r.start_date > T ? ['Başlayacak', 'p-amber'] : r.end_date && r.end_date < T ? ['Bitti', ''] : r.start_date ? ['Devam ediyor', 'p-green'] : ['Tarih yok', '']; };
 let intF = { q:'', st:'', miss:false };
 async function viewInterns(){
   if (!can('muhasebe', 'admin')) return shell('stajyerler', '<div class="empty">Bu sayfa yalnız Muhasebe ve Yönetici içindir.</div>');
-  const [a, kq] = await Promise.all([sb.from('interns').select('*').order('start_date', { ascending:false, nullsFirst:false }), sb.from('intern_form_key').select('k').maybeSingle()]);
-  let R = a.data || [], key = (kq.data || {}).k || '', sel = null;
-  const link = () => key ? location.origin + location.pathname + '#/staj-formu?k=' + key : '';
+  const [a, kq] = await Promise.all([sb.from('interns').select('*').order('start_date', { ascending:false, nullsFirst:false }), sb.from('intern_form_keys').select('*').order('id')]);
+  let R = a.data || [], sel = null;
+  const K = kq.data || [], link = k => location.origin + location.pathname + '#/staj-formu?k=' + k;
   const vis = () => { const s = intF.q.toLocaleLowerCase('tr'); return R.filter(r => (!intF.st || intSt(r)[0] === intF.st) && (!intF.miss || intIsMiss(r))
     && (!s || [r.full_name, r.school, r.department, r.tc_no, r.email].join(' ').toLocaleLowerCase('tr').includes(s))); };
   const missTxt = r => { const m = intMissing(r); if (!m.f.length && !m.d.length) return '<span class="pill p-green">Tamam</span>';
@@ -5642,18 +5644,23 @@ async function viewInterns(){
   shell('stajyerler', `<div class="pagehead"><div><h1>Stajyerler</h1><p class="lede">Stajyer kayıtları ve belgeleri. Yalnız Muhasebe ve Yönetici görür. Stajyerler bilgilerini aşağıdaki form linkinden kendileri girer; aynı TC ile tekrar gönderen yalnız boş alanları ve eksik belgeleri tamamlar. Belge, linki açılıp "Kontrol edildi" işaretlenince tamam sayılır.</p></div>
     <button class="btn primary" id="intnew">Yeni stajyer</button></div>
     ${a.error ? `<div class="empty">${esc(dbErr(a.error))}</div>` : ''}
-    <section class="panel"><h3 style="margin-top:0">Stajyer formu linki</h3>${key ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input type="text" readonly id="intlink" value="${esc(link())}" style="flex:1;min-width:260px"><button class="btn" id="intcopy">Kopyala</button><button class="btn" id="intkey">Yeni link üret</button></div>
-      <p class="small" style="margin:6px 0 0">Linki yalnız stajyerlere gönderin. "Yeni link üret" eski linki geçersiz kılar.</p>` : '<p class="small">Henüz link yok. <button class="btn sm" id="intkey">Link üret</button></p>'}</section>
+    <section class="panel"><h3 style="margin-top:0">Stajyer formu linkleri <span class="sub">${K.length} / 5</span></h3>
+      ${K.map(x => `<div class="intk" data-k="${x.id}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px"><b style="min-width:140px">${esc(x.label)}</b><input type="text" readonly value="${esc(link(x.k))}" style="flex:1;min-width:240px"><button type="button" class="btn sm" data-a="cp">Kopyala</button><button type="button" class="btn sm danger" data-a="rm">Sil</button><span class="sub">${fmtD((x.created_at || '').slice(0, 10))}${x.created_by_name ? ' · ' + esc(x.created_by_name) : ''}</span></div>`).join('') || '<p class="small">Henüz link yok.</p>'}
+      ${K.length < 5 ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><input type="text" id="intlbl" maxlength="80" placeholder="Link adı (ör. 2027 yaz stajı)" style="flex:1;min-width:220px"><button class="btn" id="intkey">Yeni link üret</button></div>` : ''}
+      <p class="small" style="margin:6px 0 0">Linki yalnız stajyerlere gönderin. Silinen link hemen geçersiz olur; o linkle gelmiş kayıtlar kalır. Belgeler "Stajyer Belgeleri" Drive klasöründe kişi klasörüne yüklenir.</p></section>
     <div class="toolbar mt"><input type="search" id="intq" placeholder="Ara: ad, okul, bölüm, TC…" value="${esc(intF.q)}"><select id="intst" aria-label="Durum"><option value="">Durum: hepsi</option>${['Devam ediyor', 'Başlayacak', 'Bitti', 'Tarih yok'].map(s => `<option>${s}</option>`).join('')}</select>
       <label class="chk"><input type="checkbox" id="intmiss" ${intF.miss ? 'checked' : ''}> Yalnız eksikli</label><span class="sub" id="intn"></span><span style="flex:1"></span><button class="btn" id="intcsv">CSV indir</button></div>
     <div id="intp" class="noprint"></div><div id="intt"></div>`);
   q('#intst').value = intF.st; q('#intst').onchange = e => { intF.st = e.target.value; drawT(); }; q('#intq').oninput = e => { intF.q = e.target.value.trim(); drawT(); }; q('#intmiss').onchange = e => { intF.miss = e.target.checked; drawT(); };
   q('#intnew').onclick = () => { sel = 0; drawP(); };
-  q('#intcopy') && (q('#intcopy').onclick = () => { navigator.clipboard.writeText(link()).then(() => toast('Link kopyalandı'), () => { q('#intlink').select(); }); });
-  q('#intkey').onclick = e => { if (key && !confirmTwice(e.currentTarget, 'Eski link iptal olacak, emin misin?')) return; return busy(e.currentTarget, async () => { const x = await sb.rpc('intern_form_key_new'); if (x.error) return toast(dbErr(x.error), true); toast('Yeni link üretildi'); viewInterns(); }); };
+  qa('.intk [data-a]').forEach(b => b.onclick = async () => { const row = b.closest('.intk'), x = K.find(y => y.id === +row.dataset.k);
+    if (b.dataset.a === 'cp') return navigator.clipboard.writeText(link(x.k)).then(() => toast('Link kopyalandı'), () => row.querySelector('input').select());
+    if (!confirmTwice(b, 'Link iptal olsun mu?')) return; const r = await sb.from('intern_form_keys').delete().eq('id', x.id).select('id');
+    if (r.error || !r.data || !r.data.length) return toast(r.error ? dbErr(r.error) : 'Silinemedi', true); toast('Link silindi'); viewInterns(); });
+  q('#intkey') && (q('#intkey').onclick = e => busy(e.currentTarget, async () => { const x = await sb.rpc('intern_form_key_new', { p_label:q('#intlbl').value.trim() }); if (x.error) return toast(dbErr(x.error), true); toast('Yeni link üretildi'); viewInterns(); }));
   q('#intcsv').onclick = () => { const H = ['Ad soyad', 'TC kimlik no', 'E-posta', 'Telefon', 'Doğum tarihi', 'Okul', 'Bölüm', 'Eğitim durumu', 'SGK sicil no', 'İşe giriş', 'İşten çıkış', 'Adres', ...Object.values(INT_DOCS), 'Eksikler', 'Not'];
     const L = [H, ...vis().map(r => { const m = intMissing(r); return [r.full_name, r.tc_no, r.email, r.phone, r.birth_date, r.school, r.department, r.edu_status, r.sgk_no, r.start_date, r.end_date, r.address,
-      ...Object.keys(INT_DOCS).map(k => { const d = (r.docs || {})[k] || {}; return d.ok ? 'Tamam' : d.url ? 'Kontrol bekliyor' : 'Yok'; }), [...m.d.map(k => INT_DOCS[k]), ...m.f.map(k => INT_REQ[k])].join(', '), r.note]; })]
+      ...Object.keys(INT_DOCS).map(k => { const d = (r.docs || {})[k] || {}; return d.ok ? 'Tamam' : d.url ? 'Kontrol bekliyor' : r.source === 'excel' ? 'Excel klasöründe' : 'Yok'; }), [...m.d.map(k => INT_DOCS[k]), ...m.f.map(k => INT_REQ[k])].join(', '), r.note]; })]
       .map(r => r.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
     const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob(['﻿' + L], { type:'text/csv;charset=utf-8' })); el.download = `stajyerler-${today()}.csv`; el.click(); };
   drawT();
@@ -5664,7 +5671,7 @@ function renderInternForm(){
   $app.innerHTML = `<div class="auth"><div class="box" style="max-width:640px">
     <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Stajyer bilgi formu</small></div></div>
     <h1 style="margin-top:18px">Stajyer bilgi formu</h1>
-    <p class="note">Bilgilerin yalnız Acrome muhasebe ve yönetiminde görülür. Belgeleri Google Drive'a yükleyip paylaşım linkini ilgili kutuya yapıştır (paylaşım: "bağlantıya sahip olan herkes" ya da muhasebe adresi). Eksik bir belgeyi sonra aynı TC kimlik no ile formu yeniden göndererek ekleyebilirsin.</p>
+    <p class="note">Bilgilerin yalnız Acrome muhasebe ve yönetiminde görülür. Belgeleri PDF, JPG ya da PNG olarak seç (her biri en fazla 10 MB); Acrome'un belge klasörüne yüklenir. Eksik bir belgeyi sonra aynı TC kimlik no ile formu yeniden göndererek ekleyebilirsin.</p>
     <form id="isf" novalidate>
       <label class="f">Ad soyad<input name="full_name" required maxlength="120" autocomplete="name"></label>
       <label class="f">TC kimlik no<input name="tc_no" required maxlength="11" inputmode="numeric"></label>
@@ -5678,18 +5685,28 @@ function renderInternForm(){
       <label class="f">İşe giriş tarihi<input name="start_date" type="date"></label>
       <label class="f">İşten çıkış tarihi<input name="end_date" type="date"></label>
       <label class="f">İkamet adresi <span class="hint">Mah. Cad. Sok. No, İlçe / İl</span><textarea name="address" rows="2" maxlength="400"></textarea></label>
-      ${Object.entries(INT_DOCS).map(([d, l]) => `<label class="f">${esc(l)} <span class="hint">Drive linki</span><input name="doc_${d}" type="url" maxlength="500" placeholder="https://drive.google.com/…"></label>`).join('')}
+      ${Object.entries(INT_DOCS).map(([d, l]) => `<label class="f">${esc(l)} <span class="hint">PDF / JPG / PNG</span><input name="doc_${d}" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"></label>`).join('')}
       <label class="f">Not <span class="hint">isteğe bağlı</span><textarea name="note" rows="2" maxlength="1000"></textarea></label>
       <div class="err-box" id="iserr"></div>
       <button class="btn primary" type="submit">Gönder</button>
     </form></div></div>`;
   q('#isf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const f = new FormData(e.target), g = n => String(f.get(n) || '').trim(), err = q('#iserr'); err.textContent = ''; err.style.color = '';
     const p = { full_name:g('full_name'), tc_no:g('tc_no').replace(/\D/g, ''), email:g('email'), phone:g('phone'), birth_date:g('birth_date'), school:g('school'), department:g('department'), edu_status:g('edu_status'),
-      sgk_no:g('sgk_no'), start_date:g('start_date'), end_date:g('end_date'), address:g('address'), note:g('note'), docs:Object.fromEntries(Object.keys(INT_DOCS).map(d => [d, g('doc_' + d)])) };
+      sgk_no:g('sgk_no'), start_date:g('start_date'), end_date:g('end_date'), address:g('address'), note:g('note'), docs:{} };
     if (p.full_name.length < 3) return (err.textContent = 'Ad soyad gir.');
     if (!/^[1-9]\d{10}$/.test(p.tc_no)) return (err.textContent = 'TC kimlik no 11 haneli olmalı.');
-    if (Object.values(p.docs).some(u => u && !/^https:\/\//i.test(u))) return (err.textContent = 'Belge linkleri https:// ile başlamalı.');
     if (p.start_date && p.end_date && p.end_date < p.start_date) return (err.textContent = 'Çıkış tarihi girişten önce olamaz.');
+    const files = Object.keys(INT_DOCS).map(d => [d, f.get('doc_' + d)]).filter(([, x]) => x && x.size);
+    for (const [d, x] of files) { if (!['application/pdf', 'image/jpeg', 'image/png'].includes(x.type)) return (err.textContent = `${INT_DOCS[d]}: yalnız PDF, JPG ya da PNG.`);
+      if (x.size > 10 * 1024 * 1024) return (err.textContent = `${INT_DOCS[d]}: dosya en fazla 10 MB olabilir.`); }
+    if (files.length && !APP_CONFIG.internUploadUrl) return (err.textContent = 'Belge yükleme henüz açılmadı; belgeleri boş bırakıp gönder, sonra tekrar ekleyebilirsin.');
+    // belgeler önce Acrome'un Drive klasörüne (Apps Script), dönen link kayda yazılır
+    for (const [d, x] of files) { err.style.color = 'var(--muted)'; err.textContent = `${INT_DOCS[d]} yükleniyor…`;
+      const b64 = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(x); });
+      let res; try { res = await (await fetch(APP_CONFIG.internUploadUrl, { method:'POST', body:JSON.stringify({ k, tc:p.tc_no, name:p.full_name, doc:d, mime:x.type, data:b64 }) })).json(); } catch { res = { ok:false, error:'Yükleme sunucusuna ulaşılamadı.' }; }
+      if (!res.ok) { err.style.color = ''; return (err.textContent = `${INT_DOCS[d]}: ${res.error || 'yüklenemedi'}`); }
+      p.docs[d] = res.url; }
+    err.style.color = ''; err.textContent = '';
     const { data, error } = await sb.rpc('intern_submit', { k, p });
     if (error) return (err.textContent = error.message);
     e.target.reset(); err.style.color = 'var(--green)'; err.textContent = data === 'yeni' ? 'Teşekkürler, bilgilerin kaydedildi.' : 'Teşekkürler, eksik bilgilerin kayda eklendi.'; }); };

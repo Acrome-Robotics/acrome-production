@@ -35,4 +35,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611231442 | 23.11.2026 14:42 | Kalite Panosu: bana atanmış formlar ve görevler (K-3); denetim paketinde proje süzgeci (K-7); sağlık özetine veritabanı boyutu uyarısı |
 | 202611231616 | 23.11.2026 16:16 | Yeni Acrome logosu: açık ve koyu temaya göre ayrı görsel; sekme ve ana ekran simgeleri |
 | 202611231656 | 23.11.2026 16:56 | Açılış ekranı: koyu zeminde çizilen altıgen ve logo animasyonu |
-| 202611261246 | 26.11.2026 12:46 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611261246 | 26.11.2026 12:46 | Stajyerler: Muhasebe/Yönetici listesi, eksik belge ve bilgi uyarısı, gizli linkli stajyer formu |
+| 202611261331 | 26.11.2026 13:31 | (bu commit; mesajı bir sonraki commit'te yazılır) |
