@@ -37,4 +37,5 @@ index.html'deki `?v=` değeri her varlık değişikliğinde commit kancası tara
 | 202611231656 | 23.11.2026 16:56 | Açılış ekranı: koyu zeminde çizilen altıgen ve logo animasyonu |
 | 202611261246 | 26.11.2026 12:46 | Stajyerler: Muhasebe/Yönetici listesi, eksik belge ve bilgi uyarısı, gizli linkli stajyer formu |
 | 202611261331 | 26.11.2026 13:31 | Stajyerler: en fazla 5 form linki, belge yükleme Drive klasörüne (Apps Script), Excel kayıtlarında yalnız bitiş tarihi uyarısı |
-| 202611261336 | 26.11.2026 13:36 | (bu commit; mesajı bir sonraki commit'te yazılır) |
+| 202611261336 | 26.11.2026 13:36 | Stajyer belge yükleme adresi (Apps Script) |
+| 202611261449 | 26.11.2026 14:49 | (bu commit; mesajı bir sonraki commit'te yazılır) |

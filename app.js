@@ -6450,13 +6450,15 @@ function viewKysUpload(){
 // çekmece Esc ile kapanır, odak düğmeye döner
 document.addEventListener('keydown', e => { const sd = q('#side.open'); if (e.key === 'Escape' && sd) { sd.classList.remove('open'); const m = q('#menu'); m.setAttribute('aria-expanded', 'false'); m.focus(); } });
 // zorunlu alanlar etikette * ile işaretlenir; form başına tek açıklama satırı
-const reqLabel = x => [...(x.closest('label') || { childNodes: [] }).childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ').trim() || x.name || '';
+const reqLabel = x => [...(x.closest('label') || { childNodes: [] }).childNodes].map(n => n.nodeType === 3 ? n.textContent : n.classList?.contains('lt') ? n.firstChild.textContent : '').join(' ').trim() || x.name || '';
 let reqT = 0;
 // uzun listeler ekranı doldurur, başlık kutu içinde yapışkan kalır (geniş ekran); telefonda sayfa kayar
 const fitLists = () => qa('#tbl,#stbl,#rtbl,#ptbl,#coltbl').forEach(el => { el.style.maxHeight = innerWidth > 820 ? Math.max(320, innerHeight - el.getBoundingClientRect().top - scrollY - 16) + 'px' : ''; });
 addEventListener('resize', fitLists);
 new MutationObserver(() => { if (reqT) return; reqT = setTimeout(() => { reqT = 0; fitLists();
-  qa('label.f:not([data-rq])').forEach(l => { const c = l.querySelector('[required]'); if (!c) return; l.dataset.rq = '1'; const t = [...l.childNodes].find(n => n.nodeType === 3 && n.textContent.trim()), m = document.createElement('span'); m.className = 'req'; m.setAttribute('aria-hidden', 'true'); m.title = 'Zorunlu alan'; m.textContent = ' *'; t ? t.after(m) : l.prepend(m);
+  qa('label.f:not([data-rq])').forEach(l => { const c = l.querySelector('[required]'); if (!c) return; l.dataset.rq = '1'; const t = [...l.childNodes].find(n => n.nodeType === 3 && n.textContent.trim()), m = document.createElement('span'); m.className = 'req'; m.setAttribute('aria-hidden', 'true'); m.title = 'Zorunlu alan'; m.textContent = ' *';
+    // label.f dikey flex: * ayrı öğe olursa kendi satırına düşüp girişi aşağı iter; metinle tek span'de tutulur
+    if (t) { const w = document.createElement('span'); w.className = 'lt'; t.replaceWith(w); w.append(t, m); } else l.prepend(m);
     const f = l.closest('form'); if (f) { if (!f.querySelector('.reqnote')) f.insertAdjacentHTML('afterbegin', '<p class="reqnote noprint"><span class="req">*</span> Zorunlu alan</p>'); } }); }, 30); }).observe(document.body, { childList: true, subtree: true });
 // zorunlu alan boşsa gönderim durur; alanlar işaretlenir, üstte hata özeti çıkar (kendi doğrulaması olan [data-e] formlar hariç)
 document.addEventListener('submit', e => { const f = e.target; if (!f.querySelector || f.querySelector('[data-e]')) return;
