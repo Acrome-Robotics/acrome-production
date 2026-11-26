@@ -124,7 +124,7 @@ async function loadAll(){
   await loadSupport();
   await loadRma();
   await loadPrefs().catch(() => { S.prefs = {}; });
-  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadPlanCount().catch(() => {}), loadAttToday().catch(() => {}), loadQToday().catch(() => {})]);
+  await Promise.all([loadStock(true), loadPurCount(), loadStages(), loadExpPending(), loadPlanCount().catch(() => {}), loadAttToday().catch(() => {}), loadQToday().catch(() => {}), loadInterns().catch(() => {})]);
   if (isCountDay() && can('stock')) sb.rpc('stock_count_notify_me').then(r => { if (r && r.data) loadSupport(); }, () => {});
 }
 // aylık stok sayımı: her ayın ilk cuması
@@ -153,6 +153,7 @@ async function boot(){
   start();
 }
 async function start(){
+  if (/^#\/staj-formu/.test(location.hash)) return renderInternForm();   // giriş gerektirmez; gizli anahtarla açılır
   if (!S.session) return renderAuth();
   const { data, error } = await sb.from('profiles').select('*').eq('id', S.session.user.id).maybeSingle();
   if (error) { $app.innerHTML = `<div class="boot">Profil okunamadı: ${esc(error.message)}</div>`; return; }
@@ -313,6 +314,7 @@ function shell(active, html){
       ['support-rapor','Support raporu'],
       ['alim-rapor','Aylık alım raporu'],
       ...(canPay() ? [['tahsilat-rapor','Tahsilat raporu']] : []),
+      ...(can('muhasebe','admin') ? [['stajyerler','Stajyerler', S.intMiss || '', 'hot']] : []),
     ]],
     ['Veri', 'db', [
       ['kaynaklar','Kaynak tablolar'],
@@ -640,6 +642,7 @@ function route(){
     case 'daily': return viewDaily(a);
     case 'daily-aktar': return viewDailyImport();
     case 'calisma-raporu': case 'yoklama-rapor': return viewAttReport();
+    case 'stajyerler': return viewInterns();
     case 'calisma-kisiler': case 'yoklama-kisiler': return viewAttPeople();
     case 'gec-kalma': return viewAttLate(a);
     case 'kayitlar': return viewList(a || 'all');
@@ -5580,6 +5583,116 @@ async function viewAuditPack(){
     <section class="panel mt"><h2>Risk kaydı · açık <span class="sub">${risks.length}</span></h2>${tbl(['No', 'Tür', 'Tanım', 'Seviye', 'Durum'], risks.map(r => [esc(r.w[0] || ''), esc(r.w[1] || ''), esc(r.w[2] || ''), esc(r.lv), esc(r.st)]))}</section></div>`);
   q('#aprint').onclick = () => window.print();
   q('#apprj').value = apPrj; q('#apprj').onchange = e => { apPrj = e.target.value; viewAuditPack(); };
+}
+
+// ---------------------------------------------------------------- STAJYERLER
+// interns: yalnız Muhasebe + Yönetici (veritabanı kuralı). Stajyer #/staj-formu?k=<anahtar> sayfasından intern_submit ile gönderir;
+// aynı TC ile tekrar gönderirse yalnız boş alanlar ve eksik belge linkleri dolar. Belge tamam = Muhasebe "kontrol edildi" işaretledi.
+const INT_DOCS = { kimlik:'Nüfus cüzdanı fotokopisi', ogrenci:'Öğrenci belgesi (mezunsa diploma)', staj:'Okul staj formu / sözleşme', sgk:'SGK / müstehaklık belgesi' };
+const INT_REQ = { tc_no:'TC kimlik no', sgk_no:'SGK sicil no', phone:'Telefon', email:'E-posta', school:'Okul', birth_date:'Doğum tarihi', start_date:'İşe giriş', address:'İkamet adresi' };
+const intMissing = r => ({ f:Object.keys(INT_REQ).filter(k => !r[k]), d:Object.keys(INT_DOCS).filter(k => !(r.docs || {})[k] || !(r.docs[k].ok)) });
+const intIsMiss = r => { const m = intMissing(r); return m.f.length + m.d.length > 0; };
+async function loadInterns(){ if (!can('muhasebe', 'admin')) return; const { data } = await sb.from('interns').select('id,tc_no,sgk_no,phone,email,school,birth_date,start_date,address,docs,end_date');
+  S.intMiss = (data || []).filter(r => (!r.end_date || r.end_date >= addDays(today(), -30)) && intIsMiss(r)).length; }   // bitişinden 30 gün geçmiş eski kayıtlar sayaca girmez
+const intSt = r => { const T = today(); return r.start_date && r.start_date > T ? ['Başlayacak', 'p-amber'] : r.end_date && r.end_date < T ? ['Bitti', ''] : r.start_date ? ['Devam ediyor', 'p-green'] : ['Tarih yok', '']; };
+let intF = { q:'', st:'', miss:false };
+async function viewInterns(){
+  if (!can('muhasebe', 'admin')) return shell('stajyerler', '<div class="empty">Bu sayfa yalnız Muhasebe ve Yönetici içindir.</div>');
+  const [a, kq] = await Promise.all([sb.from('interns').select('*').order('start_date', { ascending:false, nullsFirst:false }), sb.from('intern_form_key').select('k').maybeSingle()]);
+  let R = a.data || [], key = (kq.data || {}).k || '', sel = null;
+  const link = () => key ? location.origin + location.pathname + '#/staj-formu?k=' + key : '';
+  const vis = () => { const s = intF.q.toLocaleLowerCase('tr'); return R.filter(r => (!intF.st || intSt(r)[0] === intF.st) && (!intF.miss || intIsMiss(r))
+    && (!s || [r.full_name, r.school, r.department, r.tc_no, r.email].join(' ').toLocaleLowerCase('tr').includes(s))); };
+  const missTxt = r => { const m = intMissing(r); if (!m.f.length && !m.d.length) return '<span class="pill p-green">Tamam</span>';
+    const wait = m.d.filter(k => r.docs[k] && r.docs[k].url);   // link var, kontrol bekliyor
+    return [...m.d.filter(k => !wait.includes(k)).map(k => `<span class="pill sp-high" title="Belge yok">${esc(INT_DOCS[k].split(' (')[0])}</span>`),
+      ...wait.map(k => `<span class="pill p-amber" title="Link var, kontrol edilmedi">${esc(INT_DOCS[k].split(' (')[0])} · kontrol</span>`),
+      m.f.length ? `<span class="sub">Eksik bilgi: ${m.f.map(k => INT_REQ[k]).join(', ')}</span>` : ''].join(' '); };
+  const drawT = () => { const V = vis(); q('#intn').textContent = `${V.length} / ${R.length}`;
+    q('#intt').innerHTML = V.length ? `<div class="tablewrap"><table><thead><tr>${['Ad soyad', 'Okul / bölüm', 'Giriş – çıkış', 'Durum', 'Eksikler'].map(h => `<th class="nosort">${h}</th>`).join('')}</tr></thead><tbody>${V.map(r => { const st = intSt(r);
+      return `<tr data-i="${r.id}" class="${sel === r.id ? 'kp-on' : ''}"><td><b style="font-weight:600">${esc(r.full_name)}</b>${r.source === 'form' ? ' <span class="sub">form</span>' : ''}</td><td>${esc(r.school || '')}<div class="sub">${esc([r.department, r.edu_status].filter(Boolean).join(' · '))}</div></td>
+        <td class="nw">${fmtD(r.start_date)} – ${r.end_date ? fmtD(r.end_date) : '…'}</td><td class="nw"><span class="pill ${st[1]}">${st[0]}</span></td><td>${missTxt(r)}</td></tr>`; }).join('')}</tbody></table></div>`
+      : `<div class="empty">${R.length ? 'Bu süzgeçle kayıt yok.' : 'Henüz stajyer kaydı yok.'}</div>`;
+    qa('#intt tr[data-i]').forEach(t => t.onclick = () => { sel = +t.dataset.i; drawT(); drawP(); }); };
+  const drawP = () => { const p = q('#intp'); if (sel == null) return (p.innerHTML = ''); const r = sel === 0 ? { docs:{} } : R.find(x => x.id === sel) || { docs:{} }, v = k => esc(r[k] ?? '');
+    p.innerHTML = `<section class="panel mt"><h2>${sel === 0 ? 'Yeni stajyer' : esc(r.full_name)}</h2>${r.updated_by_name ? `<p class="sub" style="margin-top:0">Son değişiklik ${fmtDT(r.updated_at)} · ${esc(r.updated_by_name)}</p>` : ''}
+      <form id="intf" class="kys" novalidate><div class="fgrid">
+      <label class="w2">Ad soyad<input type="text" id="i_full_name" maxlength="120" value="${v('full_name')}"></label><label>TC kimlik no<input type="text" id="i_tc_no" maxlength="11" inputmode="numeric" value="${v('tc_no')}"></label>
+      <label>E-posta<input type="email" id="i_email" maxlength="200" value="${v('email')}"></label><label>Telefon<input type="text" id="i_phone" maxlength="30" value="${v('phone')}"></label><label>Doğum tarihi<input type="date" id="i_birth_date" value="${v('birth_date')}"></label>
+      <label>Okul<input type="text" id="i_school" maxlength="160" value="${v('school')}"></label><label>Bölüm<input type="text" id="i_department" maxlength="120" value="${v('department')}"></label><label>Eğitim durumu<input type="text" id="i_edu_status" maxlength="60" value="${v('edu_status')}"></label>
+      <label>SGK sicil no<input type="text" id="i_sgk_no" maxlength="40" value="${v('sgk_no')}"></label><label>İşe giriş<input type="date" id="i_start_date" value="${v('start_date')}"></label><label>İşten çıkış<input type="date" id="i_end_date" value="${v('end_date')}"></label>
+      <label class="w3">İkamet adresi<input type="text" id="i_address" maxlength="400" value="${v('address')}"></label>
+      ${r.doc_link ? `<p class="w3 small" style="margin:0">Excel'deki belge klasörü: <a href="${esc(safeUrl(r.doc_link))}" target="_blank" rel="noopener">Drive'da aç ↗</a> (belge türleri ayrılmamış; aşağıda tek tek işaretleyin)</p>` : ''}
+      ${Object.entries(INT_DOCS).map(([k, l]) => { const d = (r.docs || {})[k] || {};
+        return `<label class="w2">${esc(l)} · Drive linki<input type="url" id="d_${k}" maxlength="500" value="${esc(d.url || '')}"></label><label class="chk" style="align-self:end;display:flex;flex-direction:row;align-items:center;gap:6px;padding-bottom:10px"><input type="checkbox" id="o_${k}" style="width:auto;margin:0" ${d.ok ? 'checked' : ''}> Kontrol edildi${d.url ? ` · <a href="${esc(safeUrl(d.url))}" target="_blank" rel="noopener">aç ↗</a>` : ''}</label>`; }).join('')}
+      <label class="w3">Not<textarea id="i_note" rows="2" maxlength="2000">${v('note')}</textarea></label></div>
+      <p><button class="btn primary">Kaydet</button> <button type="button" class="btn" data-a="c">Kapat</button>${sel ? ' <span style="flex:1"></span><button type="button" class="btn danger" data-a="del">Sil</button>' : ''}</p></form></section>`;
+    p.scrollIntoView({ block:'nearest' });
+    p.onclick = async e => { const b = e.target.closest('[data-a]'); if (!b) return; if (b.dataset.a === 'c') { sel = null; drawP(); drawT(); return; }
+      if (!confirmTwice(b, 'Kalıcı silinsin mi?')) return; const x = await sb.from('interns').delete().eq('id', sel).select('id'); if (x.error || !x.data.length) return toast(x.error ? dbErr(x.error) : 'Silinemedi', true); toast('Silindi'); viewInterns(); };
+    q('#intf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const g = id => (q('#' + id).value || '').trim();
+      const o = {}; ['full_name', 'tc_no', 'email', 'phone', 'birth_date', 'school', 'department', 'edu_status', 'sgk_no', 'start_date', 'end_date', 'address', 'note'].forEach(k => o[k] = g('i_' + k) || null);
+      if (!o.full_name || o.full_name.length < 3) return toast('Ad soyad girin', true);
+      if (o.tc_no && !/^[1-9]\d{10}$/.test(o.tc_no)) return toast('TC kimlik no 11 haneli olmalı', true);
+      if (o.start_date && o.end_date && o.end_date < o.start_date) return toast('Çıkış tarihi girişten önce olamaz', true);
+      o.docs = {}; for (const k of Object.keys(INT_DOCS)) { const u = g('d_' + k), ok = q('#o_' + k).checked; if (u && !/^https:\/\//i.test(u)) return toast('Belge linki https:// ile başlamalı', true); if (u || ok) o.docs[k] = { ...(u ? { url:u } : {}), ...(ok ? { ok:true } : {}) }; }
+      const x = sel ? await sb.from('interns').update(o).eq('id', sel).select('id') : await sb.from('interns').insert({ ...o, source:'elle' }).select('id');
+      if (x.error || !x.data || !x.data.length) return toast(x.error ? (/interns_tc_uq/.test(x.error.message) ? 'Bu TC kimlik no ile kayıt var' : dbErr(x.error)) : 'Kaydedilemedi', true);
+      toast('Kaydedildi'); sel = x.data[0].id; await loadInterns(); viewInterns(); }); }; };
+  shell('stajyerler', `<div class="pagehead"><div><h1>Stajyerler</h1><p class="lede">Stajyer kayıtları ve belgeleri. Yalnız Muhasebe ve Yönetici görür. Stajyerler bilgilerini aşağıdaki form linkinden kendileri girer; aynı TC ile tekrar gönderen yalnız boş alanları ve eksik belgeleri tamamlar. Belge, linki açılıp "Kontrol edildi" işaretlenince tamam sayılır.</p></div>
+    <button class="btn primary" id="intnew">Yeni stajyer</button></div>
+    ${a.error ? `<div class="empty">${esc(dbErr(a.error))}</div>` : ''}
+    <section class="panel"><h3 style="margin-top:0">Stajyer formu linki</h3>${key ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input type="text" readonly id="intlink" value="${esc(link())}" style="flex:1;min-width:260px"><button class="btn" id="intcopy">Kopyala</button><button class="btn" id="intkey">Yeni link üret</button></div>
+      <p class="small" style="margin:6px 0 0">Linki yalnız stajyerlere gönderin. "Yeni link üret" eski linki geçersiz kılar.</p>` : '<p class="small">Henüz link yok. <button class="btn sm" id="intkey">Link üret</button></p>'}</section>
+    <div class="toolbar mt"><input type="search" id="intq" placeholder="Ara: ad, okul, bölüm, TC…" value="${esc(intF.q)}"><select id="intst" aria-label="Durum"><option value="">Durum: hepsi</option>${['Devam ediyor', 'Başlayacak', 'Bitti', 'Tarih yok'].map(s => `<option>${s}</option>`).join('')}</select>
+      <label class="chk"><input type="checkbox" id="intmiss" ${intF.miss ? 'checked' : ''}> Yalnız eksikli</label><span class="sub" id="intn"></span><span style="flex:1"></span><button class="btn" id="intcsv">CSV indir</button></div>
+    <div id="intp" class="noprint"></div><div id="intt"></div>`);
+  q('#intst').value = intF.st; q('#intst').onchange = e => { intF.st = e.target.value; drawT(); }; q('#intq').oninput = e => { intF.q = e.target.value.trim(); drawT(); }; q('#intmiss').onchange = e => { intF.miss = e.target.checked; drawT(); };
+  q('#intnew').onclick = () => { sel = 0; drawP(); };
+  q('#intcopy') && (q('#intcopy').onclick = () => { navigator.clipboard.writeText(link()).then(() => toast('Link kopyalandı'), () => { q('#intlink').select(); }); });
+  q('#intkey').onclick = e => { if (key && !confirmTwice(e.currentTarget, 'Eski link iptal olacak, emin misin?')) return; return busy(e.currentTarget, async () => { const x = await sb.rpc('intern_form_key_new'); if (x.error) return toast(dbErr(x.error), true); toast('Yeni link üretildi'); viewInterns(); }); };
+  q('#intcsv').onclick = () => { const H = ['Ad soyad', 'TC kimlik no', 'E-posta', 'Telefon', 'Doğum tarihi', 'Okul', 'Bölüm', 'Eğitim durumu', 'SGK sicil no', 'İşe giriş', 'İşten çıkış', 'Adres', ...Object.values(INT_DOCS), 'Eksikler', 'Not'];
+    const L = [H, ...vis().map(r => { const m = intMissing(r); return [r.full_name, r.tc_no, r.email, r.phone, r.birth_date, r.school, r.department, r.edu_status, r.sgk_no, r.start_date, r.end_date, r.address,
+      ...Object.keys(INT_DOCS).map(k => { const d = (r.docs || {})[k] || {}; return d.ok ? 'Tamam' : d.url ? 'Kontrol bekliyor' : 'Yok'; }), [...m.d.map(k => INT_DOCS[k]), ...m.f.map(k => INT_REQ[k])].join(', '), r.note]; })]
+      .map(r => r.map(c => `"${csvSafe(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob(['﻿' + L], { type:'text/csv;charset=utf-8' })); el.download = `stajyerler-${today()}.csv`; el.click(); };
+  drawT();
+}
+// herkese açık stajyer formu (giriş yok); anahtar yanlışsa sunucu reddeder
+function renderInternForm(){
+  const k = new URLSearchParams(location.hash.split('?')[1] || '').get('k') || '';
+  $app.innerHTML = `<div class="auth"><div class="box" style="max-width:640px">
+    <div class="brand" style="padding:0">${logo()}<div>Acrome<small>Stajyer bilgi formu</small></div></div>
+    <h1 style="margin-top:18px">Stajyer bilgi formu</h1>
+    <p class="note">Bilgilerin yalnız Acrome muhasebe ve yönetiminde görülür. Belgeleri Google Drive'a yükleyip paylaşım linkini ilgili kutuya yapıştır (paylaşım: "bağlantıya sahip olan herkes" ya da muhasebe adresi). Eksik bir belgeyi sonra aynı TC kimlik no ile formu yeniden göndererek ekleyebilirsin.</p>
+    <form id="isf" novalidate>
+      <label class="f">Ad soyad<input name="full_name" required maxlength="120" autocomplete="name"></label>
+      <label class="f">TC kimlik no<input name="tc_no" required maxlength="11" inputmode="numeric"></label>
+      <label class="f">E-posta<input name="email" type="email" maxlength="200" autocomplete="email"></label>
+      <label class="f">Telefon <span class="hint">başında 0 olmadan</span><input name="phone" maxlength="30" inputmode="tel" autocomplete="tel"></label>
+      <label class="f">Doğum tarihi<input name="birth_date" type="date"></label>
+      <label class="f">Okul<input name="school" maxlength="160"></label>
+      <label class="f">Bölüm<input name="department" maxlength="120"></label>
+      <label class="f">Eğitim durumu<select name="edu_status"><option value=""></option><option>Ön lisans</option><option>Lisans</option><option>Lisans mezunu</option><option>Yüksek lisans</option><option>Lise</option></select></label>
+      <label class="f">SGK sicil no<input name="sgk_no" maxlength="40"></label>
+      <label class="f">İşe giriş tarihi<input name="start_date" type="date"></label>
+      <label class="f">İşten çıkış tarihi<input name="end_date" type="date"></label>
+      <label class="f">İkamet adresi <span class="hint">Mah. Cad. Sok. No, İlçe / İl</span><textarea name="address" rows="2" maxlength="400"></textarea></label>
+      ${Object.entries(INT_DOCS).map(([d, l]) => `<label class="f">${esc(l)} <span class="hint">Drive linki</span><input name="doc_${d}" type="url" maxlength="500" placeholder="https://drive.google.com/…"></label>`).join('')}
+      <label class="f">Not <span class="hint">isteğe bağlı</span><textarea name="note" rows="2" maxlength="1000"></textarea></label>
+      <div class="err-box" id="iserr"></div>
+      <button class="btn primary" type="submit">Gönder</button>
+    </form></div></div>`;
+  q('#isf').onsubmit = e => { e.preventDefault(); return busy(e, async () => { const f = new FormData(e.target), g = n => String(f.get(n) || '').trim(), err = q('#iserr'); err.textContent = ''; err.style.color = '';
+    const p = { full_name:g('full_name'), tc_no:g('tc_no').replace(/\D/g, ''), email:g('email'), phone:g('phone'), birth_date:g('birth_date'), school:g('school'), department:g('department'), edu_status:g('edu_status'),
+      sgk_no:g('sgk_no'), start_date:g('start_date'), end_date:g('end_date'), address:g('address'), note:g('note'), docs:Object.fromEntries(Object.keys(INT_DOCS).map(d => [d, g('doc_' + d)])) };
+    if (p.full_name.length < 3) return (err.textContent = 'Ad soyad gir.');
+    if (!/^[1-9]\d{10}$/.test(p.tc_no)) return (err.textContent = 'TC kimlik no 11 haneli olmalı.');
+    if (Object.values(p.docs).some(u => u && !/^https:\/\//i.test(u))) return (err.textContent = 'Belge linkleri https:// ile başlamalı.');
+    if (p.start_date && p.end_date && p.end_date < p.start_date) return (err.textContent = 'Çıkış tarihi girişten önce olamaz.');
+    const { data, error } = await sb.rpc('intern_submit', { k, p });
+    if (error) return (err.textContent = error.message);
+    e.target.reset(); err.style.color = 'var(--green)'; err.textContent = data === 'yeni' ? 'Teşekkürler, bilgilerin kaydedildi.' : 'Teşekkürler, eksik bilgilerin kayda eklendi.'; }); };
 }
 
 // ---------------------------------------------------------------- EĞİTİM (ACR-LS-EG-01)
